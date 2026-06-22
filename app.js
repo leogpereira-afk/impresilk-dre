@@ -888,12 +888,12 @@ function renderGlossary() {
 /* ==================================================================== */
 /*  UPLOAD / DRAG-DROP / PERSISTÊNCIA                                     */
 /* ==================================================================== */
-function applyTheme(mode) {
+function applyTheme(mode, persist = true) {
   const light = mode === 'light';
   document.body.classList.toggle('theme-light', light);
   const btn = document.getElementById('themeToggle');
   if (btn) btn.textContent = light ? '☀️' : '🌙';
-  try { localStorage.setItem(THEME_KEY, mode); } catch (_) {}
+  if (persist) { try { localStorage.setItem(THEME_KEY, mode); } catch (_) {} }
   if (activeRenderAll) activeRenderAll(); // recolore gráficos conforme o tema
 }
 
@@ -973,9 +973,19 @@ function wireMonthUpload() {
 }
 
 function initApp() {
-  // tema (claro/escuro) — restaura preferência salva
-  let theme = 'dark';
-  try { theme = localStorage.getItem(THEME_KEY) || 'dark'; } catch (_) {}
+  // tema (claro/escuro) — preferência salva; na 1ª visita, segue o sistema (iOS/macOS)
+  let theme = null;
+  try { theme = localStorage.getItem(THEME_KEY); } catch (_) {}
+  if (!theme) {
+    const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+    theme = prefersLight ? 'light' : 'dark';
+    // acompanha a troca de tema do sistema enquanto o usuário não escolher manualmente
+    if (window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: light)');
+      const onSysTheme = e => { let saved = null; try { saved = localStorage.getItem(THEME_KEY); } catch (_) {} if (!saved) applyTheme(e.matches ? 'light' : 'dark', false); };
+      mq.addEventListener ? mq.addEventListener('change', onSysTheme) : mq.addListener && mq.addListener(onSysTheme);
+    }
+  }
   document.body.classList.toggle('theme-light', theme === 'light');
   const themeBtn = document.getElementById('themeToggle');
   themeBtn.textContent = theme === 'light' ? '☀️' : '🌙';

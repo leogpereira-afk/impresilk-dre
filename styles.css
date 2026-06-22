@@ -48,13 +48,23 @@ body.theme-light {
   --topbar-bg: rgba(255,255,255,.85);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+* { -webkit-tap-highlight-color: transparent; }
+html { -webkit-text-size-adjust: 100%; }
 body {
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   background: var(--page-grad);
+  background-attachment: fixed;
   color: var(--txt);
   -webkit-font-smoothing: antialiased;
-  padding-bottom: 40px;
+  text-rendering: optimizeLegibility;
+  padding-bottom: calc(40px + env(safe-area-inset-bottom));
   transition: background .25s, color .25s;
+}
+/* foco visível por teclado (acessibilidade), sem moldura ao clicar com o mouse */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+button:focus:not(:focus-visible) { outline: none; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
 
 /* Topbar */
@@ -63,8 +73,12 @@ body {
   display: flex; justify-content: space-between; align-items: center;
   gap: 20px; flex-wrap: wrap;
   padding: 16px 28px;
+  padding-top: calc(16px + env(safe-area-inset-top));
+  padding-left: calc(28px + env(safe-area-inset-left));
+  padding-right: calc(28px + env(safe-area-inset-right));
   background: var(--topbar-bg);
   backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 13px; }
@@ -415,6 +429,24 @@ button.ghost:hover { color: var(--txt); border-color: var(--accent); }
 /* mantém caret + título juntos à esquerda; controles vão para a direita */
 .card-head h2 { margin-right: auto; }
 
+/* slider de retiradas com polegar maior e tocável (iOS/macOS) */
+.sim-control input[type=range] { -webkit-appearance: none; appearance: none; background: var(--line); border-radius: 999px; }
+.sim-control input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent); border: 3px solid var(--card); box-shadow: 0 2px 6px rgba(0,0,0,.3); cursor: pointer;
+}
+.sim-control input[type=range]::-moz-range-thumb {
+  width: 22px; height: 22px; border-radius: 50%; background: var(--accent); border: 3px solid var(--card); cursor: pointer;
+}
+
+/* em telas de toque, ampliar áreas clicáveis pequenas sem mudar o visual */
+@media (pointer: coarse) {
+  .dre tbody tr.section td.t-name, .mirror .twiggle { padding-top: 12px; padding-bottom: 12px; }
+  .mirror .twiggle { width: 28px; }
+  .card-collapse { width: 32px; height: 32px; }
+  .seg button, .subtabs button, .center-chips .chip, .tabs button { padding-top: 11px; padding-bottom: 11px; }
+}
+
 /* ===================== Glossário ===================== */
 .glossary-grid { display: flex; flex-direction: column; gap: 26px; }
 .gloss-group.hidden { display: none; }
@@ -435,8 +467,27 @@ button.ghost:hover { color: var(--txt); border-color: var(--accent); }
 
 @media (max-width: 900px) {
   .center-grid { grid-template-columns: 1fr; }
-  .tabs { top: 0; padding: 10px 16px 0; }
+  /* no celular as abas viram uma faixa rolável (padrão iOS), logo abaixo da topbar */
+  .tabs {
+    position: static; padding: 10px 16px 0;
+    flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { flex: none; scroll-snap-align: start; }
+  /* chips e subtabs também deslizam em vez de quebrar linha */
+  .subtabs, .center-chips {
+    flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .subtabs::-webkit-scrollbar, .center-chips::-webkit-scrollbar { display: none; }
+  .subtabs button, .center-chips .chip { flex: none; }
   .sim-kpis { grid-template-columns: repeat(2, 1fr); }
   .bc-kpis { grid-template-columns: repeat(2, 1fr); }
   .gloss-items { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .topbar { padding-left: calc(16px + env(safe-area-inset-left)); padding-right: calc(16px + env(safe-area-inset-right)); }
+  .controls { width: 100%; }
+  .ctrl select { min-width: 0; width: 100%; }
+  .bc-kpis, .sim-kpis { grid-template-columns: 1fr; }
 }
