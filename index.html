@@ -44,9 +44,9 @@
       <select id="compareSelect"></select>
     </label>
     <label class="ctrl">
-      <span>Planilha</span>
-      <button id="uploadBtn" class="upload-btn">⬆ Carregar .xlsx</button>
-      <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls" hidden />
+      <span>Dados</span>
+      <button id="addMonthBtn" class="upload-btn" title="Subir dados de um novo mês (export 'Plano de Contas' do MubySys)">📥 Subir mês</button>
+      <input type="file" id="monthFileInput" accept=".xlsx,.xlsm,.xls" hidden />
     </label>
     <button id="themeToggle" class="theme-btn" title="Alternar tema claro/escuro" aria-label="Alternar tema">🌙</button>
   </div>
@@ -57,13 +57,14 @@
   <button data-view="centers">🎯 Centros de Custo</button>
   <button data-view="buffett">🧠 Análise Fundamentalista</button>
   <button data-view="mirror">🗂️ Espelho</button>
+  <button data-view="glossary">📖 Glossário</button>
 </nav>
 
 <div id="dropOverlay" class="drop-overlay">
   <div class="drop-box">
     <div class="drop-ic">⬇</div>
-    <strong>Solte a planilha aqui</strong>
-    <span>Arquivo .xlsx do DRE (aba "Base")</span>
+    <strong>Solte o export aqui</strong>
+    <span>Arquivo .xlsx “Plano de Contas” do MubySys (1 mês)</span>
   </div>
 </div>
 <div id="toast" class="toast"></div>
@@ -98,11 +99,7 @@
       <section class="card">
         <div class="card-head">
           <h2>DRE por Seção</h2>
-          <div class="head-actions">
-            <span class="hint">AV = % da receita · AH = variação vs comparativo</span>
-            <button id="addMonthBtn" class="icon-btn" title="Subir dados de um novo mês (export 'Plano de Contas' do MubySys)">📥 Subir mês</button>
-            <input type="file" id="monthFileInput" accept=".xlsx,.xlsm,.xls" hidden />
-          </div>
+          <span class="hint">AV = % da receita · AH = variação vs comparativo</span>
         </div>
         <div class="table-scroll">
           <table class="dre" id="dreTable">
@@ -229,6 +226,30 @@
           <tbody></tbody>
         </table>
       </div>
+    </section>
+
+    <!-- Dashboard grande: variação produto a produto por centro -->
+    <section class="card big-center">
+      <div class="card-head">
+        <h2>📊 Centro de Custo · Variação Produto a Produto</h2>
+        <span class="hint">Escolha um centro e veja, item a item, quanto cada produto/despesa variou de um mês para o outro</span>
+      </div>
+      <nav class="center-chips" id="bigCenterChips"></nav>
+      <div id="bigCenterPanel" class="big-center-panel"></div>
+    </section>
+  </div>
+
+  <!-- ===================== GLOSSÁRIO ===================== -->
+  <div class="view hidden" id="view-glossary">
+    <section class="card">
+      <div class="card-head">
+        <h2>📖 Glossário · Entenda cada termo</h2>
+        <div class="tree-controls">
+          <input type="search" id="glossarySearch" placeholder="Buscar termo…" />
+        </div>
+      </div>
+      <p class="hint" style="margin-bottom:16px">Explicações em linguagem simples de todos os indicadores e títulos que aparecem no painel. Pensado para quem não é da área financeira.</p>
+      <div id="glossaryGrid" class="glossary-grid"></div>
     </section>
   </div>
 

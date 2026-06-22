@@ -23,54 +23,6 @@ function parseNum(v) {
 }
 const round2 = n => Math.round(n * 100) / 100;
 
-/* ---------- transforma a aba "Base" (array de linhas) em DRE_DATA ---------- */
-function buildDataFromRows(rows) {
-  if (!rows || !rows.length) throw new Error('Planilha vazia.');
-  const header = rows[0].map(c => (c == null ? '' : String(c)));
-
-  // detecta colunas de mês: a partir da col 1 até achar "Média"/"Total"/vazio
-  const monthCols = [], months = [];
-  for (let c = 1; c < header.length; c++) {
-    const h = header[c].trim();
-    if (h === '' || /m[eé]dia|total|acumulad/i.test(h)) break;
-    monthCols.push(c);
-    months.push(h);
-  }
-  if (!monthCols.length) throw new Error('Nenhuma coluna de mês encontrada no cabeçalho.');
-
-  const accounts = [];
-  const codeRe = /^([\d\s.]+?)\s*-\s*(.+)$/;
-  for (let r = 1; r < rows.length; r++) {
-    const raw = rows[r][0];
-    if (raw == null) continue;
-    const name0 = String(raw).trim();
-    if (!name0 || ['Receitas', 'Despesas', 'Resultado'].includes(name0)) continue;
-    const m = name0.match(codeRe);
-    if (!m) continue;
-    const segs = m[1].split('.').map(s => s.trim()).filter(Boolean);
-    if (!segs.length) continue;
-    const code = segs.join('.');
-    const level = segs.length;
-    const parent = level > 1 ? segs.slice(0, -1).join('.') : null;
-    const values = monthCols.map(c => round2(parseNum(rows[r][c])));
-    accounts.push({ code, name: m[2].trim(), level, parent, values });
-  }
-  if (!accounts.find(a => a.code === '1') || !accounts.find(a => a.code === '2'))
-    throw new Error('Não encontrei as contas 1-Receitas e 2-Despesas. Confira a aba "Base".');
-
-  return { company: 'Impresilk', basis: 'Competência de Caixa', months, accounts };
-}
-
-/* ---------- lê um arquivo .xlsx e devolve DRE_DATA ---------- */
-function readWorkbook(arrayBuffer) {
-  const wb = XLSX.read(arrayBuffer, { type: 'array' });
-  // procura a aba "Base" (case-insensitive); senão usa a primeira
-  let sheetName = wb.SheetNames.find(n => /^base$/i.test(n.trim())) || wb.SheetNames[0];
-  const ws = wb.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
-  return buildDataFromRows(rows);
-}
-
 /* ---------- conexão MubySys: export "Plano de Contas" (1 mês) ---------- */
 const PT_MON = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 function nextMonthLabel(last) {
@@ -163,7 +115,7 @@ function toast(msg, kind = 'ok') {
 /* ==================================================================== */
 /*  RENDER — recebe o dataset e (re)desenha tudo                          */
 /* ==================================================================== */
-let _charts = { trend: null, comp: null, opOwner: null, marginLayers: null, center: null };
+let _charts = { trend: null, comp: null, opOwner: null, marginLayers: null, center: null, bigCenter: null };
 function destroyChart(k) { if (_charts[k]) { _charts[k].destroy(); _charts[k] = null; } }
 
 /* ---------- mini sparkline SVG (sem dependência) ---------- */
@@ -555,6 +507,119 @@ function boot(D) {
     });
   }
 
+  // ===== DASH GRANDE (Espelho): variação produto a produto por centro =====
+  // folhas (contas sem filhos) sob um código qualquer
+  function leavesUnder(code) {
+    const out = [];
+    (function rec(c) {
+      const kids = childrenOf.get(c);
+      if (!kids || !kids.length) { const a = get(c); if (a) out.push(a); return; }
+      kids.forEach(k => rec(k.code));
+    })(code);
+    return out;
+  }
+  let bigCenter = null;
+  function renderBigCenter() {
+    const chipsEl = document.getElementById('bigCenterChips');
+    if (!chipsEl) return;
+    // centros = seções de receita (1.x) + seções de despesa (2.x)
+    const centers = [...revSections, ...expSections];
+    if (!bigCenter || !get(bigCenter)) bigCenter = centers.length ? centers[0].code : null;
+    chipsEl.innerHTML = centers.map(s => {
+      const isRev = s.code.startsWith('1');
+      const short = s.name.replace(/^Despesas?\s+/i, '');
+      return `<button data-c="${s.code}" class="chip ${isRev ? 'rev' : 'exp'} ${s.code === bigCenter ? 'active' : ''}">${isRev ? '▲' : '▼'} ${short}</button>`;
+    }).join('');
+    chipsEl.querySelectorAll('button').forEach(b => b.onclick = () => { bigCenter = b.dataset.c; renderBigCenter(); });
+    renderBigCenterPanel();
+  }
+  function renderBigCenterPanel() {
+    const panel = document.getElementById('bigCenterPanel');
+    const s = get(bigCenter);
+    if (!s) { panel.innerHTML = '<p class="hint">Sem dados.</p>'; return; }
+    const isRev = s.code.startsWith('1');
+
+    // itens = folhas do centro (produto a produto). Ordena pela maior variação absoluta.
+    const items = leavesUnder(s.code)
+      .filter(k => k.values[cur] !== 0 || k.values[cmp] !== 0)
+      .map(k => {
+        const v = k.values[cur], vp = k.values[cmp];
+        const abs = v - vp;
+        const rel = vp ? abs / vp : (v ? 1 : null);
+        return { name: k.name, code: k.code, v, vp, abs, rel, vals: k.values };
+      });
+    items.sort((a, b) => Math.abs(b.abs) - Math.abs(a.abs));
+
+    const totCur = s.values[cur], totPrev = s.values[cmp];
+    const totAbs = totCur - totPrev, totRel = totPrev ? totAbs / totPrev : null;
+    // para a despesa, queda é boa (pos/verde); para a receita, alta é boa.
+    const goodCls = (abs) => isRev ? (abs >= 0 ? 'pos' : 'neg') : (abs <= 0 ? 'pos' : 'neg');
+    const arrow = (abs) => abs > 0 ? '▲' : abs < 0 ? '▼' : '■';
+
+    // ---- topo: KPIs do centro ----
+    const head = `
+      <div class="bc-kpis">
+        <div class="ck"><span class="ck-l">${s.name} · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(totCur)}</span><span class="ck-s">era ${fmt(totPrev)} em ${MONTHS[cmp]}</span></div>
+        <div class="ck"><span class="ck-l">Variação no período</span><span class="ck-v ${goodCls(totAbs)}">${arrow(totAbs)} ${fmt(Math.abs(totAbs))}</span><span class="ck-s">${totRel == null ? '—' : signedPct(totRel)} vs ${MONTHS[cmp]}</span></div>
+        <div class="ck"><span class="ck-l">Itens com movimento</span><span class="ck-v">${items.length}</span><span class="ck-s">produtos/contas no centro</span></div>
+        <div class="ck"><span class="ck-l">% da Receita do mês</span><span class="ck-v">${pct(revAt(cur) ? totCur / revAt(cur) : 0)}</span><span class="ck-s">${isRev ? 'participação na receita' : 'peso sobre o faturamento'}</span></div>
+      </div>`;
+
+    // ---- gráfico de variação produto a produto (barras horizontais, top 12) ----
+    const top = items.slice(0, 12);
+
+    // ---- tabela item a item ----
+    const rows = items.map(it => `
+      <tr>
+        <td class="t-name">${it.name}</td>
+        <td class="mono">${fmt(it.vp)}</td>
+        <td class="mono">${fmt(it.v)}</td>
+        <td class="mono ${goodCls(it.abs)}">${arrow(it.abs)} ${fmt(Math.abs(it.abs))}</td>
+        <td class="${it.rel == null ? 'av' : goodCls(it.abs)}">${it.rel == null ? '—' : signedPct(it.rel)}</td>
+        <td class="av">${pct(totCur ? it.v / totCur : 0)}</td>
+        <td class="spark-cell">${sparkline(it.vals, { w: 90, h: 22 })}</td>
+      </tr>`).join('') || `<tr><td colspan="7" class="hint">Sem itens com movimento.</td></tr>`;
+
+    panel.innerHTML = head + `
+      <div class="bc-chart-wrap"><canvas id="bigCenterChart"></canvas></div>
+      <div class="table-scroll">
+        <table class="dre bc-table">
+          <thead><tr>
+            <th class="t-name">Produto / Conta</th>
+            <th>${MONTHS[cmp]}</th>
+            <th>${MONTHS[cur]}</th>
+            <th>Variação R$</th>
+            <th>Variação %</th>
+            <th>% centro</th>
+            <th>Histórico</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+
+    // barras horizontais de variação (verde=bom, vermelho=ruim conforme receita/despesa)
+    destroyChart('bigCenter');
+    const okColor = cssVar('--pos') || '#34d399', badColor = cssVar('--neg') || '#f87171';
+    _charts.bigCenter = new Chart(document.getElementById('bigCenterChart'), {
+      type: 'bar',
+      data: { labels: top.map(it => it.name), datasets: [{
+        label: `Variação ${MONTHS[cmp]} → ${MONTHS[cur]}`,
+        data: top.map(it => it.abs),
+        backgroundColor: top.map(it => (isRev ? it.abs >= 0 : it.abs <= 0) ? okColor : badColor),
+        borderRadius: 4
+      }] },
+      options: {
+        indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: cssVar('--chart-tick'), boxWidth: 12, font: { size: 11 } } },
+          tooltip: { callbacks: { label: c => ` ${c.raw >= 0 ? '+' : ''}${fmt2(c.raw)}` } } },
+        scales: {
+          x: { ticks: { color: cssVar('--chart-tick'), callback: v => fmt(v) }, grid: { color: cssVar('--chart-grid') } },
+          y: { ticks: { color: cssVar('--chart-tick'), font: { size: 11 } }, grid: { display: false } }
+        }
+      }
+    });
+  }
+
   // ===== ANÁLISE FUNDAMENTALISTA (estilo Buffett / Owner Earnings) =====
   // Classificação econômica das contas
   const FIN_REV_CODES = ['1.3', '1.4'];                // rendimentos + empréstimos captados
@@ -702,7 +767,7 @@ function boot(D) {
 
   function renderAll() {
     renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderTrend(); buildMirrorHead(); renderMirror();
-    renderCenters(); renderBuffett();
+    renderCenters(); renderBigCenter(); renderBuffett();
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
   }
 
@@ -712,27 +777,117 @@ function boot(D) {
 }
 
 /* ==================================================================== */
-/*  UPLOAD / DRAG-DROP / PERSISTÊNCIA                                     */
+/*  GLOSSÁRIO — explicações em linguagem simples (independe dos dados)    */
 /* ==================================================================== */
-function loadFromFile(file) {
-  if (!file) return;
-  if (!/\.(xlsx|xlsm|xls)$/i.test(file.name)) { toast('Envie um arquivo .xlsx', 'err'); return; }
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const data = readWorkbook(e.target.result);
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(data)); } catch (_) {}
-      boot(data);
-      toast(`Planilha carregada · ${data.months.length} meses, ${data.accounts.length} contas`, 'ok');
-    } catch (err) {
-      console.error(err);
-      toast('Erro ao ler: ' + err.message, 'err');
-    }
-  };
-  reader.onerror = () => toast('Falha ao ler o arquivo', 'err');
-  reader.readAsArrayBuffer(file);
+const GLOSSARY = [
+  { g: 'Conceitos básicos', t: 'Competência de Caixa', d: 'Forma de medir o resultado pelo que <b>efetivamente entrou e saiu do caixa</b> no mês — segue a data do pagamento/recebimento, não a data da venda. Por isso o lucro de um mês pode oscilar conforme <i>quando</i> as contas foram pagas, e não só pelo volume vendido.' },
+  { g: 'Conceitos básicos', t: 'Receita (Faturamento)', d: 'Todo o dinheiro que <b>entrou</b> no período: vendas de produtos e serviços, e também rendimentos e empréstimos captados. É o ponto de partida do resultado.' },
+  { g: 'Conceitos básicos', t: 'Despesa', d: 'Todo o dinheiro que <b>saiu</b>: salários, materiais, impostos, retiradas dos sócios, etc. Quanto menor em relação à receita, melhor.' },
+  { g: 'Conceitos básicos', t: 'Resultado (Lucro ou Prejuízo)', d: 'Receita menos Despesa. Se positivo, sobrou dinheiro (<b>lucro</b>); se negativo, faltou (<b>prejuízo</b>). É o número final do caixa no mês.' },
+  { g: 'Conceitos básicos', t: 'Centro de Custo', d: 'Um “grupo” de gastos ou receitas que se acompanha junto (ex.: Despesas com Funcionários, Materiais e Insumos, Comunicação Visual). Ajuda a enxergar <b>onde</b> o dinheiro é gerado e consumido.' },
+
+  { g: 'Indicadores de margem', t: 'Margem Líquida', d: 'Quanto sobra de <b>cada R$ 100 de receita</b> depois de pagar tudo. Margem de 10% significa que de cada R$ 100 faturados, R$ 10 viram resultado de caixa.' },
+  { g: 'Indicadores de margem', t: 'Margem de Contribuição', d: 'Quanto sobra de cada venda <b>depois de pagar só os custos que variam com a produção</b> (insumos, máquinas, terceiros de obra). É o dinheiro que “contribui” para cobrir a estrutura fixa e remunerar o dono. Quanto maior, mais saudável é a precificação.' },
+  { g: 'Indicadores de margem', t: 'Resultado Operacional', d: 'O lucro <b>só da operação</b> — vendas menos custos variáveis menos estrutura fixa, <b>antes</b> de retiradas dos sócios e de empréstimos. Mostra se o negócio em si dá lucro, separando isso das decisões dos donos.' },
+  { g: 'Indicadores de margem', t: 'Margem Operacional', d: 'O Resultado Operacional dividido pelas vendas, em %. Diz quão eficiente é a operação em transformar venda em lucro, ignorando retiradas e financiamento.' },
+
+  { g: 'Análise vertical e horizontal', t: 'AV (Análise Vertical)', d: 'Mostra o <b>peso de cada conta dentro do total</b>, em %. Na DRE, é a fatia de cada item sobre a receita. Ex.: se “Salários” tem AV de 20%, consome 20% de tudo que entra.' },
+  { g: 'Análise vertical e horizontal', t: 'AH (Análise Horizontal)', d: 'Mostra a <b>variação de um período para outro</b>, em %. Compara o mês escolhido com o mês de comparação. Ex.: AH de +15% significa que o valor cresceu 15% em relação ao mês comparado.' },
+  { g: 'Análise vertical e horizontal', t: 'Variação R$ / Variação %', d: 'A diferença, em reais e em porcentagem, de um item entre os dois meses comparados. Para <b>despesas</b>, cair é bom (verde); para <b>receitas</b>, subir é bom (verde).' },
+
+  { g: 'Tendência e estatística', t: 'Tendência', d: 'A direção geral de um número ao longo dos meses (subindo, estável ou caindo), calculada por uma <b>linha de tendência</b> (regressão linear). Suaviza os altos e baixos para mostrar o rumo.' },
+  { g: 'Tendência e estatística', t: 'Volatilidade (CV)', d: 'O quanto um valor <b>oscila</b> mês a mês. CV (coeficiente de variação) baixo = previsível e estável; alto = irregular. Despesas voláteis dificultam o planejamento.' },
+  { g: 'Tendência e estatística', t: 'Média', d: 'A soma dos valores dividida pelo número de meses. Dá uma referência do “normal” daquele item no período.' },
+  { g: 'Tendência e estatística', t: 'Sparkline (Histórico)', d: 'O mini-gráfico em cada linha da tabela. Mostra, num relance, o comportamento do item ao longo dos meses — se vem subindo, caindo ou estável.' },
+
+  { g: 'Visão de dono (Buffett)', t: 'Owner Earnings (Lucro do Dono)', d: 'Olhar para o negócio como um dono faria: separar o <b>lucro real da operação</b> das <b>retiradas dos sócios</b> e do <b>financiamento</b>. Revela se o que aperta o caixa é a operação ou a distribuição de dinheiro aos donos.' },
+  { g: 'Visão de dono (Buffett)', t: 'Retiradas dos Sócios', d: 'O dinheiro que os donos tiram da empresa (pró-labore, distribuição de lucros) mais investimentos. Não é custo da operação — é <b>destino</b> do lucro. Retiradas altas demais descapitalizam a empresa.' },
+  { g: 'Visão de dono (Buffett)', t: 'Ponto de Equilíbrio', d: 'O quanto a empresa precisa <b>vender no mês para não ter prejuízo</b> — o ponto onde a margem de contribuição cobre exatamente a estrutura fixa. Vender acima dele gera lucro; abaixo, prejuízo.' },
+  { g: 'Visão de dono (Buffett)', t: 'Estrutura Fixa', d: 'Os gastos que existem <b>independente do volume de vendas</b>: aluguel, salários administrativos, impostos fixos, etc. Não variam (muito) se você vende mais ou menos no mês.' },
+  { g: 'Visão de dono (Buffett)', t: 'Custos Variáveis', d: 'Gastos que <b>sobem e descem junto com a produção</b>: matéria-prima, insumos, máquinas e serviços terceirizados ligados às obras. Mais produção = mais custo variável.' },
+  { g: 'Visão de dono (Buffett)', t: 'Simulador de Retiradas', d: 'Ferramenta que mostra <b>quanto de reserva sobraria</b> se as retiradas dos sócios fossem uma % fixa do resultado operacional. Ajuda a decidir quanto distribuir sem descapitalizar a empresa.' },
+];
+
+/* ==================================================================== */
+/*  CARDS RECOLHÍVEIS — injeta um botão de recolher em cada card          */
+/* ==================================================================== */
+const COLLAPSE_KEY = 'impresilk_dre_collapsed';
+function wireCollapsibleCards() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}'); } catch (_) {}
+  const persist = () => { try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(saved)); } catch (_) {} };
+
+  document.querySelectorAll('main .card').forEach((card, idx) => {
+    const head = card.querySelector('.card-head');
+    if (!head || head.querySelector('.card-collapse')) return; // já tem botão
+    // id estável: usa o id da section, senão o índice
+    const key = card.id || ('card-' + idx);
+    card.dataset.collapseKey = key;
+
+    const btn = document.createElement('button');
+    btn.className = 'card-collapse';
+    btn.type = 'button';
+    btn.title = 'Recolher / expandir';
+    btn.setAttribute('aria-label', 'Recolher ou expandir');
+    btn.textContent = '▾';
+    head.insertBefore(btn, head.firstChild); // caret antes do título (evita sobrepor controles à direita)
+
+    const apply = () => {
+      const c = !!saved[key];
+      card.classList.toggle('collapsed', c);
+      btn.textContent = c ? '▸' : '▾';
+    };
+    btn.onclick = () => {
+      saved[key] = !saved[key];
+      apply(); persist();
+      window.dispatchEvent(new Event('resize')); // gráficos recalculam ao reabrir
+    };
+    // clicar no título também recolhe
+    const h2 = head.querySelector('h2');
+    if (h2) { h2.style.cursor = 'pointer'; h2.onclick = () => btn.click(); }
+    apply();
+  });
 }
 
+function renderGlossary() {
+  const grid = document.getElementById('glossaryGrid');
+  if (!grid) return;
+  const groups = [];
+  GLOSSARY.forEach(item => {
+    let gr = groups.find(x => x.name === item.g);
+    if (!gr) { gr = { name: item.g, items: [] }; groups.push(gr); }
+    gr.items.push(item);
+  });
+  grid.innerHTML = groups.map(gr => `
+    <div class="gloss-group">
+      <h3 class="gloss-group-title">${gr.name}</h3>
+      <div class="gloss-items">
+        ${gr.items.map(it => `<div class="gloss-item" data-term="${(it.t + ' ' + it.d).toLowerCase().replace(/<[^>]+>/g, '')}">
+          <span class="gloss-term">${it.t}</span>
+          <p class="gloss-def">${it.d}</p>
+        </div>`).join('')}
+      </div>
+    </div>`).join('');
+
+  const search = document.getElementById('glossarySearch');
+  if (search && !search._wired) {
+    search._wired = true;
+    search.oninput = () => {
+      const q = search.value.trim().toLowerCase();
+      grid.querySelectorAll('.gloss-item').forEach(el => {
+        el.classList.toggle('hidden', !!q && !el.dataset.term.includes(q));
+      });
+      grid.querySelectorAll('.gloss-group').forEach(g => {
+        const anyVisible = [...g.querySelectorAll('.gloss-item')].some(el => !el.classList.contains('hidden'));
+        g.classList.toggle('hidden', !anyVisible);
+      });
+    };
+  }
+}
+
+/* ==================================================================== */
+/*  UPLOAD / DRAG-DROP / PERSISTÊNCIA                                     */
+/* ==================================================================== */
 function applyTheme(mode) {
   const light = mode === 'light';
   document.body.classList.toggle('theme-light', light);
@@ -743,7 +898,8 @@ function applyTheme(mode) {
 }
 
 /* ---------- fluxo "Subir mês" (modal de confirmação) ---------- */
-let _pendingMonth = null; // contas parseadas aguardando confirmação
+let _pendingMonth = null;      // contas parseadas aguardando confirmação
+let handleMonthFile = null;    // definido em wireMonthUpload; usado também no drag-drop
 function wireMonthUpload() {
   const btn = document.getElementById('addMonthBtn');
   const input = document.getElementById('monthFileInput');
@@ -755,17 +911,15 @@ function wireMonthUpload() {
 
   const closeModal = () => { modal.hidden = true; _pendingMonth = null; };
 
-  btn.onclick = () => input.click();
-  input.onchange = () => {
-    const file = input.files[0]; input.value = '';
+  handleMonthFile = file => {
     if (!file) return;
-    if (!/\.(xlsx|xlsm|xls)$/i.test(file.name)) { toast('Envie um arquivo .xlsx', 'err'); return; }
+    if (!/\.(xlsx|xlsm|xls)$/i.test(file.name)) { toast('Envie o export .xlsx “Plano de Contas”', 'err'); return; }
     const reader = new FileReader();
     reader.onload = e => {
       try {
         const parsed = parsePlanoContasWorkbook(e.target.result);
-        const get = c => { const a = parsed.find(x => x.code === c); return a ? a.value : 0; };
-        const rec = get('1'), desp = get('2'), res = round2(rec - desp);
+        const g = c => { const a = parsed.find(x => x.code === c); return a ? a.value : 0; };
+        const rec = g('1'), desp = g('2'), res = round2(rec - desp);
         const D = getCurrentData();
         const fmtBRL = n => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
         const card = (lbl, v, cls) => `<div class="mp"><span class="mp-l">${lbl}</span><b class="mp-v ${cls}">${fmtBRL(v)}</b></div>`;
@@ -791,6 +945,9 @@ function wireMonthUpload() {
     reader.onerror = () => toast('Falha ao ler o arquivo', 'err');
     reader.readAsArrayBuffer(file);
   };
+
+  btn.onclick = () => input.click();
+  input.onchange = () => { handleMonthFile(input.files[0]); input.value = ''; };
 
   document.getElementById('monthConfirm').onclick = () => {
     if (!_pendingMonth) return;
@@ -832,15 +989,10 @@ function initApp() {
   };
   probe.src = 'logo.png';
 
-  // botão + input (substitui a planilha inteira — formato "Base" multi-mês)
-  const fileInput = document.getElementById('fileInput');
-  document.getElementById('uploadBtn').onclick = () => fileInput.click();
-  fileInput.onchange = () => { loadFromFile(fileInput.files[0]); fileInput.value = ''; };
-
-  // ícone "Subir mês" (conexão MubySys — export Plano de Contas de 1 mês)
+  // "Subir mês" (conexão MubySys — export Plano de Contas de 1 mês)
   wireMonthUpload();
 
-  // drag & drop em toda a página
+  // drag & drop em toda a página → fluxo "Subir mês"
   const overlay = document.getElementById('dropOverlay');
   let dragDepth = 0;
   window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; overlay.classList.add('show'); });
@@ -848,7 +1000,7 @@ function initApp() {
   window.addEventListener('dragleave', e => { e.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; overlay.classList.remove('show'); } });
   window.addEventListener('drop', e => {
     e.preventDefault(); dragDepth = 0; overlay.classList.remove('show');
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) loadFromFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files && e.dataTransfer.files[0] && handleMonthFile) handleMonthFile(e.dataTransfer.files[0]);
   });
 
   // navegação por abas
@@ -863,6 +1015,12 @@ function initApp() {
   let startView = 'overview';
   try { startView = localStorage.getItem(VIEW_KEY) || 'overview'; } catch (_) {}
   switchView(startView);
+
+  // glossário (conteúdo estático — independe dos dados)
+  renderGlossary();
+
+  // botões de recolher em cada card
+  wireCollapsibleCards();
 
   // dataset inicial: localStorage > data.js embutido
   let initial = window.DRE_DATA;

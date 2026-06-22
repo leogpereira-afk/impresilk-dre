@@ -380,8 +380,63 @@ button.ghost:hover { color: var(--txt); border-color: var(--accent); }
 .modal-warn[hidden] { display: none; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 2px; }
 
+/* ===================== Dash grande de centro (Espelho) ===================== */
+.big-center { border-top: 3px solid var(--accent-2); }
+.center-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.center-chips .chip {
+  background: var(--card-2); border: 1px solid var(--line); color: var(--txt-dim);
+  font-family: inherit; font-size: 12.5px; font-weight: 700; padding: 8px 14px;
+  border-radius: 999px; cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.center-chips .chip:hover { color: var(--txt); border-color: var(--accent-2); }
+.center-chips .chip.rev.active { background: var(--rev); color: #04243a; border-color: var(--rev); }
+.center-chips .chip.exp.active { background: var(--exp); color: #3a0b0b; border-color: var(--exp); }
+
+.bc-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 18px; }
+.bc-kpis .ck { background: var(--card-2); border: 1px solid var(--line); border-radius: 12px; padding: 13px 15px; display: flex; flex-direction: column; gap: 4px; }
+.bc-kpis .ck-v.pos { color: var(--pos); }
+.bc-kpis .ck-v.neg { color: var(--neg); }
+
+.bc-chart-wrap { position: relative; height: 360px; margin-bottom: 18px; }
+.bc-table th, .bc-table td { font-size: 13px; }
+.bc-table .spark-cell { width: 100px; }
+
+/* ===================== Cards recolhíveis ===================== */
+.card-collapse {
+  background: var(--card-2); border: 1px solid var(--line); color: var(--txt-dim);
+  width: 26px; height: 26px; border-radius: 7px; cursor: pointer; flex: none;
+  font-size: 11px; line-height: 1; display: grid; place-items: center;
+  margin-right: 10px; transition: all .15s;
+}
+.card-collapse:hover { color: var(--accent); border-color: var(--accent); }
+.card.collapsed > *:not(.card-head) { display: none; }
+.card.collapsed { padding-bottom: 20px; }
+.card.collapsed .card-head { margin-bottom: 0; }
+/* mantém caret + título juntos à esquerda; controles vão para a direita */
+.card-head h2 { margin-right: auto; }
+
+/* ===================== Glossário ===================== */
+.glossary-grid { display: flex; flex-direction: column; gap: 26px; }
+.gloss-group.hidden { display: none; }
+.gloss-group-title {
+  font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--accent); margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
+}
+.gloss-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.gloss-item {
+  background: var(--card-2); border: 1px solid var(--line); border-left: 3px solid var(--accent-2);
+  border-radius: 10px; padding: 14px 16px;
+}
+.gloss-item.hidden { display: none; }
+.gloss-term { display: block; font-size: 14.5px; font-weight: 700; color: var(--txt); margin-bottom: 6px; }
+.gloss-def { font-size: 13px; line-height: 1.6; color: var(--txt-dim); margin: 0; }
+.gloss-def b { color: var(--txt); }
+.gloss-def i { color: var(--txt-dim); }
+
 @media (max-width: 900px) {
   .center-grid { grid-template-columns: 1fr; }
   .tabs { top: 0; padding: 10px 16px 0; }
   .sim-kpis { grid-template-columns: repeat(2, 1fr); }
+  .bc-kpis { grid-template-columns: repeat(2, 1fr); }
+  .gloss-items { grid-template-columns: 1fr; }
 }
