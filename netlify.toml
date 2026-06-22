@@ -1,0 +1,17 @@
+# Impresilk · DRE Caixa — site estático (sem build)
+# O dashboard fica na raiz (/) e o app de instalação em /instalacao/.
+
+[build]
+  publish = "."
+  command = ""
+
+# Cache leve para os assets estáticos
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

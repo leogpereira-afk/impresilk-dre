@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Impresilk · DRE Caixa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <img id="brandImg" class="brand-img" alt="Impresilk" hidden />
+    <svg id="brandSvg" class="brand-mark" viewBox="0 0 60 46" aria-hidden="true">
+      <defs>
+        <linearGradient id="splash" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0" stop-color="#29abe2"/>
+          <stop offset=".28" stop-color="#0071bc"/>
+          <stop offset=".5" stop-color="#ec008c"/>
+          <stop offset=".72" stop-color="#f7941e"/>
+          <stop offset=".88" stop-color="#fff200"/>
+          <stop offset="1" stop-color="#39b54a"/>
+        </linearGradient>
+      </defs>
+      <path d="M4 32 C8 14 26 6 50 10 C54 11 58 14 56 17 C44 14 30 18 19 27 C14 31 9 38 6 35 C4 34 3 34 4 32 Z" fill="url(#splash)"/>
+      <path d="M10 38 C16 30 28 26 42 27 C34 31 24 33 16 39 C13 41 11 41 10 38 Z" fill="#2b2b2b" opacity=".85"/>
+      <circle cx="9" cy="40" r="2.2" fill="#ec008c"/>
+      <circle cx="15" cy="43" r="1.5" fill="#29abe2"/>
+      <circle cx="52" cy="20" r="1.8" fill="#39b54a"/>
+    </svg>
+    <div class="brand-txt">
+      <span class="wordmark">impresilk</span>
+      <span class="sub">DRE · Resultado — <strong>Competência de Caixa</strong></span>
+    </div>
+  </div>
+  <div class="controls">
+    <label class="ctrl">
+      <span>Período</span>
+      <select id="monthSelect"></select>
+    </label>
+    <label class="ctrl">
+      <span>Comparar com</span>
+      <select id="compareSelect"></select>
+    </label>
+    <label class="ctrl">
+      <span>Planilha</span>
+      <button id="uploadBtn" class="upload-btn">⬆ Carregar .xlsx</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xlsm,.xls" hidden />
+    </label>
+    <button id="themeToggle" class="theme-btn" title="Alternar tema claro/escuro" aria-label="Alternar tema">🌙</button>
+  </div>
+</header>
+
+<nav class="tabs" id="viewTabs">
+  <button data-view="overview" class="active">📊 Visão Geral</button>
+  <button data-view="centers">🎯 Centros de Custo</button>
+  <button data-view="buffett">🧠 Análise Fundamentalista</button>
+  <button data-view="mirror">🗂️ Espelho</button>
+</nav>
+
+<div id="dropOverlay" class="drop-overlay">
+  <div class="drop-box">
+    <div class="drop-ic">⬇</div>
+    <strong>Solte a planilha aqui</strong>
+    <span>Arquivo .xlsx do DRE (aba "Base")</span>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+
+<div id="monthModal" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <strong>📥 Subir dados do mês</strong>
+      <button id="monthModalClose" class="modal-x" aria-label="Fechar">✕</button>
+    </div>
+    <p class="modal-sub">Export <b>“Plano de Contas”</b> do MubySys detectado. Confira os totais e o período antes de adicionar à série histórica.</p>
+    <div id="monthPreview" class="month-preview"></div>
+    <label class="modal-field">
+      <span>Período (mês / ano)</span>
+      <input id="monthLabelInput" type="text" placeholder="Ex.: Jun/2026" autocomplete="off" />
+    </label>
+    <p id="monthWarn" class="modal-warn" hidden></p>
+    <div class="modal-actions">
+      <button id="monthCancel" class="ghost">Cancelar</button>
+      <button id="monthConfirm" class="upload-btn">Adicionar mês</button>
+    </div>
+  </div>
+</div>
+
+<main>
+  <!-- KPIs (sempre visíveis) -->
+  <section class="kpis" id="kpis"></section>
+
+  <!-- ===================== VISÃO GERAL ===================== -->
+  <div class="view" id="view-overview">
+    <div class="two-col">
+      <section class="card">
+        <div class="card-head">
+          <h2>DRE por Seção</h2>
+          <div class="head-actions">
+            <span class="hint">AV = % da receita · AH = variação vs comparativo</span>
+            <button id="addMonthBtn" class="icon-btn" title="Subir dados de um novo mês (export 'Plano de Contas' do MubySys)">📥 Subir mês</button>
+            <input type="file" id="monthFileInput" accept=".xlsx,.xlsm,.xls" hidden />
+          </div>
+        </div>
+        <div class="table-scroll">
+          <table class="dre" id="dreTable">
+            <thead>
+              <tr>
+                <th class="t-name">Conta</th>
+                <th class="t-num">Valor</th>
+                <th class="t-num">AV</th>
+                <th class="t-num">AH</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Composição de Despesas</h2>
+          <span class="hint" id="compHint"></span>
+        </div>
+        <div class="chart-wrap small"><canvas id="compChart"></canvas></div>
+        <div id="expenseRank" class="rank"></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Comparativo Mensal</h2>
+        <div class="seg" id="chartToggle">
+          <button data-mode="bars" class="active">Receita × Despesa</button>
+          <button data-mode="result">Resultado</button>
+          <button data-mode="margin">Margem %</button>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
+    </section>
+
+    <section class="card insights">
+      <div class="card-head">
+        <h2>Insights do Período</h2>
+        <span class="badge" id="insightBadge"></span>
+      </div>
+      <div id="insights" class="insight-grid"></div>
+    </section>
+  </div>
+
+  <!-- ===================== CENTROS DE CUSTO ===================== -->
+  <div class="view hidden" id="view-centers">
+    <section class="card">
+      <div class="card-head">
+        <h2>Centros de Custo · Tendências</h2>
+        <span class="hint">Clique numa aba para analisar o centro em profundidade</span>
+      </div>
+      <nav class="subtabs" id="centerTabs"></nav>
+      <div id="centerPanel"></div>
+    </section>
+  </div>
+
+  <!-- ===================== ANÁLISE FUNDAMENTALISTA ===================== -->
+  <div class="view hidden" id="view-buffett">
+    <section class="card owner-earnings">
+      <div class="card-head">
+        <h2>🧠 Leitura do Negócio — estilo "Owner Earnings"</h2>
+        <span class="hint">Separa a operação real das retiradas dos sócios e do financiamento</span>
+      </div>
+      <div id="buffettNarrative" class="narrative"></div>
+    </section>
+
+    <div class="two-col">
+      <section class="card">
+        <div class="card-head"><h2>Operação vs. Retiradas dos Sócios</h2></div>
+        <div class="chart-wrap"><canvas id="opVsOwnerChart"></canvas></div>
+      </section>
+      <section class="card">
+        <div class="card-head"><h2>Qualidade do Resultado</h2></div>
+        <div class="chart-wrap"><canvas id="marginLayersChart"></canvas></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Demonstrativo Gerencial Reorganizado</h2>
+        <span class="hint">Visão de dono: margem de contribuição → resultado operacional → resultado final</span>
+      </div>
+      <div class="table-scroll">
+        <table class="dre" id="buffettTable"><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section class="card sim-card">
+      <div class="card-head">
+        <h2>💸 Simulador de Retiradas</h2>
+        <span class="hint">Se a retirada fosse uma % fixa do resultado operacional, quanto sobraria de reserva?</span>
+      </div>
+      <div class="sim-control">
+        <label for="simSlider">Retirada = <b id="simPctLabel">100%</b> do resultado operacional</label>
+        <input type="range" id="simSlider" min="0" max="150" step="5" value="100" />
+      </div>
+      <div id="simKpis" class="sim-kpis"></div>
+      <div id="simNote" class="sim-note"></div>
+    </section>
+
+    <section class="card insights">
+      <div class="card-head"><h2>Sinais & Recomendações</h2></div>
+      <div id="buffettSignals" class="insight-grid"></div>
+    </section>
+  </div>
+
+  <!-- ===================== ESPELHO ===================== -->
+  <div class="view hidden" id="view-mirror">
+    <section class="card">
+      <div class="card-head">
+        <h2>Espelho Completo · Plano de Contas</h2>
+        <div class="tree-controls">
+          <input type="search" id="treeSearch" placeholder="Buscar conta…" />
+          <button id="expandAll" class="ghost">Expandir</button>
+          <button id="collapseAll" class="ghost">Recolher</button>
+        </div>
+      </div>
+      <div class="table-scroll tall">
+        <table class="mirror" id="mirrorTable">
+          <thead><tr id="mirrorHead"></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <footer class="foot">
+    <span>Impresilk · DRE por Competência de Caixa</span>
+    <span id="footMeta"></span>
+  </footer>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

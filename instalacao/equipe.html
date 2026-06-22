@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Impresilk · Espelho da Equipe</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">IMPRESILK</span>
+    <span class="sub">Espelho da Equipe de Instalação</span>
+  </div>
+  <div class="top-actions">
+    <a class="btn ghost-light" href="index.html">↩ Gestão</a>
+    <span class="user-chip" id="meChip" title="Trocar instalador">
+      <span class="avatar" id="meAvatar">?</span>
+      <span class="user-text"><b id="meName">—</b><small>Instalador</small></span>
+    </span>
+  </div>
+</header>
+
+<div class="pop-banner">
+  <strong>Antes de sair:</strong> confirme o horário com o cliente. <strong>Ao finalizar:</strong> tire e anexe as fotos de check-in (obrigatório).
+</div>
+
+<main>
+  <div class="painel-head">
+    <h2>Minhas instalações</h2>
+    <label class="inline-field">Dia<input type="date" id="meData" class="input-date"></label>
+  </div>
+  <p class="muted">Aqui aparecem só as O.S liberadas e atribuídas a você. Preencha a execução e finalize com as fotos.</p>
+  <div class="toolbar"><input type="search" id="meBusca" class="input busca" placeholder="🔎 Buscar O.S, cliente, serviço…"></div>
+  <div id="meLista" class="lista"></div>
+  <p class="empty" id="meEmpty" hidden>Nenhuma instalação atribuída a você nesta data.</p>
+</main>
+
+<!-- MODAL EXECUCAO -->
+<div class="modal-overlay" id="modalExec" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="exTitulo">Instalação</h2>
+      <button class="icon-btn" id="exFechar" title="Fechar">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="ro-info" id="exInfo"></div>
+
+      <fieldset>
+        <legend>Execução</legend>
+        <div class="grid">
+          <label>Hora saída<input type="time" id="x_saida"></label>
+          <label>Hora retorno<input type="time" id="x_retorno"></label>
+          <label>Instalação OK? <span class="req">*</span>
+            <select id="x_ok"><option value="">—</option><option value="Sim">Sim</option><option value="Parcial">Parcial</option><option value="Não">Não</option></select>
+          </label>
+          <label>Conferido por <span class="req">*</span><input type="text" id="x_conferido" list="dl_resp"></label>
+          <label class="col-2 chk-line"><input type="checkbox" id="x_retrab"><span>Teve retrabalho?</span></label>
+          <label class="col-2 retro">Problema / Causa<input type="text" id="x_problema"></label>
+          <label class="col-2">Observações técnicas<textarea id="x_obs" rows="2"></textarea></label>
+        </div>
+        <div class="checkin-block">
+          <label class="block-label">Fotos de check-in (obrigatório) <span class="req">*</span></label>
+          <input type="file" id="x_fotos" accept="image/*" capture="environment" multiple class="file-input">
+          <div id="x_preview" class="img-preview multi"></div>
+        </div>
+      </fieldset>
+
+      <p class="form-error" id="exError" hidden></p>
+    </div>
+    <div class="modal-foot">
+      <span class="spacer"></span>
+      <button class="btn" id="exSalvar" type="button">Salvar</button>
+      <button class="btn primary" id="exFinalizar" type="button">Finalizar com check-in ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL ESCOLHA INSTALADOR -->
+<div class="modal-overlay" id="modalMe" hidden>
+  <div class="modal small">
+    <div class="modal-head"><h2>Quem é você?</h2></div>
+    <div class="modal-body">
+      <p class="muted">Selecione seu nome para ver suas instalações.</p>
+      <div id="meUsers" class="login-users"></div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden>
+  <button class="icon-btn lb-close" id="lbClose">✕</button>
+  <img id="lbImg" alt="Foto ampliada">
+</div>
+
+<datalist id="dl_resp"></datalist>
+<script src="equipe.js"></script>
+</body>
+</html>

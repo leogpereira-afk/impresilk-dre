@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Impresilk · Controle de Instalação</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">IMPRESILK</span>
+    <span class="sub">Controle de Instalação · Gestão</span>
+  </div>
+  <div class="top-actions">
+    <span class="ro-badge" title="Acesso somente leitura">👁 Somente leitura</span>
+    <a class="btn ghost-light" href="equipe.html">📱 Espelho da equipe</a>
+    <span class="user-chip" id="userChip" title="Trocar usuário">
+      <span class="avatar" id="userAvatar">?</span>
+      <span class="user-text"><b id="userName">—</b><small id="userRole">—</small></span>
+    </span>
+    <button class="btn" id="btnImportar">⬆ Importar O.S (PDF)</button>
+    <button class="btn primary" id="btnNova">+ Nova O.S</button>
+    <input type="file" id="fileImportPdf" accept="application/pdf" hidden>
+  </div>
+</header>
+
+<div class="pop-banner">
+  <strong>REGRA CRÍTICA (POP EXI-002):</strong> proibido sair para instalar sem confirmar o horário com o cliente no dia, por telefone ou WhatsApp, com o devido registro.
+</div>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="painel">Painel</button>
+  <button class="tab" data-tab="pcp">PCP</button>
+  <button class="tab" data-tab="programacao">Instalação</button>
+  <button class="tab" data-tab="execucao">Execução</button>
+  <button class="tab" data-tab="retrabalho">Retrabalho</button>
+  <button class="tab" data-tab="controle">Painel de Controle</button>
+  <button class="tab" data-tab="instrucoes">Instruções</button>
+</nav>
+
+<main>
+  <!-- PAINEL -->
+  <section id="painel" class="view active">
+    <div class="painel-head">
+      <h2>Painel</h2>
+      <div class="seg" id="segModo">
+        <button class="seg-btn active" data-modo="dia">Dia</button>
+        <button class="seg-btn" data-modo="periodo">Período</button>
+      </div>
+    </div>
+    <div class="filtros-painel">
+      <label class="inline-field" id="campoDia">Dia<input type="date" id="filtroData" class="input-date"></label>
+      <label class="inline-field hidden" id="campoDe">De<input type="date" id="filtroDe" class="input-date"></label>
+      <label class="inline-field hidden" id="campoAte">Até<input type="date" id="filtroAte" class="input-date"></label>
+      <div class="quick-periodos hidden" id="quickPeriodos">
+        <button class="btn small" data-q="7">7 dias</button>
+        <button class="btn small" data-q="30">30 dias</button>
+        <button class="btn small" data-q="mes">Este mês</button>
+        <button class="btn small" data-q="ano">Este ano</button>
+        <select id="filtroAno" class="input small-select" title="Ver um ano inteiro"></select>
+      </div>
+    </div>
+    <div class="cards" id="cards"></div>
+    <h3 class="section-title">Indicadores (%)</h3>
+    <div class="indicadores" id="indicadores"></div>
+    <div id="blocoEstatisticas">
+      <h3 class="section-title">Desempenho por instalador</h3>
+      <p class="muted">Quem mais entregou serviços e quem tem menos retrabalho no período.</p>
+      <div class="tabela-wrap">
+        <table class="tabela" id="tabelaEquipes">
+          <thead><tr><th>Instalador</th><th>Agendadas</th><th>Finalizadas</th><th>Retrabalho</th><th>% Retrabalho</th><th>% Check-in</th><th>Média h exec.</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty" id="emptyEquipes" hidden>Sem dados de equipe no período selecionado.</p>
+    </div>
+  </section>
+
+  <!-- PCP (etapa 1) -->
+  <section id="pcp" class="view">
+    <div class="painel-head">
+      <h2>PCP</h2>
+      <button class="btn primary" id="btnNovaPcp">+ Nova O.S</button>
+    </div>
+    <p class="muted">Etapa inicial do <strong>PCP</strong>: registra a O.S, confere a medida e informa o <strong>responsável do PCP</strong>. Ao <strong>liberar para instalação</strong>, a O.S aparece na aba <strong>Instalação</strong>.</p>
+    <div class="seg mini" id="segPcp">
+      <button class="seg-btn active" data-pcp="pendente">No PCP</button>
+      <button class="seg-btn" data-pcp="apto">Liberadas p/ instalação</button>
+    </div>
+    <div class="filtros-painel">
+      <div class="seg" id="segPcpModo">
+        <button class="seg-btn active" data-pm="dia">Dia</button>
+        <button class="seg-btn" data-pm="periodo">Período</button>
+      </div>
+      <label class="inline-field" id="pcpCampoDia">Dia<input type="date" id="pcpData" class="input-date"></label>
+      <label class="inline-field hidden" id="pcpCampoDe">De<input type="date" id="pcpDe" class="input-date"></label>
+      <label class="inline-field hidden" id="pcpCampoAte">Até<input type="date" id="pcpAte" class="input-date"></label>
+      <div class="quick-periodos hidden" id="pcpQuick">
+        <button class="btn small" data-q="7">7 dias</button>
+        <button class="btn small" data-q="30">30 dias</button>
+        <button class="btn small" data-q="mes">Este mês</button>
+      </div>
+      <button class="btn small" id="pcpLimpar">Limpar filtro</button>
+    </div>
+    <div class="toolbar"><input type="search" id="pcpBusca" class="input busca" placeholder="🔎 Buscar O.S, cliente, serviço, equipe…"></div>
+    <div id="listaPcp" class="lista"></div>
+    <p class="empty" id="emptyPcp" hidden>Nada por aqui.</p>
+  </section>
+
+  <!-- INSTALACAO -->
+  <section id="programacao" class="view">
+    <div class="painel-head">
+      <h2>Instalação</h2>
+      <div class="seg" id="segProgView">
+        <button class="seg-btn active" data-pv="calendario">📅 Calendário</button>
+        <button class="seg-btn" data-pv="lista">☰ Lista</button>
+      </div>
+    </div>
+    <p class="muted">Área do <strong>gerente de instalação</strong>: mostra apenas O.S já <strong>liberadas pelo PCP</strong>. Agende equipe, veículo, horário, confirme com o cliente e organize o embarque com a montagem. Instalações longas ocupam vários dias.</p>
+
+    <!-- VISÃO CALENDÁRIO -->
+    <div id="progCalView">
+      <div class="cal-bar">
+        <div class="cal-nav">
+          <button class="btn small" id="calPrev" title="Mês anterior">‹</button>
+          <h3 class="cal-titulo" id="calTitulo"></h3>
+          <button class="btn small" id="calNext" title="Próximo mês">›</button>
+        </div>
+        <button class="btn small" id="calHoje">Hoje</button>
+      </div>
+      <div class="toolbar"><input type="search" id="calBusca" class="input busca" placeholder="🔎 Buscar O.S, cliente, serviço, equipe no calendário…"></div>
+      <div class="cal-weekdays">
+        <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+      </div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="cal-legenda">
+        <span class="lg"><i class="dot apto"></i>Apto</span>
+        <span class="lg"><i class="dot agendada"></i>Agendada</span>
+        <span class="lg"><i class="dot confirmada"></i>Confirmada</span>
+        <span class="lg"><i class="dot em_andamento"></i>Em andamento</span>
+        <span class="lg"><i class="dot finalizada"></i>Finalizada</span>
+      </div>
+
+      <div class="dia-detalhe" id="diaDetalhe" hidden>
+        <div class="dd-head">
+          <h3 id="ddTitulo">Dia</h3>
+          <div class="dd-actions">
+            <button class="btn small" id="ddNova">+ Agendar nesta data</button>
+            <button class="btn small" id="ddPDF">⬇️ PDF</button>
+            <button class="btn small" id="ddZap">💬 WhatsApp</button>
+          </div>
+        </div>
+        <div id="ddLista" class="lista"></div>
+        <p class="empty" id="ddEmpty" hidden>Nenhuma instalação neste dia.</p>
+      </div>
+    </div>
+
+    <!-- VISÃO LISTA -->
+    <div id="progListView" hidden>
+      <div class="toolbar">
+        <input type="search" id="busca" class="input" placeholder="Buscar O.S, cliente, serviço…">
+        <select id="filtroStatus" class="input">
+          <option value="">Todos os status</option>
+          <option value="apto">Apto (a agendar)</option>
+          <option value="agendada">Agendada</option>
+          <option value="confirmada">Confirmada</option>
+          <option value="em_andamento">Em andamento</option>
+          <option value="finalizada">Finalizada</option>
+        </select>
+        <label class="inline-field">Dia<input type="date" id="progData" class="input-date"></label>
+        <button class="btn" id="btnPDF" title="Gera uma versão para impressão / salvar em PDF">⬇️ Baixar PDF</button>
+        <button class="btn" id="btnZap" title="Copia o texto e abre o WhatsApp">💬 Texto p/ WhatsApp</button>
+      </div>
+      <div id="listaOS" class="lista"></div>
+      <p class="empty" id="emptyLista" hidden>Nenhuma O.S liberada. Crie/libere uma O.S na aba <strong>PCP</strong>.</p>
+    </div>
+  </section>
+
+  <!-- EXECUCAO -->
+  <section id="execucao" class="view">
+    <h2 class="section-title">Execução</h2>
+    <p class="muted">O que está na rua agora e o controle de liberação dos carros. Libere o veículo na saída e faça o check-out na volta.</p>
+    <div class="toolbar">
+      <input type="search" id="execBusca" class="input busca" placeholder="🔎 Buscar O.S, cliente, serviço, equipe…">
+      <input type="date" id="execData" class="input" title="Filtrar por data de instalação">
+      <span class="exec-resumo" id="execResumo"></span>
+    </div>
+    <div id="listaExecucao" class="lista"></div>
+    <p class="empty" id="emptyExecucao" hidden>Nenhuma O.S em execução. Libere uma O.S na aba <strong>PCP</strong>.</p>
+  </section>
+
+  <!-- RETRABALHO -->
+  <section id="retrabalho" class="view">
+    <h2 class="section-title">O.S com Retrabalho</h2>
+    <p class="muted">Itens que voltaram com problema ficam em destaque até serem resolvidos.</p>
+    <div class="toolbar"><input type="search" id="retrabBusca" class="input busca" placeholder="🔎 Buscar O.S, cliente, serviço, equipe…"></div>
+    <div id="listaRetrabalho" class="lista"></div>
+    <p class="empty" id="emptyRetrabalho" hidden>Nenhum retrabalho registrado. 🎉</p>
+  </section>
+
+  <!-- PAINEL DE CONTROLE -->
+  <section id="controle" class="view">
+    <h2 class="section-title">Painel de Controle</h2>
+    <p class="muted">Cadastre e edite as listas usadas no sistema. Alterações valem para todas as próximas O.S.</p>
+    <div class="controle-grid">
+      <div class="ctrl-card" data-cfg="instaladores"><h3>Instaladores / Equipe</h3><ul class="ctrl-list"></ul><div class="ctrl-add"><input type="text" placeholder="Nome do instalador"><button class="btn small primary">Adicionar</button></div></div>
+      <div class="ctrl-card" data-cfg="veiculos"><h3>Veículos</h3><ul class="ctrl-list"></ul><div class="ctrl-add"><input type="text" placeholder="Veículo"><button class="btn small primary">Adicionar</button></div></div>
+      <div class="ctrl-card" data-cfg="responsaveis"><h3>Responsáveis (liberação / conferência)</h3><ul class="ctrl-list"></ul><div class="ctrl-add"><input type="text" placeholder="Nome"><button class="btn small primary">Adicionar</button></div></div>
+      <div class="ctrl-card" data-cfg="ferramentas"><h3>Ferramentas</h3><ul class="ctrl-list"></ul><div class="ctrl-add"><input type="text" placeholder="Ferramenta"><button class="btn small primary">Adicionar</button></div></div>
+      <div class="ctrl-card wide" data-cfg="usuarios"><h3>Usuários e acessos</h3><ul class="ctrl-list"></ul>
+        <div class="ctrl-add"><input type="text" placeholder="Nome do usuário"><select class="papel-sel"><option>Operação</option><option>Montagem</option><option>PCP</option><option>Comercial</option><option>Admin</option></select><input type="text" class="senha-add" placeholder="Senha (Admin/Comercial)"><button class="btn small primary">Adicionar</button></div>
+        <small class="hint">Admin e Comercial exigem senha. Admin faz cadastros; Comercial só visualiza Painel, PCP e Instalação.</small>
+      </div>
+    </div>
+  </section>
+
+  <!-- INSTRUCOES -->
+  <section id="instrucoes" class="view">
+    <h2 class="section-title">Lembretes de Conduta e Segurança — POP EXI-002</h2>
+    <ul class="instrucoes-list">
+      <li><strong>Regra crítica:</strong> Proibido sair para instalar sem confirmar o horário com o cliente no dia, por telefone ou WhatsApp, com o devido registro.</li>
+      <li><strong>EPIs:</strong> Uso de equipamentos de proteção individual obrigatório em todas as etapas.</li>
+      <li><strong>Qualidade:</strong> Obrigatório tirar fotos do serviço finalizado e enviar para controle.</li>
+      <li><strong>Zelo:</strong> Deixar a área de instalação limpa e organizada após a conclusão do trabalho.</li>
+      <li><strong>Ficha de instalação:</strong> Preencher detalhando os trabalhos realizados e observações técnicas relevantes.</li>
+      <li><strong>Gerente de Instalação:</strong> Saulo Rodrigues Ferreira.</li>
+    </ul>
+  </section>
+</main>
+
+<!-- MODAL O.S -->
+<div class="modal-overlay" id="modalOS" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="modalTitulo">Nova O.S</h2>
+      <button class="icon-btn" id="btnFechar" title="Fechar">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <fieldset class="prod-fs card-fs" data-fs="pcp">
+        <legend>1 · PCP</legend>
+        <div class="grid">
+          <label>O.S <span class="req">*</span><input type="text" id="f_os" placeholder="22165"></label>
+          <label>Cliente / Local <span class="req">*</span><input type="text" id="f_cliente" placeholder="Cardio Pulmonar"></label>
+          <label class="col-2">Serviço <span class="req">*</span><input type="text" id="f_servico" placeholder="Higienização letras"></label>
+          <label>Entrou no PCP (data)<input type="date" id="f_dataEntrada"></label>
+          <label>Liberado p/ instalação (data)<input type="date" id="f_dataLiberacao"></label>
+          <label class="col-2">Responsável <span class="req">*</span><input type="text" id="f_responsavelPcp" list="dl_responsaveis" placeholder="Quem é o responsável (libera a O.S para instalação)"></label>
+          <label class="col-2">Endereço do cliente<input type="text" id="f_endereco" placeholder="Rua, nº, bairro, cidade"></label>
+          <label class="col-2">WhatsApp<input type="tel" id="f_whatsapp" placeholder="(71) 90000-0000"></label>
+          <label class="col-2 link-cell">&nbsp;<div class="quick-links">
+            <a href="#" id="lnkMapa" target="_blank" rel="noopener" class="mini-link">📍 Mapa</a>
+            <a href="#" id="lnkZap" target="_blank" rel="noopener" class="mini-link">💬 WhatsApp</a>
+          </div></label>
+        </div>
+        <small class="hint">Preencha O.S, cliente, serviço e responsável; depois clique em <b>Liberar para instalação</b> para a O.S aparecer nas abas Instalação e Execução.</small>
+        <div class="apto-row">
+          <span class="stamp" id="aptoStamp"></span>
+          <button class="btn small primary" id="btnLiberarInstalacao" type="button">✓ Liberar para instalação</button>
+          <button class="btn small" id="btnCancelarLiberacao" type="button" hidden>Cancelar liberação</button>
+        </div>
+        <div class="designer-layout">
+          <label class="block-label">🎨 Layout de instalação (Designer) — JPG/PNG</label>
+          <input type="file" id="f_layout" accept="image/*" class="file-input">
+          <div id="layoutPreview" class="img-preview"></div>
+          <small class="hint">O designer anexa aqui o layout aprovado. A equipe vê no espelho ao executar.</small>
+        </div>
+      </fieldset>
+
+      <fieldset class="card-fs" data-fs="ferr">
+        <legend>2 · Ferramentas do serviço</legend>
+        <div class="grid">
+          <label>Acesso / altura
+            <select id="f_acesso">
+              <option value="">—</option>
+              <option value="No baixo (nível do chão)">No baixo (nível do chão)</option>
+              <option value="Escada">Escada</option>
+              <option value="Andaime">Andaime</option>
+              <option value="Plataforma elevatória">Plataforma elevatória</option>
+              <option value="Outro">Outro</option>
+            </select>
+          </label>
+          <label>Fixação
+            <select id="f_fixacao">
+              <option value="">—</option>
+              <option value="Parafuso">Parafuso</option>
+              <option value="Fita Hellerman">Fita Hellerman</option>
+              <option value="Fita dupla face">Fita dupla face</option>
+              <option value="Cola / Adesivo">Cola / Adesivo</option>
+              <option value="Rebite">Rebite</option>
+              <option value="Outro">Outro</option>
+            </select>
+          </label>
+        </div>
+        <div class="chips" id="ferramentasChips"></div>
+        <div class="add-tool">
+          <input type="text" id="f_novaFerramenta" placeholder="Adicionar outra ferramenta…">
+          <button class="btn" id="btnAddFerramenta" type="button">Adicionar</button>
+        </div>
+        <small class="hint">Defina o acesso (escada, andaime, no baixo…) e o tipo de fixação. Cadastre ferramentas fixas no Painel de Controle; aqui a montagem marca/inclui as do serviço.</small>
+      </fieldset>
+
+      <fieldset class="card-fs" data-fs="itens">
+        <legend>3 · Itens do serviço</legend>
+        <div id="itensLista"></div>
+        <div class="add-tool">
+          <button class="btn" id="btnAddItem" type="button">+ Adicionar item</button>
+          <button class="btn" id="btnImportItensPdf" type="button">⬆ Importar itens do PDF da O.S</button>
+          <input type="file" id="fileImportItens" accept="application/pdf" hidden>
+        </div>
+        <small class="hint">Marque cada item como pronto conforme a instalação avança — permite acompanhar uma instalação parcial em andamento.</small>
+      </fieldset>
+
+      <fieldset class="card-fs" data-fs="agenda">
+        <legend>4 · Agendamento</legend>
+        <div class="grid">
+          <label>Data instalação<input type="date" id="f_data"></label>
+          <label>Hora agendada<input type="time" id="f_hora"></label>
+          <label>Duração (dias)<input type="number" id="f_duracao" min="1" step="1" value="1"></label>
+          <label>Responsável pela liberação<input type="text" id="f_gerenteInstalacao" list="dl_responsaveis" placeholder="Quem libera a instalação"></label>
+          <label>Equipe<input type="text" id="f_equipe" placeholder="Adriano e Douglas" list="dl_instaladores"></label>
+          <label>Veículo<input type="text" id="f_veiculo" list="dl_veiculos" placeholder="Strada Fire Flex 20"></label>
+          <label class="col-2">Observação<textarea id="f_obsCliente" rows="2" placeholder="Ex.: ponto de referência, restrição de horário, acesso ao local…"></textarea></label>
+        </div>
+        <small class="hint">Defina data, equipe e veículo. Depois confirme com o cliente (etapa 5) antes de embarcar e liberar o carro.</small>
+      </fieldset>
+
+      <fieldset class="card-fs" data-fs="conf">
+        <legend>5 · Confirmação com o cliente</legend>
+        <input type="hidden" id="f_confirmacao">
+        <small class="hint">Regra crítica (POP): a equipe não pode sair para instalar sem o cliente confirmado aqui.</small>
+        <div class="grid">
+          <label>Canal
+            <select id="f_canal"><option value="">—</option><option value="Telefone">Telefone</option><option value="WhatsApp">WhatsApp</option><option value="Pessoalmente">Pessoalmente</option><option value="E-mail">E-mail</option></select>
+          </label>
+          <label>Hora<input type="time" id="f_horaConfirm"></label>
+          <label>Confirmado por<input type="text" id="f_confirmadoPor" list="dl_usuarios"></label>
+          <label class="col-2">Observação da confirmação<input type="text" id="f_confirmObs" placeholder="Ex.: cliente pediu para chegar após 14h"></label>
+        </div>
+        <button class="btn small primary" id="btnConfirmarEu" type="button">✓ Confirmei com o cliente agora</button>
+      </fieldset>
+
+      <fieldset class="embarque-fs card-fs" data-fs="emb">
+        <legend>6 · Embarque e liberação do carro</legend>
+        <div class="grid">
+          <label class="col-2">Gerente de montagem<input type="text" id="f_gerenteMontagem" list="dl_responsaveis" placeholder="Responsável por liberar o carro"></label>
+          <label class="col-2 chk-line"><input type="checkbox" id="f_ferramentasConferidas"><span>Ferramentas corretas conferidas e embarcadas</span></label>
+          <label class="col-2 chk-line destaque-chk"><input type="checkbox" id="f_carroLiberado"><span><b>Carro liberado para sair</b></span></label>
+        </div>
+        <div class="apto-row"><span class="stamp" id="carroStamp"></span><button class="btn small" id="btnLiberarCarroEu" type="button">Liberar carro agora</button></div>
+        <div class="checkin-block">
+          <label class="block-label">📷 Foto do trabalho embarcado (check-in de embarque)</label>
+          <input type="file" id="f_embarque" accept="image/*" capture="environment" multiple class="file-input">
+          <div id="embarquePreview" class="img-preview multi"></div>
+        </div>
+        <small class="hint">Só libere o carro após o cliente confirmado (etapa 5). O gerente de montagem confere as ferramentas e anexa a foto do trabalho embarcado.</small>
+      </fieldset>
+
+      <fieldset class="card-fs" data-fs="exec">
+        <legend>7 · Execução pela equipe (preenchido no espelho)</legend>
+        <div class="grid">
+          <label>Hora saída<input type="time" id="f_horaSaida"></label>
+          <label>Hora retorno<input type="time" id="f_horaRetorno"></label>
+          <label>Instalação OK?
+            <select id="f_instalacaoOK"><option value="">—</option><option value="Sim">Sim</option><option value="Parcial">Parcial</option><option value="Não">Não</option></select>
+          </label>
+          <label>Conferido por<input type="text" id="f_conferido" list="dl_responsaveis"></label>
+          <label class="col-2 chk-line"><input type="checkbox" id="f_retrabalho"><span>Teve retrabalho?</span></label>
+          <label class="col-2 retrabalho-only">Problema / Causa<input type="text" id="f_problema" placeholder="Descreva o problema"></label>
+          <label class="retrabalho-only">Quem resolveu<input type="text" id="f_quemResolveu" list="dl_instaladores"></label>
+          <label class="retrabalho-only">Data resolvida<input type="date" id="f_dataResolvida"></label>
+          <label class="col-2">Observações técnicas<textarea id="f_obs" rows="2" placeholder="Trabalhos realizados e observações relevantes"></textarea></label>
+        </div>
+        <div class="checkin-block">
+          <label class="block-label">Fotos de check-in (obrigatório para finalizar) <span class="req">*</span></label>
+          <input type="file" id="f_checkin" accept="image/*" capture="environment" multiple class="file-input">
+          <div id="checkinPreview" class="img-preview multi"></div>
+        </div>
+        <div class="grid" style="margin-top:6px">
+          <label>Situação do check-out (volta)
+            <select id="f_checkoutSituacao">
+              <option value="">—</option>
+              <option value="Tudo certo">Tudo certo</option>
+              <option value="Material devolvido completo">Material devolvido completo</option>
+              <option value="Sobra de material">Sobra de material</option>
+              <option value="Falta de material">Falta de material</option>
+              <option value="Ferramenta faltando">Ferramenta faltando</option>
+              <option value="Avaria / dano">Avaria / dano</option>
+              <option value="Pendência">Pendência</option>
+            </select>
+          </label>
+          <label>Hora check-out (volta)<input type="time" id="f_horaCheckout"></label>
+          <label>Check-out por<input type="text" id="f_checkoutPor" list="dl_responsaveis"></label>
+          <label class="col-2">Observação do check-out<input type="text" id="f_checkoutObs" placeholder="Ex.: faltou 1 parafuso, devolver ferramenta X…"></label>
+          <label class="col-2 chk-line"><input type="checkbox" id="f_checkoutOk"><span>Check-out na volta confirmado</span></label>
+        </div>
+        <small class="hint">Ao voltar, registre o horário de retorno e o check-out (situação do material/ferramentas).</small>
+      </fieldset>
+
+      <p class="form-error" id="formError" hidden></p>
+      <p class="audit" id="auditInfo"></p>
+    </div>
+
+    <div class="modal-foot">
+      <button class="btn danger ghost" id="btnExcluir" type="button" hidden>Excluir</button>
+      <button class="btn ghost" id="btnPdfOS" type="button" hidden>📄 Baixar PDF</button>
+      <span class="spacer"></span>
+      <button class="btn" id="btnSalvar" type="button">Salvar O.S</button>
+      <button class="btn primary" id="btnFinalizar" type="button">Finalizar instalação ✓</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL LOGIN -->
+<div class="modal-overlay" id="modalLogin" hidden>
+  <div class="modal small">
+    <div class="modal-head"><h2>Quem é você?</h2></div>
+    <div class="modal-body">
+      <p class="muted">Admin e Comercial têm 🔒 senha. Gestão (PCP, Montagem, Operação) entra direto. Instaladores usam o <a href="equipe.html">Espelho da equipe</a>.</p>
+      <div id="loginUsers" class="login-users"></div>
+      <div id="loginSenha" class="login-senha" hidden>
+        <p class="muted">Acesso protegido — <b id="loginSenhaNome"></b></p>
+        <label>Senha<input type="password" id="loginSenhaInput" placeholder="Digite a senha" autocomplete="current-password"></label>
+        <p class="form-error" id="loginSenhaErro" hidden>Senha incorreta. Tente novamente.</p>
+        <div class="senha-actions">
+          <button class="btn" id="loginSenhaVoltar" type="button">‹ Voltar</button>
+          <button class="btn primary" id="loginSenhaOk" type="button">Entrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LIGHTBOX -->
+<div class="lightbox" id="lightbox" hidden>
+  <button class="icon-btn lb-close" id="lbClose">✕</button>
+  <img id="lbImg" alt="Foto ampliada">
+</div>
+
+<datalist id="dl_veiculos"></datalist>
+<datalist id="dl_instaladores"></datalist>
+<datalist id="dl_responsaveis"></datalist>
+<datalist id="dl_usuarios"></datalist>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+</script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Backups e temporários
+*.bak
+data.js.bak
+
+# Config local do Claude Code (caminhos absolutos da máquina)
+.claude/
+
+# Planilhas de origem (não versionar dados brutos baixados)
+*.xlsx
+*.xlsm
+*.xls
+
+# Dependências (caso futuramente use build)
+node_modules/
+
+# Artefato de deploy (gerado para o Netlify Drop)
+impresilk-dre-site.zip
