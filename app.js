@@ -886,6 +886,211 @@ function renderGlossary() {
 }
 
 /* ==================================================================== */
+/*  USUÁRIOS & PERMISSÕES (controle de acesso no navegador)              */
+/*  ATENÇÃO: app estático/público — isto organiza acesso por usuário,    */
+/*  mas NÃO é segurança real (dados em data.js são baixáveis). Para       */
+/*  proteção de verdade, usar senha/Identity do Netlify.                 */
+/* ==================================================================== */
+const USERS_KEY = 'impresilk_dre_users';
+const SESSION_KEY = 'impresilk_dre_session';
+const GATEABLE_VIEWS = [
+  { id: 'overview', label: '📊 Visão Geral' },
+  { id: 'centers',  label: '🎯 Centros de Custo' },
+  { id: 'buffett',  label: '🧠 Análise Fundamentalista' },
+  { id: 'mirror',   label: '🗂️ Espelho' },
+  { id: 'glossary', label: '📖 Glossário' },
+];
+const ALL_VIEW_IDS = GATEABLE_VIEWS.map(v => v.id);
+
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function hashPass(s) { // ofuscação (djb2 + sal) — não é hash criptográfico
+  let h = 5381; const str = 'impresilk::' + s;
+  for (let i = 0; i < str.length; i++) { h = ((h << 5) + h) ^ str.charCodeAt(i); h |= 0; }
+  return (h >>> 0).toString(16);
+}
+function loadUsers() { try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (_) { return []; } }
+function saveUsers(u) { try { localStorage.setItem(USERS_KEY, JSON.stringify(u)); } catch (_) {} }
+function getSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (_) { return null; } }
+function setSession(s) { try { s ? localStorage.setItem(SESSION_KEY, JSON.stringify(s)) : localStorage.removeItem(SESSION_KEY); } catch (_) {} }
+function findUser(username) { return loadUsers().find(u => u.user.toLowerCase() === String(username || '').toLowerCase()); }
+function currentUser() { const s = getSession(); return s ? (findUser(s.user) || null) : null; }
+
+let _switchView = null;       // definido em initApp (fecha sobre tabs/views)
+let _allowed = new Set();      // views permitidas ao usuário logado
+
+function applyPermissions(user) {
+  const isMaster = user.role === 'master';
+  const allowed = isMaster ? ALL_VIEW_IDS.slice() : (user.perms || []);
+  _allowed = new Set(allowed);
+  if (isMaster) _allowed.add('users');
+  document.querySelectorAll('#viewTabs button').forEach(b => {
+    const v = b.dataset.view;
+    const ok = v === 'users' ? isMaster : _allowed.has(v);
+    b.style.display = ok ? '' : 'none';
+  });
+  const activeBtn = document.querySelector('#viewTabs button.active');
+  const cur = activeBtn ? activeBtn.dataset.view : null;
+  if (!cur || !_allowed.has(cur)) {
+    const first = [...document.querySelectorAll('#viewTabs button')].find(b => b.style.display !== 'none');
+    if (first && _switchView) _switchView(first.dataset.view);
+  }
+}
+
+/* ---------- login / setup ---------- */
+function showAuth() {
+  const overlay = document.getElementById('authOverlay');
+  const hasMaster = loadUsers().some(u => u.role === 'master');
+  document.getElementById('loginForm').hidden = !hasMaster;
+  document.getElementById('setupForm').hidden = hasMaster;
+  overlay.hidden = false;
+  document.body.classList.add('locked');
+  const f = hasMaster ? document.getElementById('loginUser') : document.getElementById('setupName');
+  if (f) f.focus();
+}
+function hideAuth() { document.getElementById('authOverlay').hidden = true; document.body.classList.remove('locked'); }
+function onAuthed() {
+  const u = currentUser();
+  if (!u) { showAuth(); return; }
+  hideAuth();
+  const chip = document.getElementById('userChip');
+  chip.hidden = false;
+  document.getElementById('ucName').textContent = u.name || u.user;
+  document.getElementById('ucRole').textContent = u.role === 'master' ? 'Master' : 'Usuário';
+  document.getElementById('ucAvatar').textContent = (u.name || u.user).trim().charAt(0).toUpperCase() || '·';
+  applyPermissions(u);
+  if (u.role === 'master') renderUsersAdmin();
+}
+function logout() { setSession(null); document.getElementById('userChip').hidden = true; showAuth(); }
+
+/* ---------- painel de usuários (somente master) ---------- */
+function permLabels(perms) {
+  const names = GATEABLE_VIEWS.filter(v => (perms || []).includes(v.id)).map(v => v.label.replace(/^\S+\s/, ''));
+  return names.length ? names.join(', ') : '—';
+}
+function renderUsersAdmin() {
+  const tb = document.querySelector('#usersTable tbody');
+  if (!tb) return;
+  const me = currentUser();
+  const users = loadUsers();
+  tb.innerHTML = users.map(u => {
+    const isMaster = u.role === 'master';
+    const can = isMaster ? 'Tudo (master)' : permLabels(u.perms);
+    const isSelf = me && u.user === me.user;
+    return `<tr>
+      <td class="t-name"><b>${esc(u.name || u.user)}</b> <span class="u-login">@${esc(u.user)}</span></td>
+      <td class="t-name"><span class="u-badge ${isMaster ? 'master' : ''}">${isMaster ? 'Master' : 'Usuário'}</span></td>
+      <td class="t-name u-can">${esc(can)}</td>
+      <td><button class="ghost u-edit" data-u="${esc(u.user)}">Editar</button>
+          <button class="ghost u-del" data-u="${esc(u.user)}"${isSelf ? ' disabled title="Você não pode excluir a si mesmo"' : ''}>Excluir</button></td>
+    </tr>`;
+  }).join('');
+  tb.querySelectorAll('.u-edit').forEach(b => b.onclick = () => openUserModal(b.dataset.u));
+  tb.querySelectorAll('.u-del').forEach(b => b.onclick = () => {
+    if (b.disabled) return;
+    const users2 = loadUsers();
+    const target = users2.find(x => x.user === b.dataset.u);
+    if (!target) return;
+    if (target.role === 'master' && users2.filter(x => x.role === 'master').length <= 1) { toast('Não dá para excluir o único master', 'err'); return; }
+    if (!confirm(`Excluir o usuário "${target.user}"?`)) return;
+    saveUsers(users2.filter(x => x.user !== b.dataset.u));
+    renderUsersAdmin();
+    toast('Usuário excluído', 'ok');
+  });
+}
+
+let _editUser = null;
+function buildPermChecks(perms) {
+  document.querySelector('#umPerms .um-perms-grid').innerHTML =
+    GATEABLE_VIEWS.map(v => `<label class="um-check"><input type="checkbox" value="${v.id}" ${(perms || []).includes(v.id) ? 'checked' : ''}/> ${v.label}</label>`).join('');
+}
+function togglePermVisibility(role) { document.getElementById('umPerms').style.display = role === 'master' ? 'none' : ''; }
+function openUserModal(username) {
+  const modal = document.getElementById('userModal');
+  if (!modal) return;
+  _editUser = username ? loadUsers().find(u => u.user === username) : null;
+  document.getElementById('userModalTitle').textContent = _editUser ? 'Editar usuário' : 'Novo usuário';
+  document.getElementById('umName').value = _editUser ? (_editUser.name || '') : '';
+  const userInput = document.getElementById('umUser');
+  userInput.value = _editUser ? _editUser.user : ''; userInput.disabled = !!_editUser;
+  document.getElementById('umPass').value = '';
+  document.getElementById('umPassLabel').textContent = _editUser ? 'Nova senha (em branco mantém a atual)' : 'Senha';
+  const role = document.getElementById('umRole'); role.value = _editUser ? _editUser.role : 'user';
+  buildPermChecks(_editUser ? (_editUser.perms || []) : ['overview', 'glossary']);
+  togglePermVisibility(role.value);
+  document.getElementById('umErr').hidden = true;
+  modal.hidden = false;
+  document.getElementById('umName').focus();
+}
+function saveUserFromModal() {
+  const name = document.getElementById('umName').value.trim();
+  const user = document.getElementById('umUser').value.trim().toLowerCase();
+  const pass = document.getElementById('umPass').value;
+  const role = document.getElementById('umRole').value;
+  const err = document.getElementById('umErr');
+  const show = m => { err.textContent = m; err.hidden = false; };
+  if (!user) return show('Informe o usuário (login).');
+  if (!/^[a-z0-9._-]+$/.test(user)) return show('Usuário: use letras, números, ponto, hífen ou _.');
+  const users = loadUsers();
+  if (!_editUser && users.some(u => u.user === user)) return show('Já existe um usuário com esse login.');
+  if (!_editUser && pass.length < 4) return show('Senha de no mínimo 4 caracteres.');
+  if (_editUser && pass && pass.length < 4) return show('Senha de no mínimo 4 caracteres.');
+  const perms = role === 'master' ? ALL_VIEW_IDS.slice() : [...document.querySelectorAll('#umPerms input:checked')].map(c => c.value);
+  if (role !== 'master' && !perms.length) return show('Selecione ao menos uma tela que o usuário pode ver.');
+  if (_editUser) {
+    if (_editUser.role === 'master' && role !== 'master' && users.filter(u => u.role === 'master').length <= 1) return show('Não dá para rebaixar o único master.');
+    _editUser.name = name || user; _editUser.role = role; _editUser.perms = perms;
+    if (pass) _editUser.pass = hashPass(pass);
+  } else {
+    users.push({ name: name || user, user, pass: hashPass(pass), role, perms });
+  }
+  saveUsers(users);
+  document.getElementById('userModal').hidden = true;
+  renderUsersAdmin();
+  const me = currentUser(); if (me) applyPermissions(me);
+  toast(_editUser ? 'Usuário atualizado' : 'Usuário criado', 'ok');
+}
+function wireUserModal() {
+  const modal = document.getElementById('userModal');
+  if (!modal) return;
+  document.getElementById('umRole').onchange = e => togglePermVisibility(e.target.value);
+  document.getElementById('umSave').onclick = saveUserFromModal;
+  document.getElementById('umCancel').onclick = () => modal.hidden = true;
+  document.getElementById('userModalClose').onclick = () => modal.hidden = true;
+  modal.onclick = e => { if (e.target === modal) modal.hidden = true; };
+}
+function initAuth() {
+  document.getElementById('loginForm').onsubmit = e => {
+    e.preventDefault();
+    const u = findUser(document.getElementById('loginUser').value.trim());
+    const ok = u && u.pass === hashPass(document.getElementById('loginPass').value);
+    const err = document.getElementById('loginErr');
+    if (!ok) { err.textContent = 'Usuário ou senha inválidos.'; err.hidden = false; return; }
+    err.hidden = true; document.getElementById('loginPass').value = '';
+    setSession({ user: u.user, t: Date.now() });
+    onAuthed();
+  };
+  document.getElementById('setupForm').onsubmit = e => {
+    e.preventDefault();
+    const name = document.getElementById('setupName').value.trim();
+    const user = document.getElementById('setupUser').value.trim().toLowerCase();
+    const pass = document.getElementById('setupPass').value;
+    const err = document.getElementById('setupErr');
+    const show = m => { err.textContent = m; err.hidden = false; };
+    if (!user || !/^[a-z0-9._-]+$/.test(user)) return show('Informe um usuário válido (letras/números).');
+    if (pass.length < 4) return show('Senha de no mínimo 4 caracteres.');
+    const users = loadUsers();
+    users.push({ name: name || user, user, pass: hashPass(pass), role: 'master', perms: ALL_VIEW_IDS.slice() });
+    saveUsers(users);
+    setSession({ user, t: Date.now() });
+    err.hidden = true; onAuthed();
+  };
+  document.getElementById('logoutBtn').onclick = logout;
+  document.getElementById('newUserBtn').onclick = () => openUserModal(null);
+  wireUserModal();
+  if (currentUser()) onAuthed(); else showAuth();
+}
+
+/* ==================================================================== */
 /*  UPLOAD / DRAG-DROP / PERSISTÊNCIA                                     */
 /* ==================================================================== */
 function applyTheme(mode, persist = true) {
@@ -1016,11 +1221,13 @@ function initApp() {
   // navegação por abas
   const tabBtns = document.querySelectorAll('#viewTabs button');
   function switchView(view) {
+    if (_allowed.size && !_allowed.has(view)) return; // bloqueia views sem permissão
     tabBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('hidden', v.id !== 'view-' + view));
     try { localStorage.setItem(VIEW_KEY, view); } catch (_) {}
     window.dispatchEvent(new Event('resize')); // força os gráficos a recalcular tamanho
   }
+  _switchView = switchView;
   tabBtns.forEach(b => b.onclick = () => switchView(b.dataset.view));
   let startView = 'overview';
   try { startView = localStorage.getItem(VIEW_KEY) || 'overview'; } catch (_) {}
@@ -1039,6 +1246,9 @@ function initApp() {
     if (saved) { initial = JSON.parse(saved); }
   } catch (_) {}
   boot(initial);
+
+  // controle de acesso (login / usuários / permissões)
+  initAuth();
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
