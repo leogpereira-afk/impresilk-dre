@@ -519,6 +519,90 @@ function boot(D) {
     });
   }
 
+  // ===== Detalhamento por tema (Funcionários, Equipamentos, Produtos, Impostos, Veículos…) =====
+  const BREAKDOWNS = [
+    { key: 'staff',     code: '2.1',  emoji: '👥', title: 'Funcionários',            sub: 'Folha completa — salários, encargos, benefícios e rescisões' },
+    { key: 'equip',     code: '2.6',  emoji: '🛠️', title: 'Máquinas & Equipamentos', sub: 'Aquisição, manutenção e custeio por máquina (Roland, Router, UV…)' },
+    { key: 'materials', code: '2.12', emoji: '📦', title: 'Materiais e Insumos',     sub: 'Custo de produção — impressão, serralheria, usinagem, acabamento' },
+    { key: 'taxes',     code: '2.4',  emoji: '🏛️', title: 'Impostos',                sub: 'Carga tributária — DAS, DARF, ICMS, ISSQN, IPTU, IOF' },
+    { key: 'vehicles',  code: '2.7',  emoji: '🚚', title: 'Veículos · Frota',        sub: 'Combustível, manutenção, licenciamento, IPVA, multas e seguro' },
+    { key: 'banking',   code: '2.13', emoji: '🏦', title: 'Bancárias',               sub: 'Tarifas e juros — atenção ao peso dos juros de cartão' },
+    { key: 'partners',  code: '2.14', emoji: '👔', title: 'Societárias',             sub: 'Retiradas dos sócios, arrendamento e empréstimos bancários' },
+  ];
+  const BRK_PALETTE = ['#a78bfa', '#38bdf8', '#2dd4bf', '#f59e0b', '#fb7185', '#34d399', '#60a5fa', '#fbbf24', '#c084fc', '#4ade80', '#fca5a5', '#22d3ee'];
+
+  function buildBreakdownShells() {
+    const host = document.getElementById('breakdownCards');
+    if (!host || host.childElementCount) return;
+    host.innerHTML = BREAKDOWNS.map(b => `
+      <section class="card brk-card" id="brk-${b.key}" data-default-collapsed>
+        <div class="card-head">
+          <h2>${b.emoji} ${b.title}</h2>
+          <span class="hint">${b.sub}</span>
+        </div>
+        <div class="center-kpis" id="brk-${b.key}-kpis"></div>
+        <div class="util-grid">
+          <div class="chart-wrap"><canvas id="brk-${b.key}-chart"></canvas></div>
+          <div id="brk-${b.key}-rank" class="rank"></div>
+        </div>
+      </section>`).join('');
+  }
+
+  function renderBreakdowns() {
+    buildBreakdownShells();
+    // despesa: cair é bom (verde, ▼); subir é ruim (vermelho, ▲)
+    const dCls = ah => ah == null ? 'flat' : ah <= 0 ? 'up' : 'down';
+    const dArr = ah => ah == null ? '■' : ah <= 0 ? '▼' : '▲';
+
+    BREAKDOWNS.forEach(b => {
+      const parent = get(b.code);
+      const kpisEl = document.getElementById('brk-' + b.key + '-kpis');
+      const rankEl = document.getElementById('brk-' + b.key + '-rank');
+      const cv = document.getElementById('brk-' + b.key + '-chart');
+      if (!parent || !kpisEl || !rankEl || !cv) return;
+
+      const totVals = MONTHS.map((_, i) => val(parent, i));
+      const totCur = totVals[cur], totCmp = totVals[cmp];
+      const ah = totCmp ? (totCur - totCmp) / totCmp : null;
+      const avg = totVals.reduce((s, v) => s + v, 0) / MONTHS.length;
+      const shareExp = expAt(cur) ? totCur / expAt(cur) : 0;
+
+      // filhos com algum movimento no período
+      const kids = (childrenOf.get(b.code) || [])
+        .map(k => ({ name: k.name, vals: MONTHS.map((_, i) => val(k, i)), cur: val(k, cur) }))
+        .filter(k => k.vals.some(v => v !== 0));
+      const ranked = [...kids].sort((a, c) => c.cur - a.cur);
+      const top = ranked.slice(0, 6);
+      const topName = ranked[0] && ranked[0].cur > 0 ? ranked[0].name : '—';
+      const topVal = ranked[0] ? ranked[0].cur : 0;
+
+      kpisEl.innerHTML = `
+        <div class="ck"><span class="ck-l">${b.emoji} Total · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(totCur)}</span><span class="delta ${dCls(ah)}">${dArr(ah)} ${ah == null ? '—' : signedPct(ah)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
+        <div class="ck"><span class="ck-l">Média ${MONTHS.length}m</span><span class="ck-v">${fmt(avg)}</span><span class="ck-s">gasto médio mensal</span></div>
+        <div class="ck"><span class="ck-l">Maior item · ${MONTHS[cur]}</span><span class="ck-v" style="font-size:15px">${topName}</span><span class="ck-s">${topVal ? fmt(topVal) : '—'}</span></div>
+        <div class="ck"><span class="ck-l">% das Despesas</span><span class="ck-v">${pct(shareExp)}</span><span class="ck-s">peso no total de despesas</span></div>`;
+
+      // ranking do mês atual
+      const maxV = ranked[0] && ranked[0].cur > 0 ? ranked[0].cur : 1;
+      const visible = ranked.filter(k => k.cur > 0).slice(0, 8);
+      rankEl.innerHTML = visible.length
+        ? visible.map(k => `<div class="row"><span class="nm">${k.name}</span>
+            <span class="vl">${fmt(k.cur)} · ${pct(totCur ? k.cur / totCur : 0)}</span>
+            <span class="bar"><i style="width:${(k.cur / maxV * 100).toFixed(1)}%"></i></span></div>`).join('')
+        : '<p class="hint">Sem lançamentos neste mês.</p>';
+
+      // gráfico: barras empilhadas por item (top 6) + Outros, mês a mês
+      const restVals = MONTHS.map((_, i) => kids.reduce((s, k) => s + k.vals[i], 0) - top.reduce((s, k) => s + k.vals[i], 0));
+      const datasets = top.map((k, idx) => ({ label: k.name, data: k.vals, backgroundColor: BRK_PALETTE[idx % BRK_PALETTE.length], borderRadius: 4, stack: 's' }));
+      if (restVals.some(v => v > 0.5)) datasets.push({ label: 'Outros', data: restVals, backgroundColor: '#64748b', borderRadius: 4, stack: 's' });
+
+      destroyChart('brk-' + b.key);
+      const opts = baseOpts(v => fmt(v));
+      opts.scales.x.stacked = true; opts.scales.y.stacked = true;
+      _charts['brk-' + b.key] = new Chart(cv, { type: 'bar', data: { labels: MONTHS, datasets }, options: opts });
+    });
+  }
+
   function renderCenterPanel() {
     const s = get(activeCenter);
     if (!s) { document.getElementById('centerPanel').innerHTML = '<p class="hint">Sem dados.</p>'; return; }
@@ -851,7 +935,8 @@ function boot(D) {
 
   function renderAll() {
     renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
-    renderCenters(); renderUtilities(); renderBigCenter(); renderBuffett();
+    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett();
+    if (typeof wireCollapsibleCards === 'function') wireCollapsibleCards();
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
   }
 
@@ -917,7 +1002,7 @@ function wireCollapsibleCards() {
     head.insertBefore(btn, head.firstChild); // caret antes do título (evita sobrepor controles à direita)
 
     const apply = () => {
-      const c = !!saved[key];
+      const c = key in saved ? !!saved[key] : card.hasAttribute('data-default-collapsed');
       card.classList.toggle('collapsed', c);
       btn.textContent = c ? '▸' : '▾';
     };
