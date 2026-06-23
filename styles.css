@@ -318,6 +318,13 @@ button.ghost:hover { color: var(--txt); border-color: var(--accent); }
 .spark { width: 90px; height: 22px; display: block; }
 .spark-zero { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 2; }
 
+/* ===================== Utilidades (Energia × Água) ===================== */
+.util-card { border-top: 3px solid var(--warn); }
+.util-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; align-items: start; }
+.util-grid .chart-wrap { height: 300px; }
+#utilitiesTable td.cur-col { background: rgba(45,212,191,.10); color: var(--accent); font-weight: 700; }
+.u-now { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--accent); background: rgba(45,212,191,.14); padding: 1px 6px; border-radius: 999px; margin-left: 6px; }
+
 /* ===================== Buffett / narrative ===================== */
 .owner-earnings { border-top: 3px solid var(--accent); }
 .narrative { font-size: 15px; line-height: 1.7; color: var(--txt); display: flex; flex-direction: column; gap: 12px; }
@@ -527,7 +534,7 @@ body.locked { overflow: hidden; }
 .gloss-def i { color: var(--txt-dim); }
 
 @media (max-width: 900px) {
-  .center-grid { grid-template-columns: 1fr; }
+  .center-grid, .util-grid { grid-template-columns: 1fr; }
   /* no celular as abas viram uma faixa rolável (padrão iOS), logo abaixo da topbar */
   .tabs {
     position: static; padding: 10px 16px 0;

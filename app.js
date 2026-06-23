@@ -435,6 +435,52 @@ function boot(D) {
     tabsEl.querySelectorAll('button').forEach(b => b.onclick = () => { activeCenter = b.dataset.c; renderCenters(); });
     renderCenterPanel();
   }
+
+  // ===== UTILIDADES: Energia (Cemig 2.5.3) × Água (Copasa 2.5.1) =====
+  function renderUtilities() {
+    const energy = get('2.5.3'), water = get('2.5.1');
+    const kpisEl = document.getElementById('utilitiesKpis');
+    const tbody = document.querySelector('#utilitiesTable tbody');
+    if (!kpisEl || !tbody) return;
+    if (!energy && !water) { kpisEl.innerHTML = '<p class="hint">Contas de energia/água não encontradas nos dados.</p>'; tbody.innerHTML = ''; destroyChart('utilities'); return; }
+    const eVals = MONTHS.map((_, i) => val(energy, i));
+    const wVals = MONTHS.map((_, i) => val(water, i));
+    const tVals = MONTHS.map((_, i) => eVals[i] + wVals[i]);
+    const eCur = eVals[cur], eCmp = eVals[cmp], wCur = wVals[cur], wCmp = wVals[cmp];
+    const eAh = eCmp ? (eCur - eCmp) / eCmp : null;
+    const wAh = wCmp ? (wCur - wCmp) / wCmp : null;
+    const eAvg = eVals.reduce((s, v) => s + v, 0) / MONTHS.length;
+    const wAvg = wVals.reduce((s, v) => s + v, 0) / MONTHS.length;
+    // despesa: cair é bom (verde, ▼); subir é ruim (vermelho, ▲)
+    const dCls = ah => ah == null ? 'flat' : ah <= 0 ? 'up' : 'down';
+    const dArr = ah => ah == null ? '■' : ah <= 0 ? '▼' : '▲';
+
+    kpisEl.innerHTML = `
+      <div class="ck"><span class="ck-l">⚡ Energia · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur)}</span><span class="delta ${dCls(eAh)}">${dArr(eAh)} ${eAh == null ? '—' : signedPct(eAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
+      <div class="ck"><span class="ck-l">💧 Água · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(wCur)}</span><span class="delta ${dCls(wAh)}">${dArr(wAh)} ${wAh == null ? '—' : signedPct(wAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
+      <div class="ck"><span class="ck-l">Total Utilidades · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur + wCur)}</span><span class="ck-s">energia + água no mês</span></div>
+      <div class="ck"><span class="ck-l">Média Energia ${MONTHS.length}m</span><span class="ck-v">${fmt(eAvg)}</span><span class="ck-s">gasto médio mensal</span></div>
+      <div class="ck"><span class="ck-l">Média Água ${MONTHS.length}m</span><span class="ck-v">${fmt(wAvg)}</span><span class="ck-s">gasto médio mensal</span></div>`;
+
+    tbody.innerHTML = MONTHS.map((m, i) => `<tr>
+      <td class="t-name">${m}${i === cur ? ' <span class="u-now">atual</span>' : ''}</td>
+      <td class="mono ${i === cur ? 'cur-col' : ''}">${eVals[i] ? fmt(eVals[i]) : '·'}</td>
+      <td class="mono ${i === cur ? 'cur-col' : ''}">${wVals[i] ? fmt(wVals[i]) : '·'}</td>
+      <td class="mono">${tVals[i] ? fmt(tVals[i]) : '·'}</td>
+    </tr>`).join('');
+
+    destroyChart('utilities');
+    _charts.utilities = new Chart(document.getElementById('utilitiesChart'), {
+      type: 'bar',
+      data: { labels: MONTHS, datasets: [
+        { label: '⚡ Energia (Cemig)', data: eVals, backgroundColor: '#fbbf24', borderRadius: 5 },
+        { label: '💧 Água (Copasa)', data: wVals, backgroundColor: '#38bdf8', borderRadius: 5 },
+        { type: 'line', label: 'Total', data: tVals, borderColor: '#34d399', backgroundColor: '#34d399', tension: .35, pointRadius: 3 }
+      ] },
+      options: baseOpts(v => fmt(v))
+    });
+  }
+
   function renderCenterPanel() {
     const s = get(activeCenter);
     if (!s) { document.getElementById('centerPanel').innerHTML = '<p class="hint">Sem dados.</p>'; return; }
@@ -767,7 +813,7 @@ function boot(D) {
 
   function renderAll() {
     renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderTrend(); buildMirrorHead(); renderMirror();
-    renderCenters(); renderBigCenter(); renderBuffett();
+    renderCenters(); renderUtilities(); renderBigCenter(); renderBuffett();
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
   }
 
