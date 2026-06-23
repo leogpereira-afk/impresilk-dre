@@ -341,6 +341,42 @@ function boot(D) {
        <span class="bar"><i style="width:${(d.v / maxV * 100).toFixed(1)}%"></i></span></div>`).join('');
   }
 
+  // ===== Composição de receitas (por produto) =====
+  function renderRevComposition() {
+    // achata "Comunicação Visual" nos produtos (1.1.1.*) + Serviços, e mantém as demais receitas
+    const sources = [];
+    revSections.forEach(s => {
+      if (s.code === '1.1') {
+        (childrenOf.get('1.1.1') || []).forEach(p => sources.push({ name: p.name, v: val(p, cur) }));
+        const serv = get('1.1.2');
+        if (serv) sources.push({ name: 'Serviços', v: val(serv, cur) });
+      } else {
+        sources.push({ name: s.name.replace(/^Receitas?\s+/i, ''), v: val(s, cur) });
+      }
+    });
+    const data = sources.filter(d => d.v > 0).sort((a, b) => b.v - a.v);
+    const top = data.slice(0, 8);
+    const restV = data.slice(8).reduce((s, d) => s + d.v, 0);
+    const labels = top.map(d => d.name);
+    const vals = top.map(d => d.v);
+    if (restV > 0) { labels.push('Outras'); vals.push(restV); }
+    document.getElementById('revCompHint').textContent = MONTHS[cur] + ' · total ' + fmt(revAt(cur));
+
+    if (_charts.revComp) _charts.revComp.destroy();
+    _charts.revComp = new Chart(document.getElementById('revCompChart'), {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data: vals, backgroundColor: PALETTE, borderColor: cssVar('--chart-border') || '#161f2e', borderWidth: 2 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '62%',
+        plugins: { legend: { position: 'right', labels: { color: cssVar('--chart-tick'), font: { size: 11 }, boxWidth: 10, padding: 8 } },
+          tooltip: { callbacks: { label: c => ` ${c.label}: ${fmt(c.raw)} (${pct(c.raw / (revAt(cur) || 1))})` } } } }
+    });
+    const maxV = data[0] ? data[0].v : 1;
+    document.getElementById('revenueRank').innerHTML = data.slice(0, 6).map(d =>
+      `<div class="row"><span class="nm">${d.name}</span>
+       <span class="vl">${fmt(d.v)} · ${pct(d.v / (revAt(cur) || 1))}</span>
+       <span class="bar pos"><i style="width:${(d.v / maxV * 100).toFixed(1)}%"></i></span></div>`).join('');
+  }
+
   // ===== Comparativo mensal =====
   function renderTrend() {
     const labels = MONTHS;
@@ -812,7 +848,7 @@ function boot(D) {
   }
 
   function renderAll() {
-    renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderTrend(); buildMirrorHead(); renderMirror();
+    renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
     renderCenters(); renderUtilities(); renderBigCenter(); renderBuffett();
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
   }

@@ -240,8 +240,13 @@ tbody td.t-name { text-align: left; }
 .rank .row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; font-size: 12.5px; }
 .rank .row .bar { grid-column: 1 / -1; height: 6px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .rank .row .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--exp), var(--warn)); }
+.rank .row .bar.pos i { background: linear-gradient(90deg, var(--accent), #38bdf8); }
 .rank .nm { color: var(--txt-dim); font-weight: 600; }
 .rank .vl { font-weight: 700; }
+
+.comp-split { display: grid; grid-template-columns: 1.25fr 1fr; gap: 20px; align-items: center; }
+.comp-split .rank { margin-top: 0; }
+@media (max-width: 900px) { .comp-split { grid-template-columns: 1fr; } }
 
 /* Mirror tree */
 .mirror td.t-name { cursor: default; }
