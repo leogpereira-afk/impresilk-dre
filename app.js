@@ -283,6 +283,54 @@ async function pullCloud(manual) {
   toast('Dados atualizados da nuvem ☁️', 'ok');
 }
 
+/* ---------- backup local (item N do guia) ----------
+   Segurança extra independente da nuvem: baixa/recupera TODOS os meses num
+   .json. Útil antes de limpar cache ou para migrar de aparelho sem depender
+   do Blobs. O backup carrega os registros por mês + timestamps. */
+function exportarBackup() {
+  const D = getCurrentData();
+  const data = {
+    versao: 1, app: 'impresilk-dre', exportadoEm: new Date().toISOString(),
+    meses: datasetRecords(D),          // 1 registro por mês (com atualizadoEm)
+    monthTS: getMonthTS(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `impresilk-dre-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast(`Backup salvo · ${(D.months || []).length} meses 💾`, 'ok');
+}
+
+function importarBackup(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      const recs = Array.isArray(data.meses) ? data.meses.map(normalizeRecord) : [];
+      if (!recs.length) { toast('Backup sem meses válidos', 'err'); return; }
+      const merged = monthsToDataset(recs);
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
+      // adota os timestamps do backup e enfileira tudo para re-subir à nuvem
+      const tsMap = data.monthTS && typeof data.monthTS === 'object' ? data.monthTS : {};
+      recs.forEach(r => { if (!tsMap[r.label]) tsMap[r.label] = r.atualizadoEm; });
+      setMonthTS(tsMap);
+      setQueue([]);                    // limpa a fila: ids antigos virariam erro eterno (item N)
+      recs.forEach(r => enqueueUpsert(r));
+      boot(merged);
+      toast(`Backup restaurado · ${merged.months.length} meses 📂`, 'ok');
+      trySync();                       // re-sincroniza o backup para a nuvem
+    } catch (err) {
+      console.error(err);
+      toast('Erro ao ler backup: ' + err.message, 'err');
+    }
+  };
+  reader.onerror = () => toast('Falha ao ler o arquivo', 'err');
+  reader.readAsText(file);
+}
+
 /* ---------- toast ---------- */
 let toastTimer;
 function toast(msg, kind = 'ok') {
@@ -1622,6 +1670,16 @@ function initApp() {
     if (saved) { initial = JSON.parse(saved); }
   } catch (_) {}
   boot(initial);
+
+  // backup local (exportar / importar .json)
+  const backupBtn = document.getElementById('backupBtn');
+  if (backupBtn) backupBtn.onclick = () => exportarBackup();
+  const restoreBtn = document.getElementById('restoreBtn');
+  const restoreInput = document.getElementById('restoreInput');
+  if (restoreBtn && restoreInput) {
+    restoreBtn.onclick = () => restoreInput.click();
+    restoreInput.onchange = () => { if (restoreInput.files[0]) importarBackup(restoreInput.files[0]); restoreInput.value = ''; };
+  }
 
   // botão "Sincronizar agora" (pull manual) + reconexão automática
   const syncBtn = document.getElementById('syncBtn');
