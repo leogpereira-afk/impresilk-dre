@@ -521,13 +521,26 @@ function boot(D) {
 
   // ===== Detalhamento por tema (Funcionários, Equipamentos, Produtos, Impostos, Veículos…) =====
   const BREAKDOWNS = [
-    { key: 'staff',     code: '2.1',  emoji: '👥', title: 'Funcionários',            sub: 'Folha completa — salários, encargos, benefícios e rescisões' },
-    { key: 'equip',     code: '2.6',  emoji: '🛠️', title: 'Máquinas & Equipamentos', sub: 'Aquisição, manutenção e custeio por máquina (Roland, Router, UV…)' },
-    { key: 'materials', code: '2.12', emoji: '📦', title: 'Materiais e Insumos',     sub: 'Custo de produção — impressão, serralheria, usinagem, acabamento' },
-    { key: 'taxes',     code: '2.4',  emoji: '🏛️', title: 'Impostos',                sub: 'Carga tributária — DAS, DARF, ICMS, ISSQN, IPTU, IOF' },
-    { key: 'vehicles',  code: '2.7',  emoji: '🚚', title: 'Veículos · Frota',        sub: 'Combustível, manutenção, licenciamento, IPVA, multas e seguro' },
-    { key: 'banking',   code: '2.13', emoji: '🏦', title: 'Bancárias',               sub: 'Tarifas e juros — atenção ao peso dos juros de cartão' },
-    { key: 'partners',  code: '2.14', emoji: '👔', title: 'Societárias',             sub: 'Retiradas dos sócios, arrendamento e empréstimos bancários' },
+    // ---- Receitas ----
+    { key: 'revprod',   code: '1.1.1', rev: true, emoji: '🏷️', title: 'Receita por Produto',     sub: 'Mix de faturamento — placas, adesivos, lonas, acrílicos, letra caixa' },
+    { key: 'revserv',   code: '1.1.2', rev: true, emoji: '🔧', title: 'Receita por Serviço',     sub: 'Serviços prestados — instalação, pintura, design, hora-máquina, deslocamento' },
+    // ---- Despesas (centros de custo) ----
+    { key: 'staff',     code: '2.1',  emoji: '👥', title: 'Funcionários',            sub: 'Folha completa — salários, FGTS, comissões, benefícios e rescisões' },
+    { key: 'materials', code: '2.12', emoji: '📦', title: 'Materiais e Insumos',     sub: 'Custo direto de produção — serralheria, acabamento, impressão, usinagem, portas ACM' },
+    { key: 'equip',     code: '2.6',  emoji: '🛠️', title: 'Máquinas & Equipamentos', sub: 'Custeio e manutenção do parque — Ampla, Myprinter, Roland, Router, laser' },
+    { key: 'vehicles',  code: '2.7',  emoji: '🚚', title: 'Veículos · Frota',        sub: 'Combustível (maior peso), manutenção, licenciamento, IPVA, multas e seguro' },
+    { key: 'outsource', code: '2.11', emoji: '🤝', title: 'Terceirização de Serviços', sub: 'Capacidade extra — frete, gráfica rápida, freelancer, munk/guindaste' },
+    { key: 'thirdpty',  code: '2.8',  emoji: '📋', title: 'Terceiros',               sub: 'Serviços profissionais — consultoria, contabilidade, advogados e comissão de agência' },
+    { key: 'admin',     code: '2.2',  emoji: '🗂️', title: 'Administrativas',         sub: 'Estrutura administrativa — manutenção predial, contribuição sindical, escritório, seguros' },
+    { key: 'fixed',     code: '2.5',  emoji: '🏠', title: 'Custos Fixos · Estrutura', sub: 'Custos fixos — aluguel, telefonia/internet, T.I, softwares (água e energia no card acima)' },
+    { key: 'safety',    code: '2.9',  emoji: '🦺', title: 'Segurança do Trabalho',   sub: 'Saúde ocupacional (NR) — medicina ocupacional e EPIs' },
+    { key: 'external',  code: '2.10', emoji: '🪜', title: 'Instalações Externas',    sub: 'Despesas em obra — material de construção, viagem, estacionamento, andaimes' },
+    { key: 'cleaning',  code: '2.3',  emoji: '🧹', title: 'Limpeza',                 sub: 'Conservação — material de limpeza e limpeza terceirizada' },
+    { key: 'ads',       code: '2.15', emoji: '📣', title: 'Publicidade & Marketing', sub: 'Marketing — mídia paga (Meta), videomaker e desenvolvimento' },
+    { key: 'invest',    code: '2.16', emoji: '📈', title: 'Investimentos',           sub: 'Aportes e investimentos no período' },
+    { key: 'taxes',     code: '2.4',  emoji: '🏛️', title: 'Impostos',                sub: 'Carga tributária — DARF, DAS, ICMS, ISSQN, IPTU, IOF' },
+    { key: 'banking',   code: '2.13', emoji: '🏦', title: 'Bancárias',               sub: 'Custo financeiro — juros de cartão (maior peso), tarifas e manutenção de conta' },
+    { key: 'partners',  code: '2.14', emoji: '👔', title: 'Societárias',             sub: 'Sócios & dívida — retiradas, empréstimos bancários e arrendamento' },
   ];
   const BRK_PALETTE = ['#a78bfa', '#38bdf8', '#2dd4bf', '#f59e0b', '#fb7185', '#34d399', '#60a5fa', '#fbbf24', '#c084fc', '#4ade80', '#fca5a5', '#22d3ee'];
 
@@ -535,7 +548,7 @@ function boot(D) {
     const host = document.getElementById('breakdownCards');
     if (!host || host.childElementCount) return;
     host.innerHTML = BREAKDOWNS.map(b => `
-      <section class="card brk-card" id="brk-${b.key}" data-default-collapsed>
+      <section class="card brk-card ${b.rev ? 'brk-rev' : ''}" id="brk-${b.key}" data-default-collapsed>
         <div class="card-head">
           <h2>${b.emoji} ${b.title}</h2>
           <span class="hint">${b.sub}</span>
@@ -550,9 +563,6 @@ function boot(D) {
 
   function renderBreakdowns() {
     buildBreakdownShells();
-    // despesa: cair é bom (verde, ▼); subir é ruim (vermelho, ▲)
-    const dCls = ah => ah == null ? 'flat' : ah <= 0 ? 'up' : 'down';
-    const dArr = ah => ah == null ? '■' : ah <= 0 ? '▼' : '▲';
 
     BREAKDOWNS.forEach(b => {
       const parent = get(b.code);
@@ -561,11 +571,19 @@ function boot(D) {
       const cv = document.getElementById('brk-' + b.key + '-chart');
       if (!parent || !kpisEl || !rankEl || !cv) return;
 
+      // receita: subir é bom (verde, ▲). despesa: cair é bom (verde, ▼)
+      const dCls = ah => ah == null ? 'flat' : (b.rev ? ah >= 0 : ah <= 0) ? 'up' : 'down';
+      const dArr = ah => ah == null ? '■' : ah >= 0 ? '▲' : '▼';
+
       const totVals = MONTHS.map((_, i) => val(parent, i));
       const totCur = totVals[cur], totCmp = totVals[cmp];
       const ah = totCmp ? (totCur - totCmp) / totCmp : null;
       const avg = totVals.reduce((s, v) => s + v, 0) / MONTHS.length;
-      const shareExp = expAt(cur) ? totCur / expAt(cur) : 0;
+      const base = b.rev ? revAt(cur) : expAt(cur);
+      const share = base ? totCur / base : 0;
+      const shareLabel = b.rev ? '% da Receita' : '% das Despesas';
+      const shareSub = b.rev ? 'peso no faturamento do mês' : 'peso no total de despesas';
+      const avgSub = b.rev ? 'receita média mensal' : 'gasto médio mensal';
 
       // filhos com algum movimento no período
       const kids = (childrenOf.get(b.code) || [])
@@ -578,9 +596,9 @@ function boot(D) {
 
       kpisEl.innerHTML = `
         <div class="ck"><span class="ck-l">${b.emoji} Total · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(totCur)}</span><span class="delta ${dCls(ah)}">${dArr(ah)} ${ah == null ? '—' : signedPct(ah)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
-        <div class="ck"><span class="ck-l">Média ${MONTHS.length}m</span><span class="ck-v">${fmt(avg)}</span><span class="ck-s">gasto médio mensal</span></div>
+        <div class="ck"><span class="ck-l">Média ${MONTHS.length}m</span><span class="ck-v">${fmt(avg)}</span><span class="ck-s">${avgSub}</span></div>
         <div class="ck"><span class="ck-l">Maior item · ${MONTHS[cur]}</span><span class="ck-v" style="font-size:15px">${topName}</span><span class="ck-s">${topVal ? fmt(topVal) : '—'}</span></div>
-        <div class="ck"><span class="ck-l">% das Despesas</span><span class="ck-v">${pct(shareExp)}</span><span class="ck-s">peso no total de despesas</span></div>`;
+        <div class="ck"><span class="ck-l">${shareLabel}</span><span class="ck-v">${pct(share)}</span><span class="ck-s">${shareSub}</span></div>`;
 
       // ranking do mês atual
       const maxV = ranked[0] && ranked[0].cur > 0 ? ranked[0].cur : 1;
@@ -588,7 +606,7 @@ function boot(D) {
       rankEl.innerHTML = visible.length
         ? visible.map(k => `<div class="row"><span class="nm">${k.name}</span>
             <span class="vl">${fmt(k.cur)} · ${pct(totCur ? k.cur / totCur : 0)}</span>
-            <span class="bar"><i style="width:${(k.cur / maxV * 100).toFixed(1)}%"></i></span></div>`).join('')
+            <span class="bar ${b.rev ? 'pos' : ''}"><i style="width:${(k.cur / maxV * 100).toFixed(1)}%"></i></span></div>`).join('')
         : '<p class="hint">Sem lançamentos neste mês.</p>';
 
       // gráfico: barras empilhadas por item (top 6) + Outros, mês a mês
