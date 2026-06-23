@@ -1247,6 +1247,7 @@ function initApp() {
   probe.onload = () => {
     const img = document.getElementById('brandImg'), svg = document.getElementById('brandSvg');
     img.src = 'logo.png'; img.hidden = false; if (svg) svg.style.display = 'none';
+    document.querySelector('.brand')?.classList.add('has-logo');
   };
   probe.src = 'logo.png';
 
