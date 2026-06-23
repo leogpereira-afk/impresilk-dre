@@ -14,11 +14,21 @@ const TOKEN = 'tok_55606031e843116d7d944c7c1503afd663e742cc';
 const API = '/.netlify/functions/os';
 
 // Helper de chamada: injeta o header x-token e o JSON da ação.
-async function api(action, payload = {}) {
-  const r = await fetch(API, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-token': TOKEN },
-    body: JSON.stringify({ action, ...payload }),
-  });
-  return r.json();
+// Timeout de 15s via AbortController: em sinal fraco, navigator.onLine pode
+// dizer "online" mas o fetch trava para sempre — o timeout vira um erro de
+// rede tratável (a fila retenta no próximo gatilho), em vez de pendurar.
+async function api(action, payload = {}, timeoutMs = 15000) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(API, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-token': TOKEN },
+      body: JSON.stringify({ action, ...payload }),
+      signal: ctrl.signal,
+    });
+    return r.json();
+  } finally {
+    clearTimeout(t);
+  }
 }

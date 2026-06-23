@@ -102,65 +102,184 @@ function getCurrentData() {
   return window.DRE_DATA;
 }
 
-/* ---------- sincronização com a nuvem (Netlify Blobs via os.mjs) ----------
-   Modelo offline-first, espelhando o app de instalação (PCP):
-   - grava SEMPRE no localStorage (funciona offline);
-   - sobe o dataset para a nuvem ao salvar (best-effort);
-   - ao abrir, puxa da nuvem e adota se for MAIS NOVO que o local.
-   A DRE tem um único dataset (não registros soltos), então guardamos tudo
-   numa chave de config global (getCfg/setCfg — consistência forte, pull
-   instantâneo). O frescor é decidido pelo carimbo atualizadoEm. */
-const SYNC_TS_KEY = 'impresilk_dre_sync_ts'; // atualizadoEm do dataset local
+/* ====================================================================
+   Sincronização offline-first (padrão do GUIA-SYNC) — por MÊS
+   --------------------------------------------------------------------
+   Modelo: CADA MÊS = 1 registro (id estável, atualizadoEm ISO). Assim a
+   detecção de conflito por timestamp do os.mjs (upsert) funciona por mês —
+   dois aparelhos editando meses DIFERENTES offline nunca se sobrescrevem.
+   - grava SEMPRE no localStorage (funciona 100% offline);
+   - ao salvar um mês: enfileira um upsert e tenta sincronizar;
+   - ao abrir / reconectar: drena a fila pendente e puxa os meses do servidor,
+     mesclando por timestamp (last-write-wins por mês);
+   - CONFLITO (servidor mais novo): adota a versão do servidor, sem perder dado.
+   O contrato de ações é o mesmo do PCP, então o backend pode ser trocado depois. */
+const MONTH_TS_KEY = 'impresilk_dre_month_ts'; // { label: atualizadoEm } por mês
+const QUEUE_KEY = 'impresilk_dre_queue';       // fila persistente de upserts pendentes
+const PT_MES = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7, set: 8, out: 9, nov: 10, dez: 11 };
+const MAX_FAILS = 25; // descarta item após N erros permanentes (não inchar o localStorage)
 
-function localTS() { try { return localStorage.getItem(SYNC_TS_KEY) || null; } catch (_) { return null; } }
-function setLocalTS(ts) { try { localStorage.setItem(SYNC_TS_KEY, ts); } catch (_) {} }
+// id de blob estável e seguro a partir do rótulo do mês ("Jun/2026" -> "Jun_2026")
+function safeId(label) { return String(label).trim().replace(/[^\w]+/g, '_'); }
+// chave de ordenação cronológica a partir do rótulo pt-BR
+function monthSortKey(label) {
+  const m = String(label).toLowerCase().match(/([a-z]{3})\w*\s*[\/\-]?\s*(\d{4})/);
+  if (!m) return -1;
+  const mi = PT_MES[m[1]]; return (+m[2]) * 12 + (mi == null ? 0 : mi);
+}
 
-// indicador visual no botão de sync: ☁️ ok · ⏳ trabalhando · 📴 offline/erro
+function getMonthTS() { try { return JSON.parse(localStorage.getItem(MONTH_TS_KEY)) || {}; } catch (_) { return {}; } }
+function setMonthTS(map) { try { localStorage.setItem(MONTH_TS_KEY, JSON.stringify(map)); } catch (_) {} }
+function getQueue() { try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || []; } catch (_) { return []; } }
+function setQueue(q) { try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (_) {} }
+
+// dataset (centrado em contas) -> 1 registro por mês (centrado em células)
+function monthRecord(D, i, ts) {
+  const label = D.months[i];
+  return {
+    id: safeId(label), label, atualizadoEm: ts,
+    company: D.company, basis: D.basis,
+    cells: D.accounts.map(a => ({ code: a.code, name: a.name, level: a.level, parent: a.parent, value: a.values[i] || 0 })),
+  };
+}
+// registros por mês -> dataset (reconstrói as contas, em ordem cronológica)
+function monthsToDataset(records) {
+  const recs = records.slice().sort((a, b) => monthSortKey(a.label) - monthSortKey(b.label));
+  const months = recs.map(r => r.label);
+  const meta = new Map(); const order = []; // união de códigos preservando a ordem hierárquica
+  recs.forEach(r => (r.cells || []).forEach(c => {
+    if (!meta.has(c.code)) { meta.set(c.code, { name: c.name, level: c.level, parent: c.parent }); order.push(c.code); }
+  }));
+  const accounts = order.map(code => {
+    const m = meta.get(code);
+    const values = recs.map(r => { const c = (r.cells || []).find(x => x.code === code); return c ? (c.value || 0) : 0; });
+    return { code, name: m.name, level: m.level, parent: m.parent, values };
+  });
+  const last = recs[recs.length - 1] || {};
+  return { company: last.company, basis: last.basis, months, accounts };
+}
+
+// indicador visual no botão de sync: ☁️ ok · ⏳ trabalhando · 📴 offline/erro · ⚠️ pendências
 function setSyncState(state, title) {
   const b = document.getElementById('syncBtn');
   if (!b) return;
-  const icon = state === 'busy' ? '⏳' : state === 'off' ? '📴' : '☁️';
+  const icon = state === 'busy' ? '⏳' : state === 'off' ? '📴' : state === 'pending' ? '⚠️' : '☁️';
   b.textContent = icon;
   b.classList.toggle('busy', state === 'busy');
   if (title) b.title = title;
 }
 
-// sobe o dataset atual para a nuvem (best-effort; se offline, fica só local)
-async function pushCloud(dataset, ts) {
-  if (typeof api !== 'function') return false; // config.js ausente
-  setSyncState('busy', 'Enviando para a nuvem…');
-  try {
-    const r = await api('setCfg', { cfg: { dataset, atualizadoEm: ts } });
-    const ok = !!(r && r.ok);
-    setSyncState(ok ? 'ok' : 'off', ok ? 'Sincronizado · ' + new Date(ts).toLocaleString('pt-BR') : 'Falha ao enviar — tentará de novo');
-    return ok;
-  } catch (_) { setSyncState('off', 'Offline — envio pendente'); return false; } // offline: sobe na próxima vez
+// fila inteligente: upsert do mesmo mês SUBSTITUI o anterior (só a versão mais nova importa)
+function enqueueUpsert(record) {
+  const q = getQueue().filter(it => !(it.action === 'upsert' && it.registro && it.registro.id === record.id));
+  q.push({ action: 'upsert', registro: record, fails: 0 });
+  setQueue(q);
 }
 
-// baixa da nuvem; se for mais novo que o local, adota e re-renderiza.
-// manual=true => avisa por toast mesmo quando já estava atualizado.
+// adota a versão do servidor de um mês (resolução de conflito) e re-renderiza
+function adoptServerMonth(record) {
+  const D = getCurrentData();
+  const recs = datasetRecords(D);
+  const map = new Map(recs.map(r => [r.id, r]));
+  map.set(record.id, normalizeRecord(record));
+  const merged = monthsToDataset([...map.values()]);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
+  const ts = getMonthTS(); ts[record.label || record.id] = record.atualizadoEm; setMonthTS(ts);
+  boot(merged);
+}
+// garante o shape esperado (label/cells) num registro vindo do servidor
+function normalizeRecord(r) {
+  return { id: r.id, label: r.label || r.id, atualizadoEm: r.atualizadoEm, company: r.company, basis: r.basis, cells: r.cells || [] };
+}
+// quebra o dataset local atual em registros por mês (usando os timestamps locais)
+function datasetRecords(D) {
+  const ts = getMonthTS();
+  return (D.months || []).map((label, i) => monthRecord(D, i, ts[label] || '1970-01-01T00:00:00.000Z'));
+}
+
+let _syncing = false;
+// drena a fila pendente (item E/L do guia): chama upsert por mês; trata conflito,
+// distingue falha de rede (retenta depois) de erro permanente (descarta após MAX_FAILS)
+async function trySync() {
+  if (typeof api !== 'function' || _syncing) return;
+  const q0 = getQueue();
+  if (!q0.length) { setSyncState('ok', 'Tudo sincronizado'); return; }
+  if (!navigator.onLine) { setSyncState('off', q0.length + ' mês(es) pendente(s) — offline'); return; }
+  _syncing = true; setSyncState('busy', 'Enviando ' + q0.length + ' pendência(s)…');
+  try {
+    let q = getQueue();
+    while (q.length) {
+      const item = q[0];
+      let r;
+      try { r = await api(item.action, { registro: item.registro }); }
+      catch (_) { setSyncState('off', q.length + ' pendência(s) — sem rede'); _syncing = false; return; } // rede: para e retenta
+      if (r && r.conflito && r.servidor) {            // servidor mais novo: adota e descarta o item
+        adoptServerMonth(r.servidor);
+        q = getQueue().slice(1); setQueue(q); continue;
+      }
+      if (r && r.ok) {                                 // sucesso: confirma o carimbo do servidor e remove
+        const ts = getMonthTS();
+        const lbl = (r.registro && r.registro.label) || item.registro.label;
+        if (r.registro && r.registro.atualizadoEm) ts[lbl] = r.registro.atualizadoEm;
+        setMonthTS(ts);
+        q = getQueue().slice(1); setQueue(q); continue;
+      }
+      // erro permanente (ex.: 400): conta falhas e descarta após o limite
+      item.fails = (item.fails || 0) + 1;
+      if (item.fails >= MAX_FAILS) { q = getQueue().slice(1); setQueue(q); }
+      else { q = getQueue(); q[0] = item; setQueue(q); _syncing = false; setSyncState('pending', 'Pendência com erro — tentará de novo'); return; }
+    }
+    setSyncState('ok', 'Tudo sincronizado · ' + new Date().toLocaleString('pt-BR'));
+  } finally { _syncing = false; }
+}
+
+// puxa os meses do servidor (list paginado) e mescla por timestamp.
+// manual=true => avisa por toast mesmo quando nada mudou.
 async function pullCloud(manual) {
   if (typeof api !== 'function') return;
+  await trySync();                                     // primeiro sobe o que está pendente
+  if (!navigator.onLine) { setSyncState('off', 'Offline — usando dados locais'); return; }
   setSyncState('busy', 'Buscando da nuvem…');
-  let r;
-  try { r = await api('getCfg'); }
-  catch (_) { setSyncState('off', 'Offline — usando dados locais'); return; }
-  const cfg = r && r.cfg;
-  if (!cfg || !cfg.dataset || !cfg.atualizadoEm) { // nuvem vazia
-    setSyncState('ok', 'Nuvem sem dados ainda');
+  const remote = [];
+  let offset = 0, guard = 0;
+  try {
+    while (true) {
+      const r = await api('list', { offset });
+      (r.itens || []).forEach(it => remote.push(it));
+      if (r.nextOffset == null) break;
+      offset = r.nextOffset;
+      if (++guard > 100) break;                        // trava de segurança contra loop infinito
+    }
+  } catch (_) { setSyncState('off', 'Offline — usando dados locais'); return; }
+
+  if (!remote.length) {                                // nuvem vazia
+    setSyncState(getQueue().length ? 'pending' : 'ok', 'Nuvem sem dados ainda');
     if (manual) toast('Nuvem ainda sem dados — suba um mês para começar', 'ok');
     return;
   }
-  const lt = localTS();
-  if (lt && new Date(lt) >= new Date(cfg.atualizadoEm)) { // local já igual/mais novo
-    setSyncState('ok', 'Já atualizado · ' + new Date(cfg.atualizadoEm).toLocaleString('pt-BR'));
+  const D = getCurrentData();
+  const localMap = new Map(datasetRecords(D).map(r => [r.id, r]));
+  const tsMap = getMonthTS();
+  let changed = false;
+  remote.forEach(rem => {
+    const r = normalizeRecord(rem);
+    const cur = localMap.get(r.id);
+    const tsLocal = cur ? new Date(cur.atualizadoEm).getTime() : 0;
+    const tsRemote = new Date(r.atualizadoEm).getTime();
+    if (!cur || tsRemote > tsLocal) {                  // novo no remoto, ou remoto mais novo → adota
+      localMap.set(r.id, r); tsMap[r.label] = r.atualizadoEm; changed = true;
+    }
+  });
+  if (!changed) {
+    setSyncState(getQueue().length ? 'pending' : 'ok', 'Já atualizado · ' + new Date().toLocaleString('pt-BR'));
     if (manual) toast('Tudo já estava atualizado ✓', 'ok');
     return;
   }
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(cfg.dataset)); } catch (_) {}
-  setLocalTS(cfg.atualizadoEm);
-  boot(cfg.dataset);
-  setSyncState('ok', 'Atualizado da nuvem · ' + new Date(cfg.atualizadoEm).toLocaleString('pt-BR'));
+  setMonthTS(tsMap);
+  const merged = monthsToDataset([...localMap.values()]);
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
+  boot(merged);
+  setSyncState(getQueue().length ? 'pending' : 'ok', 'Atualizado da nuvem · ' + new Date().toLocaleString('pt-BR'));
   toast('Dados atualizados da nuvem ☁️', 'ok');
 }
 
@@ -1413,12 +1532,15 @@ function wireMonthUpload() {
       const replaced = merged._replaced; delete merged._replaced;
       const ts = new Date().toISOString();
       try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
-      setLocalTS(ts);
+      // carimba o timestamp SÓ do mês alterado e enfileira o upsert desse mês
+      const tsMap = getMonthTS(); tsMap[label] = ts; setMonthTS(tsMap);
+      const mi = merged.months.indexOf(label);
+      if (mi >= 0) enqueueUpsert(monthRecord(merged, mi, ts));
       closeModal();
       boot(merged);
       toast(`${replaced ? 'Mês atualizado' : 'Mês adicionado'}: ${label} · ${merged.months.length} meses na série`, 'ok');
-      // sobe para a nuvem (best-effort): aparece nos outros aparelhos
-      pushCloud(merged, ts).then(ok => { if (ok) toast('Enviado para a nuvem ☁️', 'ok'); });
+      // sobe para a nuvem (best-effort, pela fila): aparece nos outros aparelhos
+      trySync();
     } catch (err) {
       console.error(err);
       toast('Erro ao adicionar mês: ' + err.message, 'err');
@@ -1501,14 +1623,14 @@ function initApp() {
   } catch (_) {}
   boot(initial);
 
-  // botão "Sincronizar agora" (pull manual) + estado online/offline
+  // botão "Sincronizar agora" (pull manual) + reconexão automática
   const syncBtn = document.getElementById('syncBtn');
   if (syncBtn) syncBtn.onclick = () => pullCloud(true);
-  window.addEventListener('online', () => pullCloud());
+  window.addEventListener('online', () => pullCloud());   // ao voltar a rede: drena a fila e puxa
   window.addEventListener('offline', () => setSyncState('off', 'Offline — usando dados locais'));
   if (!navigator.onLine) setSyncState('off', 'Offline — usando dados locais');
 
-  // sincronização: puxa da nuvem (se houver versão mais nova, adota e re-renderiza)
+  // sincronização inicial: sobe pendências da fila e puxa os meses do servidor
   pullCloud();
 
   // controle de acesso (login / usuários / permissões)
