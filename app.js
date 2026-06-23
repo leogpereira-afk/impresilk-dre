@@ -115,27 +115,52 @@ const SYNC_TS_KEY = 'impresilk_dre_sync_ts'; // atualizadoEm do dataset local
 function localTS() { try { return localStorage.getItem(SYNC_TS_KEY) || null; } catch (_) { return null; } }
 function setLocalTS(ts) { try { localStorage.setItem(SYNC_TS_KEY, ts); } catch (_) {} }
 
+// indicador visual no botão de sync: ☁️ ok · ⏳ trabalhando · 📴 offline/erro
+function setSyncState(state, title) {
+  const b = document.getElementById('syncBtn');
+  if (!b) return;
+  const icon = state === 'busy' ? '⏳' : state === 'off' ? '📴' : '☁️';
+  b.textContent = icon;
+  b.classList.toggle('busy', state === 'busy');
+  if (title) b.title = title;
+}
+
 // sobe o dataset atual para a nuvem (best-effort; se offline, fica só local)
 async function pushCloud(dataset, ts) {
   if (typeof api !== 'function') return false; // config.js ausente
+  setSyncState('busy', 'Enviando para a nuvem…');
   try {
     const r = await api('setCfg', { cfg: { dataset, atualizadoEm: ts } });
-    return !!(r && r.ok);
-  } catch (_) { return false; } // offline: sobe na próxima vez
+    const ok = !!(r && r.ok);
+    setSyncState(ok ? 'ok' : 'off', ok ? 'Sincronizado · ' + new Date(ts).toLocaleString('pt-BR') : 'Falha ao enviar — tentará de novo');
+    return ok;
+  } catch (_) { setSyncState('off', 'Offline — envio pendente'); return false; } // offline: sobe na próxima vez
 }
 
-// baixa da nuvem; se for mais novo que o local, adota e re-renderiza
-async function pullCloud() {
+// baixa da nuvem; se for mais novo que o local, adota e re-renderiza.
+// manual=true => avisa por toast mesmo quando já estava atualizado.
+async function pullCloud(manual) {
   if (typeof api !== 'function') return;
+  setSyncState('busy', 'Buscando da nuvem…');
   let r;
-  try { r = await api('getCfg'); } catch (_) { return; } // offline
+  try { r = await api('getCfg'); }
+  catch (_) { setSyncState('off', 'Offline — usando dados locais'); return; }
   const cfg = r && r.cfg;
-  if (!cfg || !cfg.dataset || !cfg.atualizadoEm) return; // nuvem vazia
+  if (!cfg || !cfg.dataset || !cfg.atualizadoEm) { // nuvem vazia
+    setSyncState('ok', 'Nuvem sem dados ainda');
+    if (manual) toast('Nuvem ainda sem dados — suba um mês para começar', 'ok');
+    return;
+  }
   const lt = localTS();
-  if (lt && new Date(lt) >= new Date(cfg.atualizadoEm)) return; // local já igual/mais novo
+  if (lt && new Date(lt) >= new Date(cfg.atualizadoEm)) { // local já igual/mais novo
+    setSyncState('ok', 'Já atualizado · ' + new Date(cfg.atualizadoEm).toLocaleString('pt-BR'));
+    if (manual) toast('Tudo já estava atualizado ✓', 'ok');
+    return;
+  }
   try { localStorage.setItem(STORE_KEY, JSON.stringify(cfg.dataset)); } catch (_) {}
   setLocalTS(cfg.atualizadoEm);
   boot(cfg.dataset);
+  setSyncState('ok', 'Atualizado da nuvem · ' + new Date(cfg.atualizadoEm).toLocaleString('pt-BR'));
   toast('Dados atualizados da nuvem ☁️', 'ok');
 }
 
@@ -1475,6 +1500,13 @@ function initApp() {
     if (saved) { initial = JSON.parse(saved); }
   } catch (_) {}
   boot(initial);
+
+  // botão "Sincronizar agora" (pull manual) + estado online/offline
+  const syncBtn = document.getElementById('syncBtn');
+  if (syncBtn) syncBtn.onclick = () => pullCloud(true);
+  window.addEventListener('online', () => pullCloud());
+  window.addEventListener('offline', () => setSyncState('off', 'Offline — usando dados locais'));
+  if (!navigator.onLine) setSyncState('off', 'Offline — usando dados locais');
 
   // sincronização: puxa da nuvem (se houver versão mais nova, adota e re-renderiza)
   pullCloud();

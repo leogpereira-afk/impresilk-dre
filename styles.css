@@ -99,6 +99,8 @@ button:focus:not(:focus-visible) { outline: none; }
   display: grid; place-items: center; transition: border-color .2s, background .2s;
 }
 .theme-btn:hover { border-color: var(--accent); }
+.sync-btn.busy { pointer-events: none; animation: sync-spin 1s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
 .ctrl { display: flex; flex-direction: column; gap: 4px; }
 .ctrl span { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--txt-mute); font-weight: 600; }
 .ctrl select {
