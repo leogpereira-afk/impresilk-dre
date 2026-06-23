@@ -1,0 +1,9 @@
+{
+  "name": "impresilk-dre",
+  "private": true,
+  "type": "module",
+  "description": "Site estático (sem build) + Netlify Functions usando Netlify Blobs.",
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0"
+  }
+}

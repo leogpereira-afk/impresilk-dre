@@ -1,11 +1,29 @@
-# Impresilk · DRE Caixa — site estático (sem build)
+# Impresilk · DRE Caixa — site estático (sem build) + Netlify Functions + Blobs
 # O dashboard fica na raiz (/) e o app de instalação em /instalacao/.
 
 [build]
-  publish = "."
-  command = ""
+  publish = "."          # publica a pasta atual como site estático
+  command = ""           # SEM build: nada para compilar/transpilar
+  functions = "netlify/functions"   # onde moram as funções serverless
 
-# Cache leve para os assets estáticos
+# Função agendada (cron na nuvem). Mantém os Blobs "quentes" e serve de
+# healthcheck periódico. @hourly = uma vez por hora. É opcional; remova o
+# bloco se não quiser a execução automática.
+[functions."cron"]
+  schedule = "@hourly"
+
+# ── Cabeçalhos de segurança em TODAS as respostas ────────────────────────────
+# DENY  : impede que o site seja embutido em <iframe> (anti clickjacking).
+# nosniff: impede o browser de "adivinhar" o content-type (anti MIME sniffing).
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+
+# ── Cache dos assets estáticos ───────────────────────────────────────────────
+# JS/CSS sempre revalidados para que mudanças apareçam de imediato (o cache
+# real de offline fica por conta do Service Worker, não deste header).
 [[headers]]
   for = "/*.js"
   [headers.values]
@@ -15,3 +33,10 @@
   for = "/*.css"
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
+
+# O Service Worker NUNCA deve ser cacheado pelo CDN, senão o aparelho fica
+# preso numa versão antiga e nunca recebe o novo CACHE.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"

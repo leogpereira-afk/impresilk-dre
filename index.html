@@ -389,7 +389,14 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="config.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
+<!-- Registra o Service Worker (abre offline). Falha silenciosa se indisponível. -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+  }
+</script>
 </body>
 </html>
