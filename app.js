@@ -102,6 +102,43 @@ function getCurrentData() {
   return window.DRE_DATA;
 }
 
+/* ---------- sincronização com a nuvem (Netlify Blobs via os.mjs) ----------
+   Modelo offline-first, espelhando o app de instalação (PCP):
+   - grava SEMPRE no localStorage (funciona offline);
+   - sobe o dataset para a nuvem ao salvar (best-effort);
+   - ao abrir, puxa da nuvem e adota se for MAIS NOVO que o local.
+   A DRE tem um único dataset (não registros soltos), então guardamos tudo
+   numa chave de config global (getCfg/setCfg — consistência forte, pull
+   instantâneo). O frescor é decidido pelo carimbo atualizadoEm. */
+const SYNC_TS_KEY = 'impresilk_dre_sync_ts'; // atualizadoEm do dataset local
+
+function localTS() { try { return localStorage.getItem(SYNC_TS_KEY) || null; } catch (_) { return null; } }
+function setLocalTS(ts) { try { localStorage.setItem(SYNC_TS_KEY, ts); } catch (_) {} }
+
+// sobe o dataset atual para a nuvem (best-effort; se offline, fica só local)
+async function pushCloud(dataset, ts) {
+  if (typeof api !== 'function') return false; // config.js ausente
+  try {
+    const r = await api('setCfg', { cfg: { dataset, atualizadoEm: ts } });
+    return !!(r && r.ok);
+  } catch (_) { return false; } // offline: sobe na próxima vez
+}
+
+// baixa da nuvem; se for mais novo que o local, adota e re-renderiza
+async function pullCloud() {
+  if (typeof api !== 'function') return;
+  let r;
+  try { r = await api('getCfg'); } catch (_) { return; } // offline
+  const cfg = r && r.cfg;
+  if (!cfg || !cfg.dataset || !cfg.atualizadoEm) return; // nuvem vazia
+  const lt = localTS();
+  if (lt && new Date(lt) >= new Date(cfg.atualizadoEm)) return; // local já igual/mais novo
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(cfg.dataset)); } catch (_) {}
+  setLocalTS(cfg.atualizadoEm);
+  boot(cfg.dataset);
+  toast('Dados atualizados da nuvem ☁️', 'ok');
+}
+
 /* ---------- toast ---------- */
 let toastTimer;
 function toast(msg, kind = 'ok') {
@@ -1349,10 +1386,14 @@ function wireMonthUpload() {
       const D = getCurrentData();
       const merged = upsertMonth(D, label, _pendingMonth);
       const replaced = merged._replaced; delete merged._replaced;
+      const ts = new Date().toISOString();
       try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
+      setLocalTS(ts);
       closeModal();
       boot(merged);
       toast(`${replaced ? 'Mês atualizado' : 'Mês adicionado'}: ${label} · ${merged.months.length} meses na série`, 'ok');
+      // sobe para a nuvem (best-effort): aparece nos outros aparelhos
+      pushCloud(merged, ts).then(ok => { if (ok) toast('Enviado para a nuvem ☁️', 'ok'); });
     } catch (err) {
       console.error(err);
       toast('Erro ao adicionar mês: ' + err.message, 'err');
@@ -1434,6 +1475,9 @@ function initApp() {
     if (saved) { initial = JSON.parse(saved); }
   } catch (_) {}
   boot(initial);
+
+  // sincronização: puxa da nuvem (se houver versão mais nova, adota e re-renderiza)
+  pullCloud();
 
   // controle de acesso (login / usuários / permissões)
   initAuth();
