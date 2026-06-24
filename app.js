@@ -1132,6 +1132,19 @@ function boot(D) {
     signals.push({ type: salesAt(i) > be ? 'good' : 'bad', title: 'Ponto de equilíbrio',
       html: `Com margem de contribuição de ${pct(cmPct)}, a empresa precisa vender <b>${fmt(be)}</b>/mês para cobrir a estrutura fixa. Vendeu <b>${fmt(salesAt(i))}</b> — <b>${salesAt(i) > be ? 'acima' : 'abaixo'}</b> do equilíbrio (${signedPct(be ? salesAt(i) / be - 1 : 0)}).` });
 
+    // fôlego de caixa (reserva): quantos meses de estrutura fixa o caixa acumulado cobre
+    const accReserve = MONTHS.reduce((s, _, k) => s + resAt(k), 0);
+    const avgFixed = MONTHS.reduce((s, _, k) => s + fixedAt(k), 0) / MONTHS.length;
+    const runway = avgFixed > 0 ? accReserve / avgFixed : 0;
+    signals.push({ type: runway >= 3 ? 'good' : runway >= 1 ? 'warn' : 'bad', title: 'Fôlego de caixa (reserva)',
+      html: `O caixa acumulado nos ${MONTHS.length} meses (<b>${fmt(accReserve)}</b>) equivale a <b>${runway.toFixed(1)} meses</b> de estrutura fixa (média de <b>${fmt(avgFixed)}</b>/mês). ${runway >= 3 ? 'Reserva <b>confortável</b> — fôlego para meses fracos e oportunidades.' : runway >= 1 ? 'Reserva <b>apertada</b> — convém engordar o colchão antes de distribuir mais.' : 'Reserva <b>insuficiente</b> — risco de aperto num mês fraco.'}` });
+
+    // peso do custo financeiro: juros e tarifas bancárias (2.13) sobre a receita
+    const finCost = val(get('2.13'), i);
+    const finPct = revAt(i) ? finCost / revAt(i) : 0;
+    signals.push({ type: finPct > 0.08 ? 'bad' : finPct > 0.04 ? 'warn' : 'good', title: 'Peso do custo financeiro',
+      html: `Juros e tarifas bancárias consumiram <b>${fmt(finCost)}</b> em ${MONTHS[i]} — <b>${pct(finPct)}</b> da receita. ${finPct > 0.08 ? 'Está <b>alto</b>: juros de cartão/empréstimo corroem o resultado — priorize quitar o rotativo.' : finPct > 0.04 ? 'Moderado — vale renegociar tarifas e evitar o rotativo do cartão.' : 'Sob controle.'}` });
+
     document.getElementById('buffettSignals').innerHTML = signals.map(s => `<div class="insight ${s.type}"><span class="it ${s.type}">${s.title}</span>${s.html}</div>`).join('');
 
     // ---- simulador de retiradas ----
