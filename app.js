@@ -1209,12 +1209,27 @@ function boot(D) {
 /*  BANCOS — contas para consulta (Impresilk e Universo). Dados fixos.    */
 /* ==================================================================== */
 const BANCOS = [
-  { banco: 'BTG 208',            titular: 'Impresilk', cnpj: '20.789.673/0001-80', agencia: '1',    conta: '907063-6', pix: '5307f7f3-f4d1-4e82-8ba8-95ce448c194b', pixTipo: 'Aleatória' },
-  { banco: 'Sicoob Credinor',    titular: 'Impresilk', cnpj: '20.789.673/0001-80', agencia: '3144', conta: '16.814-9', pix: '20.789.673/0001-80', pixTipo: 'CNPJ' },
-  { banco: 'BNB',               titular: 'Impresilk', cnpj: '20.789.673/0001-80', agencia: '34',   conta: '42501-4',  pix: '', pixTipo: 'Conta e agência' },
-  { banco: 'BB',                titular: 'Impresilk', cnpj: '20.789.673/0001-80', agencia: '1479-6', conta: '10541-4', pix: '', pixTipo: 'Conta e agência' },
-  { banco: 'Sicoob Credinor',    titular: 'Universo',  cnpj: '26.521.684/0001-60', agencia: '3144', conta: '90.028-1', pix: '26.521.684/0001-60', pixTipo: 'CNPJ' },
-  { banco: 'Sicoob Credinosso',  titular: 'Universo',  cnpj: '26.521.684/0001-60', agencia: '3327', conta: '5.136-5',  pix: '', pixTipo: 'Conta e agência' },
+  // Impresilk e Universo
+  { grupo: 'Impresilk e Universo', banco: 'BTG 208',           titular: 'Impresilk', doc: '20.789.673/0001-80', agencia: '1',    conta: '907063-6', pix: '5307f7f3-f4d1-4e82-8ba8-95ce448c194b', pixTipo: 'Aleatória' },
+  { grupo: 'Impresilk e Universo', banco: 'Sicoob Credinor',   titular: 'Impresilk', doc: '20.789.673/0001-80', agencia: '3144', conta: '16.814-9', pix: '20.789.673/0001-80', pixTipo: 'CNPJ' },
+  { grupo: 'Impresilk e Universo', banco: 'BNB',               titular: 'Impresilk', doc: '20.789.673/0001-80', agencia: '34',   conta: '42501-4',  pix: '', pixTipo: 'Conta e agência' },
+  { grupo: 'Impresilk e Universo', banco: 'BB',                titular: 'Impresilk', doc: '20.789.673/0001-80', agencia: '1479-6', conta: '10541-4', pix: '', pixTipo: 'Conta e agência' },
+  { grupo: 'Impresilk e Universo', banco: 'Sicoob Credinor',   titular: 'Universo',  doc: '26.521.684/0001-60', agencia: '3144', conta: '90.028-1', pix: '26.521.684/0001-60', pixTipo: 'CNPJ' },
+  { grupo: 'Impresilk e Universo', banco: 'Sicoob Credinosso', titular: 'Universo',  doc: '26.521.684/0001-60', agencia: '3327', conta: '5.136-5',  pix: '', pixTipo: 'Conta e agência' },
+  // Outras contas
+  { grupo: 'Outras contas',        banco: 'BTG 208',                  titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '20',   conta: '908210-8',  pix: '11 972746113', pixTipo: 'Telefone' },
+  { grupo: 'Outras contas',        banco: 'BTG 208 · Investimento',   titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '1',    conta: '908210-8',  pix: '', pixTipo: 'Conta e agência' },
+  { grupo: 'Outras contas',        banco: 'Itaú',                     titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '341',  conta: '',          pix: '9278fa29-e71e-48ed-b733-25ac3338d2c3', pixTipo: 'Aleatória' },
+  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'LGP',                doc: '12.228.048/0001-30', agencia: '3144', conta: '47.892-0',  pix: 'leonardo@fortemais.com', pixTipo: 'E-mail' },
+  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'LG',                 doc: '50.788.526/0001-56', agencia: '3144', conta: '63.300-3',  pix: '50.788.526/0001-56', pixTipo: 'CNPJ' },
+  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'SPE Domo',           doc: '55.981.504/0001-21', agencia: '3144', conta: '74.188-4',  pix: '55.981.504/0001-21', pixTipo: 'CNPJ' },
+  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'LGP II',             doc: '12.228.048/0001-30', agencia: '3144', conta: '70.104-1',  pix: '12.228.048/0001-30', pixTipo: 'CNPJ' },
+  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'Domo',               doc: '55.941.523/0001-24', agencia: '3144', conta: '74.448-4',  pix: '55.941.523/0001-24', pixTipo: 'CNPJ' },
+  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'Zeus',               doc: '37.571.480/0001-50', agencia: '3144', conta: '64.881-7',  pix: '37.571.480/0001-50', pixTipo: 'CNPJ' },
+  { grupo: 'Outras contas',        banco: 'Sicoob Credinosso',        titular: 'Neon',               doc: '42.836.150/0001-80', agencia: '3327', conta: '8.342-9',   pix: '42.836.150/0001-80', pixTipo: 'CNPJ' },
+  { grupo: 'Outras contas',        banco: 'Caixa · Léo PF',           titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '3115', conta: '580779854-2', pix: '07856533684', pixTipo: 'CPF' },
+  { grupo: 'Outras contas',        banco: 'Caixa · LGP',              titular: 'LGP',                doc: '12.228.048/0001-30', agencia: '3115', conta: '578893015-0', pix: '1222804800130', pixTipo: 'CNPJ' },
+  { grupo: 'Outras contas',        banco: 'Santander',                titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '3504', conta: '01001895-6', pix: 'e5c64f17-642b-43bb-b5ef-1fdce9b52978', pixTipo: 'Aleatória' },
 ];
 
 function escAttr(s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -1246,8 +1261,9 @@ function renderBancos() {
       </button>
     </div>`;
   };
-  grid.innerHTML = BANCOS.map(b => {
-    const blob = `${b.banco} ${b.titular} ${b.cnpj} ${b.agencia} ${b.conta} ${b.pix} ${b.pixTipo}`.toLowerCase();
+  const card = (b) => {
+    const blob = `${b.banco} ${b.titular} ${b.doc} ${b.agencia} ${b.conta} ${b.pix} ${b.pixTipo}`.toLowerCase();
+    const docLabel = /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(b.doc) ? 'CPF' : 'CNPJ';
     const pixRow = b.pix
       ? linha(`Pix · ${b.pixTipo}`, b.pix, 'Chave Pix')
       : `<div class="banco-row banco-row--note"><span class="banco-k">Pix</span><span class="banco-note">${escAttr(b.pixTipo)}</span></div>`;
@@ -1256,12 +1272,23 @@ function renderBancos() {
         <span class="banco-nome">${escAttr(b.banco)}</span>
         <span class="banco-titular">${escAttr(b.titular)}</span>
       </div>
-      ${linha('CNPJ', b.cnpj, 'CNPJ')}
+      ${linha(docLabel, b.doc, docLabel)}
       ${linha('Agência', b.agencia, 'Agência')}
       ${linha('Conta', b.conta, 'Conta')}
       ${pixRow}
     </div>`;
-  }).join('');
+  };
+  const grupos = [];
+  BANCOS.forEach(b => {
+    let g = grupos.find(x => x.name === b.grupo);
+    if (!g) { g = { name: b.grupo, items: [] }; grupos.push(g); }
+    g.items.push(b);
+  });
+  grid.innerHTML = grupos.map(g => `
+    <div class="banco-group">
+      <h3 class="banco-group-title">${escAttr(g.name)}</h3>
+      <div class="banco-cards">${g.items.map(card).join('')}</div>
+    </div>`).join('');
 
   grid.querySelectorAll('.banco-v').forEach(btn => {
     btn.onclick = () => copiar(btn.dataset.copy, btn.dataset.label);
@@ -1274,6 +1301,10 @@ function renderBancos() {
       const q = search.value.trim().toLowerCase();
       grid.querySelectorAll('.banco-card').forEach(el => {
         el.classList.toggle('hidden', !!q && !el.dataset.search.includes(q));
+      });
+      grid.querySelectorAll('.banco-group').forEach(g => {
+        const anyVisible = [...g.querySelectorAll('.banco-card')].some(el => !el.classList.contains('hidden'));
+        g.classList.toggle('hidden', !anyVisible);
       });
     };
   }

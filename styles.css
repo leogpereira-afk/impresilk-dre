@@ -547,7 +547,13 @@ body.locked { overflow: hidden; }
 .gloss-def i { color: var(--txt-dim); }
 
 /* ===================== Bancos ===================== */
-.bancos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; }
+.bancos-grid { display: flex; flex-direction: column; gap: 26px; }
+.banco-group.hidden { display: none; }
+.banco-group-title {
+  font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--accent); margin-bottom: 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
+}
+.banco-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; }
 .banco-card {
   background: var(--card-2); border: 1px solid var(--line); border-left: 3px solid var(--accent);
   border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 4px;
@@ -595,7 +601,7 @@ body.locked { overflow: hidden; }
   .sim-kpis { grid-template-columns: repeat(2, 1fr); }
   .bc-kpis { grid-template-columns: repeat(2, 1fr); }
   .gloss-items { grid-template-columns: 1fr; }
-  .bancos-grid { grid-template-columns: 1fr; }
+  .banco-cards { grid-template-columns: 1fr; }
   .um-perms-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
