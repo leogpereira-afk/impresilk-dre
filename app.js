@@ -1206,6 +1206,80 @@ function boot(D) {
 }
 
 /* ==================================================================== */
+/*  BANCOS — contas para consulta (Impresilk e Universo). Dados fixos.    */
+/* ==================================================================== */
+const BANCOS = [
+  { banco: 'BTG 208',            titular: 'Impresilk', cnpj: '20.789.673/0001-80', agencia: '1',    conta: '907063-6', pix: '5307f7f3-f4d1-4e82-8ba8-95ce448c194b', pixTipo: 'Aleatória' },
+  { banco: 'Sicoob Credinor',    titular: 'Impresilk', cnpj: '20.789.673/0001-80', agencia: '3144', conta: '16.814-9', pix: '20.789.673/0001-80', pixTipo: 'CNPJ' },
+  { banco: 'BNB',               titular: 'Impresilk', cnpj: '20.789.673/0001-80', agencia: '34',   conta: '42501-4',  pix: '', pixTipo: 'Conta e agência' },
+  { banco: 'BB',                titular: 'Impresilk', cnpj: '20.789.673/0001-80', agencia: '1479-6', conta: '10541-4', pix: '', pixTipo: 'Conta e agência' },
+  { banco: 'Sicoob Credinor',    titular: 'Universo',  cnpj: '26.521.684/0001-60', agencia: '3144', conta: '90.028-1', pix: '26.521.684/0001-60', pixTipo: 'CNPJ' },
+  { banco: 'Sicoob Credinosso',  titular: 'Universo',  cnpj: '26.521.684/0001-60', agencia: '3327', conta: '5.136-5',  pix: '', pixTipo: 'Conta e agência' },
+];
+
+function escAttr(s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function copiar(texto, label) {
+  const ok = () => toast(`${label} copiado ✓`, 'ok');
+  const fail = () => toast('Não foi possível copiar', 'err');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(texto).then(ok).catch(fail);
+  } else {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = texto; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+      document.body.removeChild(ta); ok();
+    } catch (_) { fail(); }
+  }
+}
+
+function renderBancos() {
+  const grid = document.getElementById('bancosGrid');
+  if (!grid) return;
+  const linha = (label, valor, copyLabel) => {
+    if (!valor) return '';
+    return `<div class="banco-row">
+      <span class="banco-k">${label}</span>
+      <button class="banco-v" data-copy="${escAttr(valor)}" data-label="${escAttr(copyLabel || label)}" title="Copiar ${escAttr(copyLabel || label)}">
+        <span class="banco-val">${escAttr(valor)}</span><span class="banco-copy">⧉</span>
+      </button>
+    </div>`;
+  };
+  grid.innerHTML = BANCOS.map(b => {
+    const blob = `${b.banco} ${b.titular} ${b.cnpj} ${b.agencia} ${b.conta} ${b.pix} ${b.pixTipo}`.toLowerCase();
+    const pixRow = b.pix
+      ? linha(`Pix · ${b.pixTipo}`, b.pix, 'Chave Pix')
+      : `<div class="banco-row banco-row--note"><span class="banco-k">Pix</span><span class="banco-note">${escAttr(b.pixTipo)}</span></div>`;
+    return `<div class="banco-card" data-search="${escAttr(blob)}">
+      <div class="banco-head">
+        <span class="banco-nome">${escAttr(b.banco)}</span>
+        <span class="banco-titular">${escAttr(b.titular)}</span>
+      </div>
+      ${linha('CNPJ', b.cnpj, 'CNPJ')}
+      ${linha('Agência', b.agencia, 'Agência')}
+      ${linha('Conta', b.conta, 'Conta')}
+      ${pixRow}
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.banco-v').forEach(btn => {
+    btn.onclick = () => copiar(btn.dataset.copy, btn.dataset.label);
+  });
+
+  const search = document.getElementById('bancosSearch');
+  if (search && !search._wired) {
+    search._wired = true;
+    search.oninput = () => {
+      const q = search.value.trim().toLowerCase();
+      grid.querySelectorAll('.banco-card').forEach(el => {
+        el.classList.toggle('hidden', !!q && !el.dataset.search.includes(q));
+      });
+    };
+  }
+}
+
+/* ==================================================================== */
 /*  GLOSSÁRIO — explicações em linguagem simples (independe dos dados)    */
 /* ==================================================================== */
 const GLOSSARY = [
@@ -1353,6 +1427,7 @@ const GATEABLE_VIEWS = [
   { id: 'centers',  label: '🎯 Centros de Custo' },
   { id: 'buffett',  label: '🧠 Análise Fundamentalista' },
   { id: 'mirror',   label: '🗂️ Espelho' },
+  { id: 'bancos',   label: '🏦 Bancos' },
   { id: 'glossary', label: '📖 Glossário' },
 ];
 const ALL_VIEW_IDS = GATEABLE_VIEWS.map(v => v.id);
@@ -1698,6 +1773,7 @@ function initApp() {
 
   // glossário (conteúdo estático — independe dos dados)
   renderGlossary();
+  renderBancos();
 
   // botões de recolher em cada card
   wireCollapsibleCards();
