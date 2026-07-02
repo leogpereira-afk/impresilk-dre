@@ -1206,8 +1206,9 @@ function boot(D) {
 }
 
 /* ==================================================================== */
-/*  BANCOS — contas para consulta (Impresilk e Universo). Dados fixos.    */
+/*  BANCOS — contas para consulta. Dados fixos, agrupados por empresa.    */
 /* ==================================================================== */
+const BANCOS_OPEN_KEY = 'impresilk_dre_bancos_open';
 const BANCOS = [
   // Impresilk e Universo
   { grupo: 'Impresilk e Universo', banco: 'BTG 208',           titular: 'Impresilk', doc: '20.789.673/0001-80', agencia: '1',    conta: '907063-6', pix: '5307f7f3-f4d1-4e82-8ba8-95ce448c194b', pixTipo: 'Aleatória' },
@@ -1216,20 +1217,25 @@ const BANCOS = [
   { grupo: 'Impresilk e Universo', banco: 'BB',                titular: 'Impresilk', doc: '20.789.673/0001-80', agencia: '1479-6', conta: '10541-4', pix: '', pixTipo: 'Conta e agência' },
   { grupo: 'Impresilk e Universo', banco: 'Sicoob Credinor',   titular: 'Universo',  doc: '26.521.684/0001-60', agencia: '3144', conta: '90.028-1', pix: '26.521.684/0001-60', pixTipo: 'CNPJ' },
   { grupo: 'Impresilk e Universo', banco: 'Sicoob Credinosso', titular: 'Universo',  doc: '26.521.684/0001-60', agencia: '3327', conta: '5.136-5',  pix: '', pixTipo: 'Conta e agência' },
-  // Outras contas
-  { grupo: 'Outras contas',        banco: 'BTG 208',                  titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '20',   conta: '908210-8',  pix: '11 972746113', pixTipo: 'Telefone' },
-  { grupo: 'Outras contas',        banco: 'BTG 208 · Investimento',   titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '1',    conta: '908210-8',  pix: '', pixTipo: 'Conta e agência' },
-  { grupo: 'Outras contas',        banco: 'Itaú',                     titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '341',  conta: '',          pix: '9278fa29-e71e-48ed-b733-25ac3338d2c3', pixTipo: 'Aleatória' },
-  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'LGP',                doc: '12.228.048/0001-30', agencia: '3144', conta: '47.892-0',  pix: 'leonardo@fortemais.com', pixTipo: 'E-mail' },
-  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'LG',                 doc: '50.788.526/0001-56', agencia: '3144', conta: '63.300-3',  pix: '50.788.526/0001-56', pixTipo: 'CNPJ' },
-  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'SPE Domo',           doc: '55.981.504/0001-21', agencia: '3144', conta: '74.188-4',  pix: '55.981.504/0001-21', pixTipo: 'CNPJ' },
-  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'LGP II',             doc: '12.228.048/0001-30', agencia: '3144', conta: '70.104-1',  pix: '12.228.048/0001-30', pixTipo: 'CNPJ' },
-  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'Domo',               doc: '55.941.523/0001-24', agencia: '3144', conta: '74.448-4',  pix: '55.941.523/0001-24', pixTipo: 'CNPJ' },
-  { grupo: 'Outras contas',        banco: 'Sicoob Credinor',          titular: 'Zeus',               doc: '37.571.480/0001-50', agencia: '3144', conta: '64.881-7',  pix: '37.571.480/0001-50', pixTipo: 'CNPJ' },
-  { grupo: 'Outras contas',        banco: 'Sicoob Credinosso',        titular: 'Neon',               doc: '42.836.150/0001-80', agencia: '3327', conta: '8.342-9',   pix: '42.836.150/0001-80', pixTipo: 'CNPJ' },
-  { grupo: 'Outras contas',        banco: 'Caixa · Léo PF',           titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '3115', conta: '580779854-2', pix: '07856533684', pixTipo: 'CPF' },
-  { grupo: 'Outras contas',        banco: 'Caixa · LGP',              titular: 'LGP',                doc: '12.228.048/0001-30', agencia: '3115', conta: '578893015-0', pix: '1222804800130', pixTipo: 'CNPJ' },
-  { grupo: 'Outras contas',        banco: 'Santander',                titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '3504', conta: '01001895-6', pix: 'e5c64f17-642b-43bb-b5ef-1fdce9b52978', pixTipo: 'Aleatória' },
+  // Leonardo Gonçalves (PF)
+  { grupo: 'Leonardo Gonçalves (PF)', banco: 'BTG 208',                titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '20',   conta: '908210-8',  pix: '11 972746113', pixTipo: 'Telefone' },
+  { grupo: 'Leonardo Gonçalves (PF)', banco: 'BTG 208 · Investimento', titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '1',    conta: '908210-8',  pix: '', pixTipo: 'Conta e agência' },
+  { grupo: 'Leonardo Gonçalves (PF)', banco: 'Itaú',                   titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '341',  conta: '',          pix: '9278fa29-e71e-48ed-b733-25ac3338d2c3', pixTipo: 'Aleatória' },
+  { grupo: 'Leonardo Gonçalves (PF)', banco: 'Caixa · Léo PF',         titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '3115', conta: '580779854-2', pix: '07856533684', pixTipo: 'CPF' },
+  { grupo: 'Leonardo Gonçalves (PF)', banco: 'Santander',              titular: 'Leonardo Gonçalves', doc: '078.565.336-84',    agencia: '3504', conta: '01001895-6', pix: 'e5c64f17-642b-43bb-b5ef-1fdce9b52978', pixTipo: 'Aleatória' },
+  // LGP
+  { grupo: 'LGP',  banco: 'Sicoob Credinor',   titular: 'LGP',      doc: '12.228.048/0001-30', agencia: '3144', conta: '47.892-0',  pix: 'leonardo@fortemais.com', pixTipo: 'E-mail' },
+  { grupo: 'LGP',  banco: 'Sicoob Credinor',   titular: 'LGP II',   doc: '12.228.048/0001-30', agencia: '3144', conta: '70.104-1',  pix: '12.228.048/0001-30', pixTipo: 'CNPJ' },
+  { grupo: 'LGP',  banco: 'Caixa · LGP',       titular: 'LGP',      doc: '12.228.048/0001-30', agencia: '3115', conta: '578893015-0', pix: '1222804800130', pixTipo: 'CNPJ' },
+  // LG
+  { grupo: 'LG',   banco: 'Sicoob Credinor',   titular: 'LG',       doc: '50.788.526/0001-56', agencia: '3144', conta: '63.300-3',  pix: '50.788.526/0001-56', pixTipo: 'CNPJ' },
+  // Domo
+  { grupo: 'Domo', banco: 'Sicoob Credinor',   titular: 'SPE Domo', doc: '55.981.504/0001-21', agencia: '3144', conta: '74.188-4',  pix: '55.981.504/0001-21', pixTipo: 'CNPJ' },
+  { grupo: 'Domo', banco: 'Sicoob Credinor',   titular: 'Domo',     doc: '55.941.523/0001-24', agencia: '3144', conta: '74.448-4',  pix: '55.941.523/0001-24', pixTipo: 'CNPJ' },
+  // Zeus
+  { grupo: 'Zeus', banco: 'Sicoob Credinor',   titular: 'Zeus',     doc: '37.571.480/0001-50', agencia: '3144', conta: '64.881-7',  pix: '37.571.480/0001-50', pixTipo: 'CNPJ' },
+  // Neon
+  { grupo: 'Neon', banco: 'Sicoob Credinosso', titular: 'Neon',     doc: '42.836.150/0001-80', agencia: '3327', conta: '8.342-9',   pix: '42.836.150/0001-80', pixTipo: 'CNPJ' },
 ];
 
 function escAttr(s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
@@ -1284,14 +1290,32 @@ function renderBancos() {
     if (!g) { g = { name: b.grupo, items: [] }; grupos.push(g); }
     g.items.push(b);
   });
-  grid.innerHTML = grupos.map(g => `
-    <div class="banco-group">
-      <h3 class="banco-group-title">${escAttr(g.name)}</h3>
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(BANCOS_OPEN_KEY) || '{}'); } catch (_) {}
+  grid.innerHTML = grupos.map((g, i) => {
+    const open = g.name in saved ? !!saved[g.name] : i === 0; // 1º grupo aberto por padrão
+    return `<div class="banco-group ${open ? '' : 'collapsed'}" data-group="${escAttr(g.name)}">
+      <button class="banco-group-head" type="button" aria-expanded="${open}">
+        <span class="banco-caret">▾</span>
+        <span class="banco-group-title">${escAttr(g.name)}</span>
+        <span class="banco-group-count">${g.items.length} ${g.items.length === 1 ? 'conta' : 'contas'}</span>
+      </button>
       <div class="banco-cards">${g.items.map(card).join('')}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   grid.querySelectorAll('.banco-v').forEach(btn => {
     btn.onclick = () => copiar(btn.dataset.copy, btn.dataset.label);
+  });
+
+  grid.querySelectorAll('.banco-group-head').forEach(head => {
+    head.onclick = () => {
+      const grp = head.closest('.banco-group');
+      const nowOpen = grp.classList.toggle('collapsed') === false;
+      head.setAttribute('aria-expanded', nowOpen);
+      saved[grp.dataset.group] = nowOpen;
+      try { localStorage.setItem(BANCOS_OPEN_KEY, JSON.stringify(saved)); } catch (_) {}
+    };
   });
 
   const search = document.getElementById('bancosSearch');
@@ -1303,8 +1327,11 @@ function renderBancos() {
         el.classList.toggle('hidden', !!q && !el.dataset.search.includes(q));
       });
       grid.querySelectorAll('.banco-group').forEach(g => {
-        const anyVisible = [...g.querySelectorAll('.banco-card')].some(el => !el.classList.contains('hidden'));
+        const cards = [...g.querySelectorAll('.banco-card')];
+        const anyVisible = cards.some(el => !el.classList.contains('hidden'));
         g.classList.toggle('hidden', !anyVisible);
+        // durante a busca, expande grupos com resultado para mostrar as contas
+        if (q && anyVisible) g.classList.remove('collapsed');
       });
     };
   }
