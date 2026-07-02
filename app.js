@@ -121,11 +121,14 @@ const MAX_FAILS = 25; // descarta item após N erros permanentes (não inchar o 
 
 // id de blob estável e seguro a partir do rótulo do mês ("Jun/2026" -> "Jun_2026")
 function safeId(label) { return String(label).trim().replace(/[^\w]+/g, '_'); }
-// chave de ordenação cronológica a partir do rótulo pt-BR
+// chave de ordenação cronológica a partir do rótulo pt-BR ("Jun/2026" ou "06/2026")
 function monthSortKey(label) {
-  const m = String(label).toLowerCase().match(/([a-z]{3})\w*\s*[\/\-]?\s*(\d{4})/);
-  if (!m) return -1;
-  const mi = PT_MES[m[1]]; return (+m[2]) * 12 + (mi == null ? 0 : mi);
+  const s = String(label).toLowerCase();
+  const m = s.match(/([a-z]{3})\w*\s*[\/\-]?\s*(\d{4})/);
+  if (m) { const mi = PT_MES[m[1]]; return (+m[2]) * 12 + (mi == null ? 0 : mi); }
+  const n = s.match(/(\d{1,2})\s*[\/\-]\s*(\d{4})/);   // formato numérico "06/2026"
+  if (n) return (+n[2]) * 12 + Math.min(11, Math.max(0, +n[1] - 1));
+  return -1;
 }
 
 function getMonthTS() { try { return JSON.parse(localStorage.getItem(MONTH_TS_KEY)) || {}; } catch (_) { return {}; } }
@@ -253,6 +256,14 @@ async function pullCloud(manual) {
   } catch (_) { setSyncState('off', 'Offline — usando dados locais'); return; }
 
   if (!remote.length) {                                // nuvem vazia
+    const locais = datasetRecords(getCurrentData());
+    if (locais.length) {                               // semeia a nuvem com os meses locais
+      locais.forEach(enqueueUpsert);
+      toast(`Enviando ${locais.length} ${locais.length === 1 ? 'mês' : 'meses'} para a nuvem…`, 'ok');
+      await trySync();
+      setSyncState(getQueue().length ? 'pending' : 'ok', 'Meses locais enviados para a nuvem');
+      return;
+    }
     setSyncState(getQueue().length ? 'pending' : 'ok', 'Nuvem sem dados ainda');
     if (manual) toast('Nuvem ainda sem dados — suba um mês para começar', 'ok');
     return;
@@ -270,6 +281,11 @@ async function pullCloud(manual) {
       localMap.set(r.id, r); tsMap[r.label] = r.atualizadoEm; changed = true;
     }
   });
+  // sobe para a nuvem os meses que só existem localmente (a nuvem não os tem)
+  const remoteIds = new Set(remote.map(rem => normalizeRecord(rem).id));
+  let soLocais = 0;
+  localMap.forEach((r, id) => { if (!remoteIds.has(id)) { enqueueUpsert(r); soLocais++; } });
+  if (soLocais) trySync();
   if (!changed) {
     setSyncState(getQueue().length ? 'pending' : 'ok', 'Já atualizado · ' + new Date().toLocaleString('pt-BR'));
     if (manual) toast('Tudo já estava atualizado ✓', 'ok');
@@ -1128,7 +1144,7 @@ function boot(D) {
       html: `Margem de contribuição com volatilidade <b>${cmStab.cv < 0.1 ? 'baixa' : 'moderada'}</b> (CV ${(cmStab.cv * 100).toFixed(0)}%). ${cmStab.cv < 0.1 ? 'Precificação saudável e estável.' : 'Vale revisar precificação por linha.'}` });
 
     // ponto de equilíbrio do mês
-    const be = cmPct ? fixedAt(i) / cmPct : 0;
+    const be = cmPct > 0 ? Math.max(0, fixedAt(i)) / cmPct : 0; // nunca negativo (retiradas altas não são "equilíbrio")
     signals.push({ type: salesAt(i) > be ? 'good' : 'bad', title: 'Ponto de equilíbrio',
       html: `Com margem de contribuição de ${pct(cmPct)}, a empresa precisa vender <b>${fmt(be)}</b>/mês para cobrir a estrutura fixa. Vendeu <b>${fmt(salesAt(i))}</b> — <b>${salesAt(i) > be ? 'acima' : 'abaixo'}</b> do equilíbrio (${signedPct(be ? salesAt(i) / be - 1 : 0)}).` });
 
@@ -1860,6 +1876,8 @@ function initApp() {
   window.addEventListener('online', () => pullCloud());   // ao voltar a rede: drena a fila e puxa
   window.addEventListener('offline', () => setSyncState('off', 'Offline — usando dados locais'));
   if (!navigator.onLine) setSyncState('off', 'Offline — usando dados locais');
+  // retentativa automática: se sobrou fila pendente (rede oscilou), tenta de novo a cada 3 min
+  setInterval(() => { if (navigator.onLine && getQueue().length) trySync(); }, 3 * 60 * 1000);
 
   // sincronização inicial: sobe pendências da fila e puxa os meses do servidor
   pullCloud();
