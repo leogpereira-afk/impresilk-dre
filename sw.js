@@ -3,7 +3,7 @@
 // ▶ A cada mudança nos arquivos, SUBA o número do CACHE (v1 → v2 → …). No
 //   evento "activate" apagamos todo cache com nome diferente, o que força os
 //   aparelhos a baixarem a versão nova (evita ficar preso em arquivos antigos).
-const CACHE = 'app-shell-v13';
+const CACHE = 'app-shell-v14';
 
 // Arquivos estáticos pré-cacheados na instalação (o "app shell"). São o mínimo
 // para o app abrir offline. CDNs (Chart.js, fonts) não entram aqui: serão
