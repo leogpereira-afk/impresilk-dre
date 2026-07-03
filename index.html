@@ -107,6 +107,7 @@
   <button data-view="centers">🎯 Centros de Custo</button>
   <button data-view="buffett">🧠 Análise Fundamentalista</button>
   <button data-view="mirror">🗂️ Espelho</button>
+  <button data-view="diretrizes">📘 Diretrizes DRE</button>
   <button data-view="bancos">🏦 Bancos</button>
   <button data-view="glossary">📖 Glossário</button>
   <button data-view="users" class="master-only">👤 Usuários</button>
@@ -319,6 +320,20 @@
       </div>
       <nav class="center-chips" id="bigCenterChips"></nav>
       <div id="bigCenterPanel" class="big-center-panel"></div>
+    </section>
+  </div>
+
+  <!-- ===================== DIRETRIZES DA DRE ===================== -->
+  <div class="view hidden" id="view-diretrizes">
+    <section class="card">
+      <div class="card-head">
+        <h2>📘 DRE · Diretrizes e regras de classificação</h2>
+        <div class="tree-controls">
+          <input type="search" id="diretrizesSearch" placeholder="Buscar diretriz…" />
+        </div>
+      </div>
+      <p class="hint" style="margin-bottom:16px">Como esta DRE funciona e as <b>regras da casa</b> para classificar cada lançamento. Na dúvida na hora de lançar, consulte aqui — classificação errada no sistema aparece errada no painel.</p>
+      <div id="diretrizesGrid" class="glossary-grid"></div>
     </section>
   </div>
 

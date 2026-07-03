@@ -295,10 +295,19 @@ async function pullCloud(manual) {
     }
   } catch (_) { setSyncState('off', 'Offline — usando dados locais'); return; }
 
+  // meses excluídos de propósito (ex.: subido com rótulo errado): o servidor
+  // guarda a lista {id: quando}; cada aparelho remove sua cópia local em vez
+  // de reenviá-la. Se o mês for editado DEPOIS da exclusão, ele volta a valer.
+  let removidos = {};
+  try { const rc = await api('getCfg'); removidos = (rc && rc.cfg && rc.cfg.removidos) || {}; } catch (_) {}
+  const naoExcluido = r => !(removidos[r.id] && new Date(removidos[r.id]) >= new Date(r.atualizadoEm || 0));
+
   if (!remote.length) {                                // nuvem vazia
-    const { kept: locais, dropped: dupsL } = dedupePeriods(datasetRecords(getCurrentData()));
-    if (dupsL.length) {                                // limpa duplicatas locais antes de semear
-      const tsM = getMonthTS(); dupsL.forEach(d => delete tsM[d.label]); setMonthTS(tsM);
+    const dd = dedupePeriods(datasetRecords(getCurrentData()));
+    const locais = dd.kept.filter(naoExcluido);
+    const fora = dd.dropped.concat(dd.kept.filter(r => !naoExcluido(r)));
+    if (fora.length && locais.length) {                // limpa duplicatas/excluídos antes de semear
+      const tsM = getMonthTS(); fora.forEach(d => delete tsM[d.label]); setMonthTS(tsM);
       const limpo = monthsToDataset(locais);
       salvarLocal(limpo);
       boot(limpo);
@@ -327,6 +336,17 @@ async function pullCloud(manual) {
       localMap.set(r.id, r); tsMap[r.label] = r.atualizadoEm; changed = true;
     }
   });
+  // aplica exclusões registradas no servidor: mês apagado de propósito sai
+  // daqui também (e da fila), em vez de ser reenviado para a nuvem
+  let excluidos = 0;
+  localMap.forEach((r, id) => {
+    if (!naoExcluido(r)) { localMap.delete(id); delete tsMap[r.label]; excluidos++; }
+  });
+  if (excluidos) {
+    changed = true;
+    setQueue(getQueue().filter(q => naoExcluido(q)));
+    toast(`${excluidos} ${excluidos === 1 ? 'mês removido' : 'meses removidos'} — exclusão feita na nuvem`, 'ok');
+  }
   // remove períodos duplicados (mesmo mês com grafia diferente) — fica a versão mais recente
   const { dropped: dups } = dedupePeriods([...localMap.values()]);
   if (dups.length) {
@@ -1510,11 +1530,12 @@ function wireCollapsibleCards() {
   });
 }
 
-function renderGlossary() {
-  const grid = document.getElementById('glossaryGrid');
+// grade de termos agrupados com busca — usada pelo Glossário e pelas Diretrizes
+function renderTermGrid(gridId, searchId, items) {
+  const grid = document.getElementById(gridId);
   if (!grid) return;
   const groups = [];
-  GLOSSARY.forEach(item => {
+  items.forEach(item => {
     let gr = groups.find(x => x.name === item.g);
     if (!gr) { gr = { name: item.g, items: [] }; groups.push(gr); }
     gr.items.push(item);
@@ -1530,7 +1551,7 @@ function renderGlossary() {
       </div>
     </div>`).join('');
 
-  const search = document.getElementById('glossarySearch');
+  const search = document.getElementById(searchId);
   if (search && !search._wired) {
     search._wired = true;
     search.oninput = () => {
@@ -1545,6 +1566,33 @@ function renderGlossary() {
     };
   }
 }
+function renderGlossary() { renderTermGrid('glossaryGrid', 'glossarySearch', GLOSSARY); }
+function renderDiretrizes() { renderTermGrid('diretrizesGrid', 'diretrizesSearch', DIRETRIZES); }
+
+/* ==================================================================== */
+/*  DIRETRIZES DA DRE — como funciona + regras da casa de classificação   */
+/* ==================================================================== */
+const DIRETRIZES = [
+  { g: 'Como esta DRE funciona', t: 'Regime de caixa', d: 'Esta DRE segue a <b>competência de caixa</b>: cada valor entra no mês em que o dinheiro <b>efetivamente entrou ou saiu</b> da conta — a data do pagamento/recebimento manda, não a data da venda ou da nota. Por isso o resultado pode oscilar conforme <i>quando</i> as contas foram pagas.' },
+  { g: 'Como esta DRE funciona', t: 'De onde vêm os números', d: 'O painel espelha o export <b>“Plano de Contas” (.xlsx)</b> do sistema. Ele não inventa nem corrige nada: <b>classificação errada no sistema aparece errada aqui</b>. Encontrou algo no lugar errado? A correção é feita <i>na origem</i> (reclassificar o lançamento no sistema) e depois subir o export de novo — o painel atualiza sem duplicar.' },
+  { g: 'Como esta DRE funciona', t: 'Estrutura de códigos', d: 'Contas <b>1.x</b> = Receitas (1.1 vendas, 1.3/1.4 rendimentos e empréstimos captados). Contas <b>2.x</b> = Despesas, uma por centro de custo (2.1 Funcionários, 2.12 Materiais, 2.13 Bancárias, 2.14 Societárias…). Os níveis aninham: <i>2.14.2.2</i> está dentro de <i>2.14.2</i>, que está dentro de <i>2.14</i>.' },
+
+  { g: 'Regras da casa · onde classificar', t: 'Retiradas de sócios', d: 'Toda retirada de sócio vai em <b>Despesas Societárias → 2.14.2 Retiradas</b>. <b>Nunca</b> em Despesas Funcionários (2.1) — retirada não é folha de pagamento, é destino do lucro.' },
+  { g: 'Regras da casa · onde classificar', t: 'Arrendamento', d: 'O arrendamento vai em <b>Despesas Societárias → 2.14.1 Arrendamento</b>. <b>Nunca</b> em Despesas Funcionários (2.1) ou em custos da operação.' },
+  { g: 'Regras da casa · onde classificar', t: 'Plano de saúde — funcionários × arrendamento', d: 'São dois destinos diferentes: o plano de saúde dos <b>funcionários</b> vai em <b>2.1.20 Plano de Saúde</b> (Despesas Funcionários). O plano de saúde de <b>Pedro e Maria (arrendamento)</b> vai em <b>Despesas Societárias (2.14)</b> — <b>não entra</b> em despesas de colaboradores.' },
+  { g: 'Regras da casa · onde classificar', t: 'Antecipação de recebíveis', d: 'Custo de antecipar recebíveis é <b>custo financeiro</b>: vai em <b>Bancárias → 2.13.6 Antecipação de Recebíveis</b>. Não é retirada nem despesa operacional.' },
+  { g: 'Regras da casa · onde classificar', t: 'Investimentos e aportes', d: 'Aportes e investimentos vão em <b>2.16 Investimentos</b> — separados da operação. Na análise, são tratados como “dinheiro do dono”, junto com as Societárias.' },
+  { g: 'Regras da casa · onde classificar', t: 'Empréstimos', d: 'Empréstimo <b>captado</b> (dinheiro que entrou) é receita financeira (<b>1.4</b>). <b>Juros e parcelas</b> pagos são custo financeiro (<b>2.13 Bancárias</b>). Não misturar com receita de vendas — isso inflaria a margem.' },
+
+  { g: 'Rotina de fechamento mensal', t: 'Passo a passo do fechamento', d: '<b>1.</b> Feche o mês no sistema. <b>2.</b> Exporte o “Plano de Contas” (.xlsx). <b>3.</b> No painel, clique <b>+ mês</b> e suba o arquivo. <b>4.</b> Confira no aviso se Receita/Despesa/Resultado batem com o sistema. <b>5.</b> Confirme — o painel sincroniza sozinho (☁️).' },
+  { g: 'Rotina de fechamento mensal', t: 'Um upload por mês', d: 'O painel reconhece o período mesmo com grafia diferente (“jun/2026”, “06/2026”) e <b>atualiza o mês existente sem duplicar</b>, avisando quantas contas mudaram. Subiu a planilha errada? Basta subir a certa por cima.' },
+  { g: 'Rotina de fechamento mensal', t: 'Confira o rótulo do período', d: 'O campo do período vem <b>preenchido com o mês seguinte</b> da série — se você está reenviando o mês atual corrigido, <b>ajuste o rótulo</b> antes de confirmar, senão os dados entram como um mês novo.' },
+  { g: 'Rotina de fechamento mensal', t: 'Backup mensal', d: 'Após o fechamento, clique <b>💾</b> para baixar o backup .json com todos os meses. É a proteção independente da nuvem — guarde numa pasta do Drive.' },
+
+  { g: 'Como ler o resultado', t: 'Resultado do mês ≠ desempenho das vendas', d: 'No caixa, um mês pode fechar apertado só porque muitas contas venceram nele — e folgado porque clientes atrasados pagaram. Antes de concluir, olhe a <b>tendência de 3+ meses</b> e a aba <b>Análise</b>.' },
+  { g: 'Como ler o resultado', t: 'Separe a operação do sócio', d: 'O número mais honesto da operação é o <b>Resultado Operacional</b> (aba Análise): vendas menos custos, <b>antes</b> de retiradas, arrendamento e investimentos. Se a operação dá lucro mas o caixa aperta, o ajuste é nas retiradas — não na produção.' },
+  { g: 'Como ler o resultado', t: 'Ponto de equilíbrio', d: 'A aba Análise mostra quanto é preciso <b>vender no mês para não ter prejuízo</b>. Vender acima = lucro; abaixo = prejuízo. Termos completos no <b>📖 Glossário</b>.' },
+];
 
 /* ==================================================================== */
 /*  USUÁRIOS & PERMISSÕES (controle de acesso no navegador)              */
@@ -1559,6 +1607,7 @@ const GATEABLE_VIEWS = [
   { id: 'centers',  label: '🎯 Centros de Custo' },
   { id: 'buffett',  label: '🧠 Análise Fundamentalista' },
   { id: 'mirror',   label: '🗂️ Espelho' },
+  { id: 'diretrizes', label: '📘 Diretrizes DRE' },
   { id: 'bancos',   label: '🏦 Bancos' },
   { id: 'glossary', label: '📖 Glossário' },
 ];
@@ -1925,6 +1974,7 @@ function initApp() {
 
   // glossário (conteúdo estático — independe dos dados)
   renderGlossary();
+  renderDiretrizes();
   renderBancos();
 
   // botões de recolher em cada card
