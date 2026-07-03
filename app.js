@@ -212,6 +212,22 @@ function datasetRecords(D) {
   return (D.months || []).map((label, i) => monthRecord(D, i, ts[label] || '1970-01-01T00:00:00.000Z'));
 }
 
+// registros que representam o MESMO período com grafias diferentes ("Jun/2026" x
+// "jun/2026"): mantém o mais novo por atualizadoEm e devolve os descartados
+function dedupePeriods(records) {
+  const byPeriod = new Map(); const dropped = [];
+  records.forEach(r => {
+    const k = monthSortKey(r.label);
+    const pk = k >= 0 ? 'p' + k : 'l' + String(r.label).toLowerCase();
+    const cur = byPeriod.get(pk);
+    if (!cur) { byPeriod.set(pk, r); return; }
+    const keep = new Date(r.atualizadoEm) >= new Date(cur.atualizadoEm) ? r : cur;
+    dropped.push(keep === r ? cur : r);
+    byPeriod.set(pk, keep);
+  });
+  return { kept: [...byPeriod.values()], dropped };
+}
+
 let _syncing = false;
 // drena a fila pendente (item E/L do guia): chama upsert por mês; trata conflito,
 // distingue falha de rede (retenta depois) de erro permanente (descarta após MAX_FAILS)
@@ -268,7 +284,13 @@ async function pullCloud(manual) {
   } catch (_) { setSyncState('off', 'Offline — usando dados locais'); return; }
 
   if (!remote.length) {                                // nuvem vazia
-    const locais = datasetRecords(getCurrentData());
+    const { kept: locais, dropped: dupsL } = dedupePeriods(datasetRecords(getCurrentData()));
+    if (dupsL.length) {                                // limpa duplicatas locais antes de semear
+      const tsM = getMonthTS(); dupsL.forEach(d => delete tsM[d.label]); setMonthTS(tsM);
+      const limpo = monthsToDataset(locais);
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(limpo)); } catch (_) {}
+      boot(limpo);
+    }
     if (locais.length) {                               // semeia a nuvem com os meses locais
       locais.forEach(enqueueUpsert);
       toast(`Enviando ${locais.length} ${locais.length === 1 ? 'mês' : 'meses'} para a nuvem…`, 'ok');
@@ -293,6 +315,18 @@ async function pullCloud(manual) {
       localMap.set(r.id, r); tsMap[r.label] = r.atualizadoEm; changed = true;
     }
   });
+  // remove períodos duplicados (mesmo mês com grafia diferente) — fica a versão mais recente
+  const { dropped: dups } = dedupePeriods([...localMap.values()]);
+  if (dups.length) {
+    changed = true;
+    setQueue(getQueue().filter(q => !dups.some(d => d.id === q.id)));
+    dups.forEach(d => {
+      localMap.delete(d.id);
+      delete tsMap[d.label];
+      api('delete', { id: d.id }).catch(() => {});     // apaga a duplicata também na nuvem
+    });
+    toast(`${dups.length} ${dups.length === 1 ? 'período duplicado removido' : 'períodos duplicados removidos'} — mantida a versão mais recente`, 'ok');
+  }
   // sobe para a nuvem os meses que só existem localmente (a nuvem não os tem)
   const remoteIds = new Set(remote.map(rem => normalizeRecord(rem).id));
   let soLocais = 0;
