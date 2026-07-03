@@ -97,6 +97,18 @@ function upsertMonth(D, monthLabel, parsed) {
   return { company: D.company, basis: D.basis, months, accounts, _replaced: D.months.includes(monthLabel) };
 }
 
+/* acha um mês já existente que representa o MESMO período, mesmo com outra
+   grafia ("jun/2026", "Junho/2026", "06/2026" → "Jun/2026"). Evita duplicar. */
+function findExistingMonth(D, label) {
+  if (!D || !D.months || !label) return null;
+  const exact = D.months.find(m => m === label);
+  if (exact) return exact;
+  const key = monthSortKey(label);
+  if (key >= 0) return D.months.find(m => monthSortKey(m) === key) || null;
+  const norm = s => String(s).toLowerCase().replace(/\s+/g, '');
+  return D.months.find(m => norm(m) === norm(label)) || null;
+}
+
 function getCurrentData() {
   try { const s = localStorage.getItem(STORE_KEY); if (s) return JSON.parse(s); } catch (_) {}
   return window.DRE_DATA;
@@ -1738,9 +1750,9 @@ function wireMonthUpload() {
           `<div class="mp"><span class="mp-l">Contas lidas</span><b class="mp-v">${parsed.length}</b></div>`;
         labelInput.value = nextMonthLabel(D && D.months ? D.months[D.months.length - 1] : '');
         const checkWarn = () => {
-          const exists = D && D.months && D.months.includes(labelInput.value.trim());
-          warn.hidden = !exists;
-          if (exists) warn.textContent = `⚠ O período “${labelInput.value.trim()}” já existe — os dados desse mês serão substituídos.`;
+          const ex = findExistingMonth(D, labelInput.value.trim());
+          warn.hidden = !ex;
+          if (ex) warn.textContent = `⚠ O período “${ex}” já existe — os dados serão atualizados (sem duplicar).`;
         };
         labelInput.oninput = checkWarn; checkWarn();
         _pendingMonth = parsed;
@@ -1764,8 +1776,20 @@ function wireMonthUpload() {
     if (!label) { toast('Informe o período (mês/ano)', 'err'); labelInput.focus(); return; }
     try {
       const D = getCurrentData();
+      // mesmo período com outra grafia ("jun/2026", "06/2026") → atualiza o existente, não duplica
+      const existing = findExistingMonth(D, label);
+      if (existing) label = existing;
       const merged = upsertMonth(D, label, _pendingMonth);
       const replaced = merged._replaced; delete merged._replaced;
+      // se substituiu, mede o que de fato mudou; se nada mudou, não altera nem sincroniza
+      let mudadas = 0;
+      if (replaced) {
+        const miOld = D.months.indexOf(label);
+        const miNew = merged.months.indexOf(label);
+        const antes = new Map(D.accounts.map(a => [a.code, round2(a.values[miOld] || 0)]));
+        merged.accounts.forEach(a => { if (round2(a.values[miNew] || 0) !== (antes.get(a.code) || 0)) mudadas++; });
+        if (!mudadas) { closeModal(); toast(`“${label}” já estava idêntico — nada foi alterado ✓`, 'ok'); return; }
+      }
       const ts = new Date().toISOString();
       try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
       // carimba o timestamp SÓ do mês alterado e enfileira o upsert desse mês
@@ -1774,7 +1798,9 @@ function wireMonthUpload() {
       if (mi >= 0) enqueueUpsert(monthRecord(merged, mi, ts));
       closeModal();
       boot(merged);
-      toast(`${replaced ? 'Mês atualizado' : 'Mês adicionado'}: ${label} · ${merged.months.length} meses na série`, 'ok');
+      toast(replaced
+        ? `Mês atualizado: ${label} · ${mudadas} ${mudadas === 1 ? 'conta alterada' : 'contas alteradas'}`
+        : `Mês adicionado: ${label} · ${merged.months.length} meses na série`, 'ok');
       // sobe para a nuvem (best-effort, pela fila): aparece nos outros aparelhos
       trySync();
     } catch (err) {
