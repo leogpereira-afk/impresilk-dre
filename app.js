@@ -114,6 +114,18 @@ function getCurrentData() {
   return window.DRE_DATA;
 }
 
+// grava o dataset avisando quando o armazenamento do navegador encher —
+// antes a falha era silenciosa e o usuário perdia dados sem saber
+function salvarLocal(dataset) {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(dataset)); return true; }
+  catch (e) {
+    const cheio = e && (e.name === 'QuotaExceededError' || e.code === 22);
+    if (typeof toast === 'function')
+      toast(cheio ? 'Armazenamento do navegador CHEIO — os dados não foram salvos! Baixe um backup (💾) e limpe dados antigos.' : 'Falha ao salvar no navegador: ' + (e && e.message || e), 'err');
+    return false;
+  }
+}
+
 /* ====================================================================
    Sincronização offline-first (padrão do GUIA-SYNC) — por MÊS
    --------------------------------------------------------------------
@@ -198,7 +210,7 @@ function adoptServerMonth(record) {
   const map = new Map(recs.map(r => [r.id, r]));
   map.set(record.id, normalizeRecord(record));
   const merged = monthsToDataset([...map.values()]);
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
+  salvarLocal(merged);
   const ts = getMonthTS(); ts[record.label || record.id] = record.atualizadoEm; setMonthTS(ts);
   boot(merged);
 }
@@ -288,7 +300,7 @@ async function pullCloud(manual) {
     if (dupsL.length) {                                // limpa duplicatas locais antes de semear
       const tsM = getMonthTS(); dupsL.forEach(d => delete tsM[d.label]); setMonthTS(tsM);
       const limpo = monthsToDataset(locais);
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(limpo)); } catch (_) {}
+      salvarLocal(limpo);
       boot(limpo);
     }
     if (locais.length) {                               // semeia a nuvem com os meses locais
@@ -339,7 +351,7 @@ async function pullCloud(manual) {
   }
   setMonthTS(tsMap);
   const merged = monthsToDataset([...localMap.values()]);
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
+  salvarLocal(merged);
   boot(merged);
   setSyncState(getQueue().length ? 'pending' : 'ok', 'Atualizado da nuvem · ' + new Date().toLocaleString('pt-BR'));
   toast('Dados atualizados da nuvem ☁️', 'ok');
@@ -374,7 +386,7 @@ function importarBackup(file) {
       const recs = Array.isArray(data.meses) ? data.meses.map(normalizeRecord) : [];
       if (!recs.length) { toast('Backup sem meses válidos', 'err'); return; }
       const merged = monthsToDataset(recs);
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
+      salvarLocal(merged);
       // adota os timestamps do backup e enfileira tudo para re-subir à nuvem
       const tsMap = data.monthTS && typeof data.monthTS === 'object' ? data.monthTS : {};
       recs.forEach(r => { if (!tsMap[r.label]) tsMap[r.label] = r.atualizadoEm; });
@@ -1610,7 +1622,12 @@ function onAuthed() {
   applyPermissions(u);
   if (u.role === 'master') renderUsersAdmin();
 }
-function logout() { setSession(null); document.getElementById('userChip').hidden = true; showAuth(); }
+function logout() {
+  // dados ainda não sincronizados se perderiam de vista — avisa antes de sair
+  const pend = (typeof getQueue === 'function') ? getQueue().length : 0;
+  if (pend && !confirm(`Você tem ${pend} ${pend === 1 ? 'mês pendente' : 'meses pendentes'} de sincronização.\nClique em ☁️ para sincronizar antes de sair.\n\nSair mesmo assim?`)) return;
+  setSession(null); document.getElementById('userChip').hidden = true; showAuth();
+}
 
 /* ---------- painel de usuários (somente master) ---------- */
 function permLabels(perms) {
@@ -1769,6 +1786,7 @@ function wireMonthUpload() {
   handleMonthFile = file => {
     if (!file) return;
     if (!/\.(xlsx|xlsm|xls)$/i.test(file.name)) { toast('Envie o export .xlsx “Plano de Contas”', 'err'); return; }
+    if (file.size > 10 * 1024 * 1024) { toast('Arquivo muito grande (limite 10 MB) — confira se é o export certo', 'err'); return; }
     const reader = new FileReader();
     reader.onload = e => {
       try {
@@ -1825,7 +1843,7 @@ function wireMonthUpload() {
         if (!mudadas) { closeModal(); toast(`“${label}” já estava idêntico — nada foi alterado ✓`, 'ok'); return; }
       }
       const ts = new Date().toISOString();
-      try { localStorage.setItem(STORE_KEY, JSON.stringify(merged)); } catch (_) {}
+      salvarLocal(merged);
       // carimba o timestamp SÓ do mês alterado e enfileira o upsert desse mês
       const tsMap = getMonthTS(); tsMap[label] = ts; setMonthTS(tsMap);
       const mi = merged.months.indexOf(label);
