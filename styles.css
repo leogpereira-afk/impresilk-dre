@@ -626,3 +626,17 @@ body.locked { overflow: hidden; }
   .ctrl select { min-width: 0; width: 100%; }
   .bc-kpis, .sim-kpis { grid-template-columns: 1fr; }
 }
+
+/* ===================== Integração Mubisys ===================== */
+.mubi-form { display: flex; flex-direction: column; gap: 12px; max-width: 560px; }
+.mubi-form .modal-field { display: flex; flex-direction: column; gap: 6px; }
+.mubi-form .modal-field span { font-size: 12px; color: var(--txt-dim); font-weight: 600; }
+.mubi-form .modal-field input {
+  padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--card-2); color: var(--txt); font: inherit;
+}
+.mubi-preview {
+  background: var(--card-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 12px; font-size: 12px; line-height: 1.5; color: var(--txt);
+  white-space: pre-wrap; word-break: break-word; max-height: 340px; overflow: auto; margin: 0;
+}

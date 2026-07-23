@@ -385,6 +385,25 @@
         </table>
       </div>
     </section>
+
+    <!-- Integração Mubisys (conexão financeira) -->
+    <section class="card" id="mubiCard">
+      <div class="card-head">
+        <h2>🔌 Integração Mubisys</h2>
+        <span class="hint">Ler o financeiro direto do ERP. As credenciais ficam só no servidor.</span>
+      </div>
+      <p class="hint" style="margin-bottom:14px">Cole a <b>publicKey</b> e o <b>Access-Token</b> do Mubisys (os mesmos do PCP). O token é gravado no servidor — ao salvar, o campo mostra só os últimos dígitos. Depois clique <b>Testar</b> para ver uma amostra do financeiro.</p>
+      <div class="mubi-form">
+        <label class="modal-field"><span>publicKey</span><input id="mubiPublicKey" type="text" autocomplete="off" placeholder="ex.: public-000000-key" /></label>
+        <label class="modal-field"><span>Access-Token</span><input id="mubiToken" type="password" autocomplete="off" placeholder="deixe em branco p/ manter o atual" /></label>
+        <div class="modal-actions" style="justify-content:flex-start">
+          <button id="mubiSalvar" class="upload-btn">Salvar credenciais</button>
+          <button id="mubiTestar" class="ghost">Testar conexão</button>
+        </div>
+        <p id="mubiStatus" class="hint"></p>
+        <pre id="mubiPreview" class="mubi-preview" hidden></pre>
+      </div>
+    </section>
   </div>
 
   <div id="userModal" class="modal" hidden>

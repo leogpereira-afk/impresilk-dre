@@ -1713,6 +1713,58 @@ function renderUsersAdmin() {
     renderUsersAdmin();
     toast('Usuário excluído', 'ok');
   });
+  wireMubisys();
+}
+
+// Tela de integração Mubisys (dentro de Usuários, só master). O token nunca
+// volta ao navegador — statusConfig traz apenas os últimos dígitos.
+let _mubiWired = false;
+function wireMubisys() {
+  const card = document.getElementById('mubiCard');
+  if (!card || typeof apiFn !== 'function') return;
+  const pk = document.getElementById('mubiPublicKey');
+  const tk = document.getElementById('mubiToken');
+  const st = document.getElementById('mubiStatus');
+  const pv = document.getElementById('mubiPreview');
+  const setStatus = (msg, kind) => { st.textContent = msg; st.style.color = kind === 'err' ? 'var(--bad,#ef4444)' : kind === 'ok' ? 'var(--good,#22c55e)' : ''; };
+
+  const carregarStatus = async () => {
+    try {
+      const s = await apiFn('financas', 'statusConfig');
+      if (s && s.configurado) { pk.value = s.publicKey || ''; setStatus(`Configurado ✓ (token ${s.tokenMascarado})`, 'ok'); }
+      else setStatus('Ainda não configurado — cole a publicKey e o Access-Token.', '');
+    } catch (_) { setStatus('Não foi possível checar o status agora.', 'err'); }
+  };
+
+  if (!_mubiWired) {
+    _mubiWired = true;
+    document.getElementById('mubiSalvar').onclick = async () => {
+      const publicKey = pk.value.trim(), accessToken = tk.value.trim();
+      if (!publicKey) { setStatus('Informe a publicKey.', 'err'); return; }
+      setStatus('Salvando…', '');
+      try {
+        const r = await apiFn('financas', 'salvarConfig', { publicKey, accessToken });
+        if (r && r.ok) { tk.value = ''; toast('Credenciais do Mubisys salvas', 'ok'); carregarStatus(); }
+        else setStatus('Erro ao salvar: ' + ((r && r.erro) || '—'), 'err');
+      } catch (_) { setStatus('Falha de rede ao salvar.', 'err'); }
+    };
+    document.getElementById('mubiTestar').onclick = async () => {
+      setStatus('Consultando o Mubisys…', '');
+      pv.hidden = true;
+      const hoje = new Date();
+      const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
+      const fim = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0).toISOString().slice(0, 10);
+      try {
+        const r = await apiFn('financas', 'preview', { recurso: 'contas-pagar', datainicial: ini, datafinal: fim }, 30000);
+        if (r && r.ok) {
+          setStatus(`OK — ${r.total} lançamento(s) em contas a pagar no mês. Campos: ${(r.campos || []).length}`, 'ok');
+          pv.textContent = 'CAMPOS DISPONÍVEIS:\n' + (r.campos || []).join(', ') + '\n\nAMOSTRA (1º item):\n' + JSON.stringify((r.amostra || [])[0] || {}, null, 2);
+          pv.hidden = false;
+        } else setStatus('Mubisys respondeu com erro: ' + ((r && r.erro) || '—'), 'err');
+      } catch (_) { setStatus('Falha ao consultar o Mubisys (timeout ou rede).', 'err'); }
+    };
+  }
+  carregarStatus();
 }
 
 let _editUser = null;

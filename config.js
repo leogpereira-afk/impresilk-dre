@@ -18,10 +18,16 @@ const API = '/.netlify/functions/os';
 // dizer "online" mas o fetch trava para sempre — o timeout vira um erro de
 // rede tratável (a fila retenta no próximo gatilho), em vez de pendurar.
 async function api(action, payload = {}, timeoutMs = 15000) {
+  return apiFn('os', action, payload, timeoutMs);
+}
+
+// Versão genérica: chama qualquer função do projeto (os, financas…) com o
+// mesmo x-token e timeout. Usada pela integração Mubisys (função 'financas').
+async function apiFn(fn, action, payload = {}, timeoutMs = 30000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(API, {
+    const r = await fetch('/.netlify/functions/' + fn, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-token': TOKEN },
       body: JSON.stringify({ action, ...payload }),
