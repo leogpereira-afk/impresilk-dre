@@ -105,9 +105,9 @@
 <nav class="tabs" id="viewTabs">
   <button data-view="insights" class="active">💡 Insights</button>
   <button data-view="overview">📊 Visão Geral</button>
-  <button data-view="centers">🎯 Centros de Custo</button>
-  <button data-view="buffett">🧠 Análise Fundamentalista</button>
-  <button data-view="mirror">🗂️ Espelho</button>
+  <button data-view="centers">🎯 Centros</button>
+  <button data-view="buffett">🧠 Visão de Dono</button>
+  <button data-view="mirror">🗂️ Todas as Contas</button>
   <button data-view="auditoria" class="master-only">🔎 Auditoria</button>
   <button data-view="bancos">🏦 Bancos</button>
   <button data-view="manual">📘 Manual</button>
@@ -173,7 +173,7 @@
       <section class="card">
         <div class="card-head">
           <h2>DRE por Seção</h2>
-          <span class="hint">AV = % da receita · AH = variação vs comparativo</span>
+          <span class="hint">Peso = fatia sobre as vendas · Variação = diferença vs o mês comparado</span>
         </div>
         <div class="table-scroll">
           <table class="dre" id="dreTable">
@@ -181,8 +181,8 @@
               <tr>
                 <th class="t-name">Conta</th>
                 <th class="t-num">Valor</th>
-                <th class="t-num">AV</th>
-                <th class="t-num">AH</th>
+                <th class="t-num" title="Peso: fatia deste item sobre as vendas do mês">Peso</th>
+                <th class="t-num" title="Variação vs o mês comparado">Variação</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -261,7 +261,6 @@
     </section>
 
     <!-- cards de detalhamento por tema (gerados via JS) -->
-    <div id="breakdownCards"></div>
   </div>
 
   <!-- ===================== ANÁLISE FUNDAMENTALISTA ===================== -->

@@ -551,15 +551,20 @@ function boot(D) {
 
   // ===== Insights =====
   function renderInsights() {
-    const res = resAt(cur), resP = resAt(cmp);
-    const margin = marginAt(cur), marginP = marginAt(cmp);
+    // O número que manda é o RESULTADO DA OPERAÇÃO. Antes este card usava
+    // resAt (receita − despesa) e anunciava "Prejuízo" logo abaixo do card de
+    // 3 blocos, que existe justamente para mostrar que aquele número mistura
+    // empréstimo captado com venda.
+    const res = resOperAt(cur), resP = resOperAt(cmp);
+    const margin = salesAt(cur) ? res / salesAt(cur) : 0;
+    const marginP = salesAt(cmp) ? resP / salesAt(cmp) : 0;
     const badge = document.getElementById('insightBadge');
     badge.className = 'badge ' + (res >= 0 ? 'pos' : 'neg');
-    badge.textContent = res >= 0 ? 'Resultado positivo' : 'Resultado negativo';
+    badge.textContent = res >= 0 ? 'Operação no positivo' : 'Operação no negativo';
 
     const items = [];
-    items.push({ type: res >= 0 ? 'good' : 'bad', title: res >= 0 ? 'Lucro no período' : 'Prejuízo no período',
-      html: `Em <b>${MONTHS[cur]}</b> o resultado de caixa foi <b>${fmt2(res)}</b> (margem ${pct(margin)}). ` + (resP !== 0 ? `No mês comparado foi ${fmt2(resP)}.` : '') });
+    items.push({ type: res >= 0 ? 'good' : 'bad', title: res >= 0 ? 'A operação deu lucro' : 'A operação deu prejuízo',
+      html: `Em <b>${MONTHS[cur]}</b> a operação ${res >= 0 ? 'gerou' : 'consumiu'} <b>${fmt2(Math.abs(res))}</b> (margem ${pct(margin)} sobre vendas). ` + (resP !== 0 ? `No mês comparado foi ${fmt2(resP)}. ` : '') + `<i>Este número exclui empréstimo captado e devolução de dívida — por isso difere da variação de caixa.</i>` });
 
     const dRev = revAt(cmp) ? (revAt(cur) - revAt(cmp)) / revAt(cmp) : 0;
     items.push({ type: dRev >= 0 ? 'good' : 'warn', title: dRev >= 0 ? 'Receita em alta' : 'Receita em queda',
@@ -867,8 +872,16 @@ function boot(D) {
   ];
   const BRK_PALETTE = ['#a78bfa', '#38bdf8', '#2dd4bf', '#f59e0b', '#fb7185', '#34d399', '#60a5fa', '#fbbf24', '#c084fc', '#4ade80', '#fca5a5', '#22d3ee'];
 
+  // Os 18 cards de breakdown foram REMOVIDOS: os 16 códigos eram exatamente os
+  // filhos da conta '2' — a mesma lista que já vira sub-aba em Centros. O total
+  // de um centro chegava a aparecer em 6 telas. Agora o painel do centro é a
+  // única fonte; BREAKDOWNS sobrevive só como metadado (emoji/título/descrição).
+  const BRK_META = {};
+  BREAKDOWNS.forEach(b => { BRK_META[b.code] = b; });
+
   function buildBreakdownShells() {
     const host = document.getElementById('breakdownCards');
+    if (!host) return;
     if (!host || host.childElementCount) return;
     host.innerHTML = BREAKDOWNS.map(b => `
       <section class="card brk-card ${b.rev ? 'brk-rev' : ''}" id="brk-${b.key}" data-default-collapsed>
@@ -885,6 +898,7 @@ function boot(D) {
   }
 
   function renderBreakdowns() {
+    if (!document.getElementById('breakdownCards')) return;   // cards removidos
     buildBreakdownShells();
 
     BREAKDOWNS.forEach(b => {
@@ -902,9 +916,9 @@ function boot(D) {
       const totCur = totVals[cur], totCmp = totVals[cmp];
       const ah = totCmp ? (totCur - totCmp) / totCmp : null;
       const avg = totVals.reduce((s, v) => s + v, 0) / MONTHS.length;
-      const base = b.rev ? revAt(cur) : expAt(cur);
+      const base = b.rev ? salesAt(cur) : expAt(cur);   // vendas, não receita total
       const share = base ? totCur / base : 0;
-      const shareLabel = b.rev ? '% da Receita' : '% das Despesas';
+      const shareLabel = b.rev ? '% das vendas' : '% das Despesas';
       const shareSub = b.rev ? 'peso no faturamento do mês' : 'peso no total de despesas';
       const avgSub = b.rev ? 'receita média mensal' : 'gasto médio mensal';
 
@@ -951,7 +965,7 @@ function boot(D) {
     const st = trendStats(vals);
     const v = vals[cur], vp = vals[cmp];
     const ah = vp ? (v - vp) / vp : null;
-    const shareRev = revAt(cur) ? v / revAt(cur) : 0;
+    const shareRev = salesAt(cur) ? v / salesAt(cur) : 0;   // base única: vendas (sem empréstimo)
     const shareExp = expAt(cur) ? v / expAt(cur) : 0;
 
     // tendência textual
@@ -979,21 +993,21 @@ function boot(D) {
     document.getElementById('centerPanel').innerHTML = `
       <div class="center-kpis">
         <div class="ck">
-          <span class="ck-l">${s.name} · ${MONTHS[cur]}</span>
+          <span class="ck-l">${(BRK_META[s.code] || {}).emoji || ''} ${s.name} · ${MONTHS[cur]}</span>
           <span class="ck-v">${fmt2(v)}</span>
           <span class="delta ${ah == null ? 'flat' : ah <= 0 ? 'up' : 'down'}">${ah == null ? '—' : (ah <= 0 ? '▼' : '▲') + ' ' + signedPct(ah)} <span class="vs">vs ${MONTHS[cmp]}</span></span>
         </div>
-        <div class="ck"><span class="ck-l">% da Receita</span><span class="ck-v">${pct(shareRev)}</span><span class="ck-s">do faturamento do mês</span></div>
+        <div class="ck"><span class="ck-l">% das vendas</span><span class="ck-v">${pct(shareRev)}</span><span class="ck-s">peso sobre o que foi vendido</span></div>
         <div class="ck"><span class="ck-l">% das Despesas</span><span class="ck-v">${pct(shareExp)}</span><span class="ck-s">peso no total de gastos</span></div>
         <div class="ck"><span class="ck-l">Média ${MONTHS.length}m</span><span class="ck-v">${fmt(st.mean)}</span><span class="ck-s">gasto médio mensal</span></div>
         <div class="ck"><span class="ck-l">Tendência</span><span class="ck-v ${trendCls === 'up' ? 'pos' : trendCls === 'down' ? 'neg' : ''}">${trendLabel}</span><span class="ck-s">${(st.slopePctMonth * 100 >= 0 ? '+' : '') + (st.slopePctMonth * 100).toFixed(1)}% por mês</span></div>
-        <div class="ck"><span class="ck-l">Volatilidade</span><span class="ck-v">${volat}</span><span class="ck-s">CV ${(st.cv * 100).toFixed(0)}%</span></div>
+        <div class="ck"><span class="ck-l">Oscilação</span><span class="ck-v">${volat}</span><span class="ck-s">varia ${(st.cv * 100).toFixed(0)}% em torno da média</span></div>
       </div>
       <div class="center-grid">
         <div class="chart-wrap"><canvas id="centerChart"></canvas></div>
         <div class="table-scroll">
           <table class="dre"><thead><tr>
-            <th class="t-name">Subconta</th><th>Valor</th><th>% centro</th><th>AH</th><th>6m</th>
+            <th class="t-name">Subconta</th><th>Valor</th><th>% do centro</th><th>Variação</th><th>Histórico</th>
           </tr></thead><tbody>${kidsRows}</tbody></table>
         </div>
       </div>`;
@@ -1071,7 +1085,7 @@ function boot(D) {
         <div class="ck"><span class="ck-l">${s.name} · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(totCur)}</span><span class="ck-s">era ${fmt(totPrev)} em ${MONTHS[cmp]}</span></div>
         <div class="ck"><span class="ck-l">Variação no período</span><span class="ck-v ${goodCls(totAbs)}">${arrow(totAbs)} ${fmt(Math.abs(totAbs))}</span><span class="ck-s">${totRel == null ? '—' : signedPct(totRel)} vs ${MONTHS[cmp]}</span></div>
         <div class="ck"><span class="ck-l">Itens com movimento</span><span class="ck-v">${items.length}</span><span class="ck-s">produtos/contas no centro</span></div>
-        <div class="ck"><span class="ck-l">% da Receita do mês</span><span class="ck-v">${pct(revAt(cur) ? totCur / revAt(cur) : 0)}</span><span class="ck-s">${isRev ? 'participação na receita' : 'peso sobre o faturamento'}</span></div>
+        <div class="ck"><span class="ck-l">% das vendas</span><span class="ck-v">${pct(salesAt(cur) ? totCur / salesAt(cur) : 0)}</span><span class="ck-s">${isRev ? 'participação na receita' : 'peso sobre o faturamento'}</span></div>
       </div>`;
 
     // ---- gráfico de variação produto a produto (barras horizontais, top 12) ----
@@ -2044,9 +2058,9 @@ const SESSION_KEY = 'impresilk_dre_session';
 const GATEABLE_VIEWS = [
   { id: 'insights', label: '💡 Insights' },
   { id: 'overview', label: '📊 Visão Geral' },
-  { id: 'centers',  label: '🎯 Centros de Custo' },
-  { id: 'buffett',  label: '🧠 Análise Fundamentalista' },
-  { id: 'mirror',   label: '🗂️ Espelho' },
+  { id: 'centers',  label: '🎯 Centros' },
+  { id: 'buffett',  label: '🧠 Visão de Dono' },
+  { id: 'mirror',   label: '🗂️ Todas as Contas' },
   { id: 'auditoria', label: '🔎 Auditoria' },
   { id: 'bancos',   label: '🏦 Bancos' },
   { id: 'manual',   label: '📘 Manual' },
