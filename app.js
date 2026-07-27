@@ -659,13 +659,19 @@ function boot(D) {
   // ===== Composição de despesas =====
   const PALETTE = ['#38bdf8','#2dd4bf','#a78bfa','#f59e0b','#f472b6','#34d399','#fb7185','#60a5fa','#fbbf24','#22d3ee','#c084fc','#4ade80','#fca5a5','#818cf8','#fcd34d','#5eead4'];
   function renderComposition() {
-    const data = expSections.map(s => ({ name: s.name, v: val(s, cur) })).filter(d => d.v > 0).sort((a, b) => b.v - a.v);
+    // Sem o filtro, "Bancárias" (que contém devolução de empréstimo) aparecia como
+    // a MAIOR despesa da empresa — e o dono cortaria a linha errada.
+    const data = expSections.filter(x => !['2.14', '2.16'].includes(x.code)).map(s => ({
+      name: s.code === '2.13' ? 'Bancárias (tarifas e juros)' : s.name,
+      v: s.code === '2.13' ? val(s, cur) - val(get('2.13.6'), cur) - val(get('2.13.7'), cur) : val(s, cur)
+    })).filter(d => d.v > 0).sort((a, b) => b.v - a.v);
     const top = data.slice(0, 8);
     const restV = data.slice(8).reduce((s, d) => s + d.v, 0);
     const labels = top.map(d => d.name.replace(/^Despesas?\s+/i, ''));
     const vals = top.map(d => d.v);
     if (restV > 0) { labels.push('Outras'); vals.push(restV); }
-    document.getElementById('compHint').textContent = MONTHS[cur] + ' · total ' + fmt(expAt(cur));
+    document.getElementById('compHint').textContent =
+      `${MONTHS[cur]} · custos da operação ${fmt(despOperAt(cur))} — fora daqui: retiradas ${fmt(ownerAt(cur))}, máquinas ${fmt(investAt(cur))}, devolução de dívida ${fmt(loanOutAt(cur))}`;
 
     if (_charts.comp) _charts.comp.destroy();
     _charts.comp = new Chart(document.getElementById('compChart'), {
@@ -844,7 +850,7 @@ function boot(D) {
       <div class="ck"><span class="ck-l">⚡ Energia · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur)}</span><span class="delta ${dCls(eAh)}">${dArr(eAh)} ${eAh == null ? '—' : signedPct(eAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
       <div class="ck"><span class="ck-l">💧 Água · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(wCur)}</span><span class="delta ${dCls(wAh)}">${dArr(wAh)} ${wAh == null ? '—' : signedPct(wAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
       <div class="ck"><span class="ck-l">Total Utilidades · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur + wCur)}</span><span class="ck-s">energia + água no mês</span></div>
-      <div class="ck"><span class="ck-l">Média Energia ${MONTHS.length}m</span><span class="ck-v">${fmt(eAvg)}</span><span class="ck-s">gasto médio mensal</span></div>
+      <div class="ck"><span class="ck-l">Média Energia ${MONTHS.length}m</span><span class="ck-v">${fmt(eAvg)}</span><span class="ck-s">${isRev ? 'faturamento médio mensal' : 'gasto médio mensal'}</span></div>
       <div class="ck"><span class="ck-l">Média Água ${MONTHS.length}m</span><span class="ck-v">${fmt(wAvg)}</span><span class="ck-s">gasto médio mensal</span></div>`;
 
     tbody.innerHTML = MONTHS.map((m, i) => `<tr>
@@ -988,14 +994,15 @@ function boot(D) {
     const st = trendStats(vals);
     const v = vals[cur], vp = vals[cmp];
     const ah = vp ? (v - vp) / vp : null;
+    const isRev = String(s.code).startsWith('1');   // Produtos/Serviços são RECEITA
     const shareRev = salesAt(cur) ? v / salesAt(cur) : 0;   // base única: vendas (sem empréstimo)
     const shareExp = expAt(cur) ? v / expAt(cur) : 0;
 
     // tendência textual
     let trendLabel, trendCls;
     if (Math.abs(st.slopePctMonth) < 0.02) { trendLabel = 'Estável'; trendCls = 'flat'; }
-    else if (st.slopePctMonth > 0) { trendLabel = 'Em alta'; trendCls = 'down'; } // despesa subindo = ruim
-    else { trendLabel = 'Em queda'; trendCls = 'up'; }
+    else if (st.slopePctMonth > 0) { trendLabel = 'Em alta'; trendCls = isRev ? 'up' : 'down'; }
+    else { trendLabel = 'Em queda'; trendCls = isRev ? 'down' : 'up'; }   // receita caindo = ruim
     const volat = st.cv > 0.4 ? 'Alta' : st.cv > 0.2 ? 'Média' : 'Baixa';
 
     // subcontas (nível imediatamente abaixo) ordenadas por valor no mês atual
@@ -1008,7 +1015,7 @@ function boot(D) {
         <td class="t-name">${k.name}</td>
         <td class="mono">${fmt(kv)}</td>
         <td class="av">${pct(v ? kv / v : 0)}</td>
-        <td class="${kah == null ? 'av' : kah <= 0 ? 'pos' : 'neg'}">${kah == null ? '—' : signedPct(kah)}</td>
+        <td class="${kah == null ? 'av' : (isRev ? kah >= 0 : kah <= 0) ? 'pos' : 'neg'}">${kah == null ? '—' : signedPct(kah)}</td>
         <td class="spark-cell">${sparkline(k.values, { w: 90, h: 22 })}</td>
       </tr>`;
     }).join('') || `<tr><td colspan="5" class="hint">Sem subcontas com movimento.</td></tr>`;
@@ -1018,9 +1025,9 @@ function boot(D) {
         <div class="ck">
           <span class="ck-l">${(BRK_META[s.code] || {}).emoji || ''} ${s.name} · ${MONTHS[cur]}</span>
           <span class="ck-v">${fmt2(v)}</span>
-          <span class="delta ${ah == null ? 'flat' : ah <= 0 ? 'up' : 'down'}">${ah == null ? '—' : (ah <= 0 ? '▼' : '▲') + ' ' + signedPct(ah)} <span class="vs">vs ${MONTHS[cmp]}</span></span>
+          <span class="delta ${ah == null ? 'flat' : (isRev ? ah >= 0 : ah <= 0) ? 'up' : 'down'}">${ah == null ? '—' : (ah < 0 ? '▼' : '▲') + ' ' + signedPct(ah)} <span class="vs">vs ${MONTHS[cmp]}</span></span>
         </div>
-        <div class="ck"><span class="ck-l">% das vendas</span><span class="ck-v">${pct(shareRev)}</span><span class="ck-s">peso sobre o que foi vendido</span></div>
+        <div class="ck"><span class="ck-l">% das vendas</span><span class="ck-v">${pct(shareRev)}</span><span class="ck-s">${isRev ? 'fatia do faturamento' : 'peso sobre o que foi vendido'}</span></div>
         <div class="ck"><span class="ck-l">% das Despesas</span><span class="ck-v">${pct(shareExp)}</span><span class="ck-s">peso no total de gastos</span></div>
         <div class="ck"><span class="ck-l">Média ${MONTHS.length}m</span><span class="ck-v">${fmt(st.mean)}</span><span class="ck-s">gasto médio mensal</span></div>
         <div class="ck"><span class="ck-l">Tendência</span><span class="ck-v ${trendCls === 'up' ? 'pos' : trendCls === 'down' ? 'neg' : ''}">${trendLabel}</span><span class="ck-s">${(st.slopePctMonth * 100 >= 0 ? '+' : '') + (st.slopePctMonth * 100).toFixed(1)}% por mês</span></div>
@@ -1313,7 +1320,12 @@ function boot(D) {
     const i = cur, vendas = salesAt(i), op = resOperAt(i), soc = ownerAt(i), fin = financAt(i), inv = investAt(i);
     const margem = vendas ? op / vendas : 0;
     const cob = soc > 0 ? op / soc : null;
-    const bom = op > 0 && (cob == null || cob >= 1), medio = op > 0;
+    // caixa negativo no mês, ou margem despencando, obriga vermelho — antes um
+    // mês com -R$ 28 mil no banco saía amarelo e tranquilizava o dono
+    const outrosM = MONTHS.map((_, k) => k !== i && salesAt(k) ? resOperAt(k) / salesAt(k) : null).filter(v => v != null);
+    const mediaM = outrosM.length ? outrosM.reduce((a, v) => a + v, 0) / outrosM.length : margem;
+    const ruim = op <= 0 || resAt(i) < 0 || (margem - mediaM) <= -0.10;
+    const bom = !ruim && op > 0 && (cob == null || cob >= 1), medio = !ruim && op > 0;
     const sinais = sinaisDoMes(i);
     const top = sinais.slice(0, 3);
 
@@ -1336,7 +1348,8 @@ function boot(D) {
             <h2>${MONTHS[i]} · a operação ${op >= 0 ? 'gerou' : 'consumiu'} ${fmt(Math.abs(op))}</h2>
             <p>Vendas de <b>${fmt(vendas)}</b> com margem de <b>${pct(margem)}</b>.
             ${soc > 0 ? `Os sócios retiraram <b>${fmt(soc)}</b>${cob != null ? ` — a operação cobriu <b>${pct(cob)}</b> disso.` : '.'}` : ''}
-            ${Math.abs(fin) > 1 ? ` O caixa ainda ${fin >= 0 ? 'recebeu' : 'devolveu'} <b>${fmt(Math.abs(fin))}</b> de empréstimos.` : ''}</p>
+            ${Math.abs(fin) > 1 ? ` O caixa ainda ${fin >= 0 ? 'recebeu' : 'devolveu'} <b>${fmt(Math.abs(fin))}</b> de empréstimos.` : ''}
+            ${resAt(i) < 0 ? `<br><b style="color:var(--neg)">Atenção: o banco fechou o mês com ${fmt(Math.abs(resAt(i)))} a menos.</b>` : ''}</p>
           </div>
         </div>
         <div class="ins-tiles">
@@ -1361,9 +1374,13 @@ function boot(D) {
         <div class="table-scroll"><table class="dre">
           <thead><tr><th class="t-name">Conta</th><th>${MONTHS[cmp]}</th><th>${MONTHS[i]}</th><th>Variação</th></tr></thead>
           <tbody>${movs.slice(0, 8).map(m => {
+            // conta de dívida/financiamento não é "melhora" nem "piora" do
+            // resultado — fica neutra, senão mais empréstimo aparece em verde
+            const naoOper = ['1.3', '1.4', '2.13.6', '2.13.7', '2.14.3', '2.16']
+              .some(pf => m.code === pf || String(m.code).startsWith(pf + '.'));
             const bomM = m.rev ? m.d > 0 : m.d < 0;
-            return `<tr><td class="t-name">${m.nome}</td><td>${fmt(m.vb)}</td><td>${fmt(m.va)}</td>
-              <td class="${bomM ? 'v-pos' : 'v-neg'}">${m.d >= 0 ? '+' : ''}${fmt(m.d)}</td></tr>`;
+            return `<tr><td class="t-name">${m.nome}${naoOper ? '<span class="es-obs">dívida/financiamento — não é resultado</span>' : ''}</td><td>${fmt(m.vb)}</td><td>${fmt(m.va)}</td>
+              <td class="${naoOper ? 'av' : bomM ? 'v-pos' : 'v-neg'}">${m.d >= 0 ? '+' : ''}${fmt(m.d)}</td></tr>`;
           }).join('')}</tbody>
         </table></div>
       </section>` : ''}`;
@@ -1655,11 +1672,11 @@ function boot(D) {
 
     const narr = document.getElementById('buffettNarrative');
     narr.innerHTML = `
-      <p>No mês de <b>${MONTHS[i]}</b>, a <b>operação</b> da Impresilk gerou <b class="pos">${fmt2(opRes)}</b> de resultado
+      <p>No mês de <b>${MONTHS[i]}</b>, a <b>operação</b> da Impresilk ${opRes >= 0 ? 'gerou' : 'consumiu'} <b class="${opRes >= 0 ? 'pos' : 'neg'}">${fmt2(Math.abs(opRes))}</b> de resultado
       operacional sobre <b>${fmt(salesAt(i))}</b> de vendas — uma <b>margem operacional de ${pct(opMargin)}</b>.
       A margem de contribuição foi de <b>${pct(cmPct)}</b>: de cada <b>R$ 100</b> vendidos sobram
       <b>${fmt(cmPct * 100)}</b> para pagar a estrutura fixa e remunerar o dono.</p>
-      <p>As <b>retiradas dos sócios e investimentos</b> consumiram <b class="neg">${fmt2(owner)}</b>
+      <p>As <b>retiradas dos sócios</b> consumiram <b class="neg">${fmt2(owner)}</b>
       — equivalente a <b>${pct(ownerVsOp)}</b> de todo o resultado operacional.
       ${finalRes >= 0
         ? `Mesmo após essa distribuição, o caixa fechou <b class="pos">positivo em ${fmt2(finalRes)}</b>.`
@@ -1677,11 +1694,16 @@ function boot(D) {
     rows.push(L('(−) Custos Variáveis (insumos, máquinas, obra, terceiros)', -varCostAt(i), 'neg'));
     rows.push(L('= Margem de Contribuição', cmAt(i), 'pos', true));
     rows.push(L('(−) Estrutura Fixa (pessoal, admin, impostos, etc.)', -fixedAt(i), 'neg'));
-    rows.push(L('= RESULTADO OPERACIONAL', opResAt(i), opResAt(i) >= 0 ? 'pos' : 'neg', true));
-    rows.push(L('(−) Retiradas Sócios + Investimentos', -ownerAt(i), 'neg'));
-    const finRev = finRevAt(i);
-    if (finRev) rows.push(L('(+) Rendimentos / Empréstimos captados', finRev, 'pos'));
-    rows.push(L('= RESULTADO DE CAIXA (final)', resAt(i), resAt(i) >= 0 ? 'pos' : 'neg', true));
+    rows.push(L('= RESULTADO OPERACIONAL', resOperAt(i), resOperAt(i) >= 0 ? 'pos' : 'neg', true));
+    // Faltavam a devolução de empréstimo e as máquinas: a cascata não fechava e
+    // o dono somava com o dedo sem chegar no total (sumiam ~R$ 117 mil em Abr).
+    rows.push(L('(−) Retiradas dos sócios e arrendamento', -ownerAt(i), 'neg'));
+    if (investAt(i)) rows.push(L('(−) Máquinas e equipamentos (vira patrimônio, não é gasto)', -investAt(i), 'neg'));
+    if (finRevAt(i)) rows.push(L('(+) Empréstimos captados e rendimentos (não é venda)', finRevAt(i), 'pos'));
+    if (loanOutAt(i)) rows.push(L('(−) Devolução de empréstimos (não é despesa)', -loanOutAt(i), 'neg'));
+    rows.push(L('= O QUE SOBROU NO BANCO', resAt(i), resAt(i) >= 0 ? 'pos' : 'neg', true));
+    const fecha = Math.abs(resOperAt(i) - ownerAt(i) - investAt(i) + financAt(i) - resAt(i)) < 1;
+    if (!fecha) rows.push(`<tr><td colspan="3" style="color:var(--neg)"><b>⚠ a conta não fecha — revisar as contas do mês</b></td></tr>`);
     tb.innerHTML = rows.join('');
 
     // ---- gráfico operação vs retiradas ----
@@ -1751,8 +1773,12 @@ function boot(D) {
     const slider = document.getElementById('simSlider');
     if (!slider) return;
     // reservas reais (acumuladas) = soma do resultado de caixa real
-    const opTotal = MONTHS.reduce((s, _, k) => s + opResAt(k), 0);
-    const finRevTotal = MONTHS.reduce((s, _, k) => s + finRevAt(k), 0);
+    const opTotal = MONTHS.reduce((s, _, k) => s + resOperAt(k), 0);
+    // O caixa do período obedece: operação − sócios − máquinas + financiamento.
+    // Antes só somava o empréstimo captado e nunca descontava a devolução nem as
+    // máquinas — a "reserva" saía ~4x maior e sempre empurrava para retirar mais.
+    const investTotal = MONTHS.reduce((s, _, k) => s + investAt(k), 0);
+    const financTotal = MONTHS.reduce((s, _, k) => s + financAt(k), 0);
     const realReserve = MONTHS.reduce((s, _, k) => s + resAt(k), 0);
     const realOwner = MONTHS.reduce((s, _, k) => s + ownerAt(k), 0);
     const realOwnerPct = opTotal ? realOwner / opTotal : 0;
@@ -1762,15 +1788,21 @@ function boot(D) {
       const p = +slider.value / 100;
       document.getElementById('simPctLabel').textContent = (slider.value) + '%';
       // retirada simulada por mês = p × resultado operacional (só quando positivo)
-      const simOwner = MONTHS.reduce((s, _, k) => s + Math.max(0, p * opResAt(k)), 0);
-      // reserva acumulada = operação + receita financeira − retiradas simuladas
-      const simReserve = opTotal + finRevTotal - simOwner;
+      const simOwner = MONTHS.reduce((s, _, k) => s + Math.max(0, p * resOperAt(k)), 0);
+      const simReserve = opTotal - simOwner - investTotal + financTotal;
       const perMonth = simReserve / n;
       const diff = simReserve - realReserve;
       const kp = (lbl, val, cls) => `<div class="ck"><span class="ck-l">${lbl}</span><b class="ck-v ${cls || ''}">${val}</b></div>`;
+      // autoconferência: no cenário real o simulado tem de bater com o caixa real
+      const confere = Math.abs((opTotal - realOwner - investTotal + financTotal) - realReserve) < 1;
+      if (!confere) {
+        document.getElementById('simKpis').innerHTML =
+          '<p class="hint" style="color:var(--neg)"><b>⚠ Conferência falhou</b> — não use este simulador até revisar as contas.</p>';
+        return;
+      }
       document.getElementById('simKpis').innerHTML =
         kp(`Retirada total (${n}m)`, fmt(simOwner), 'neg') +
-        kp(`Reserva acumulada (${n}m)`, fmt(simReserve), simReserve >= 0 ? 'pos' : 'neg') +
+        kp(`Caixa acumulado no período (${n}m)`, fmt(simReserve), simReserve >= 0 ? 'pos' : 'neg') +
         kp('Média por mês', fmt(perMonth), perMonth >= 0 ? 'pos' : 'neg') +
         kp('vs. cenário real', (diff >= 0 ? '+' : '') + fmt(diff), diff >= 0 ? 'pos' : 'neg');
 
