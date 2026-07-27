@@ -1488,6 +1488,12 @@ function boot(D) {
       return linha(c.name, val(c, i), 'out', obs);
     }).filter(x => x.v);
 
+    // resíduo: valor lançado DIRETO na conta-mãe (1 ou 2), sem centro de custo.
+    // Sem esta linha a tabela não fecha com o KPI e o painel se contradiz.
+    const restoIn = round2(revAt(i) - ent.reduce((a, x) => a + x.v, 0));
+    if (Math.abs(restoIn) > 0.5) ent.push(linha('Sem categoria', restoIn, 'in', 'lançado direto na conta 1, sem centro — vale classificar no Mubisys'));
+    const restoOut = round2(expAt(i) - sai.reduce((a, x) => a + x.v, 0));
+    if (Math.abs(restoOut) > 0.5) sai.push(linha('Sem categoria', restoOut, 'out', 'lançado direto na conta 2 (ex.: fatura de cartão sem rateio)'));
     const totIn = ent.reduce((a, x) => a + x.v, 0);
     const totOut = sai.reduce((a, x) => a + x.v, 0);
     const tabela = (titulo, itens, tot, cls) => `
