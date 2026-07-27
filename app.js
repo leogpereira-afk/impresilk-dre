@@ -892,10 +892,10 @@ function boot(D) {
     { key: 'external',  code: '2.10', emoji: '🪜', title: 'Instalações Externas',    sub: 'Despesas em obra — material de construção, viagem, estacionamento, andaimes' },
     { key: 'cleaning',  code: '2.3',  emoji: '🧹', title: 'Limpeza',                 sub: 'Conservação — material de limpeza e limpeza terceirizada' },
     { key: 'ads',       code: '2.15', emoji: '📣', title: 'Publicidade & Marketing', sub: 'Marketing — mídia paga (Meta), videomaker e desenvolvimento' },
-    { key: 'invest',    code: '2.16', emoji: '📈', title: 'Investimentos',           sub: 'Aportes e investimentos no período' },
+    { key: 'invest',    code: '2.16', emoji: '📈', title: 'Investimentos à vista',    sub: 'Máquinas compradas sem financiamento (as financiadas ficam em Bancárias)' },
     { key: 'taxes',     code: '2.4',  emoji: '🏛️', title: 'Impostos',                sub: 'Carga tributária — DARF, DAS, ICMS, ISSQN, IPTU, IOF' },
-    { key: 'banking',   code: '2.13', emoji: '🏦', title: 'Bancárias',               sub: 'Custo financeiro — juros de cartão (maior peso), tarifas e manutenção de conta' },
-    { key: 'partners',  code: '2.14', emoji: '👔', title: 'Societárias',             sub: 'Sócios & dívida — retiradas, empréstimos bancários e arrendamento' },
+    { key: 'banking',   code: '2.13', emoji: '🏦', title: 'Bancárias',               sub: '⚠ inclui devolução de empréstimo e capital de giro — não é tudo custo da operação' },
+    { key: 'partners',  code: '2.14', emoji: '👔', title: 'Societárias',             sub: 'Retiradas dos sócios e arrendamento — destino do lucro, não custo' },
   ];
   const BRK_PALETTE = ['#a78bfa', '#38bdf8', '#2dd4bf', '#f59e0b', '#fb7185', '#34d399', '#60a5fa', '#fbbf24', '#c084fc', '#4ade80', '#fca5a5', '#22d3ee'];
 
