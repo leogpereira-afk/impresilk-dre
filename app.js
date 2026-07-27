@@ -524,12 +524,7 @@ function boot(D) {
   // CAIXA:    tudo que passou pelo banco, sem exclusão — bate com o extrato.
   function renderKPIs() {
     const opMargem = i => salesAt(i) ? resOperAt(i) / salesAt(i) : 0;
-    const cards = lente === 'caixa' ? [
-      { cls: 'rev', label: 'Entrou (tudo)', val: revAt(cur), prev: revAt(cmp), goodUp: true },
-      { cls: 'exp', label: 'Saiu (tudo)', val: expAt(cur), prev: expAt(cmp), goodUp: false },
-      { cls: 'res', label: 'Variação de Caixa', val: resAt(cur), prev: resAt(cmp), goodUp: true },
-      { cls: 'mar', label: 'Margem de Caixa', val: marginAt(cur), prev: marginAt(cmp), goodUp: true, isPct: true },
-    ] : [
+    const cards = [
       { cls: 'rev', label: 'Vendas', val: salesAt(cur), prev: salesAt(cmp), goodUp: true },
       { cls: 'exp', label: 'Custos da Operação', val: despOperAt(cur), prev: despOperAt(cmp), goodUp: false },
       { cls: 'res', label: 'Resultado da Operação', val: resOperAt(cur), prev: resOperAt(cmp), goodUp: true },
@@ -1547,16 +1542,6 @@ function boot(D) {
   });
 
 
-  // ===== lente global (Operação × Caixa) =====
-  const LENTE_KEY = 'impresilk_dre_lente';
-  let lente = 'op';
-  try { lente = localStorage.getItem(LENTE_KEY) || 'op'; } catch (_) {}
-  function aplicaLente(l) {
-    lente = l;
-    try { localStorage.setItem(LENTE_KEY, l); } catch (_) {}
-    document.querySelectorAll('#lenteNav button').forEach(b => b.classList.toggle('active', b.dataset.lente === l));
-    renderKPIs();
-  }
 
   // ===== 💵 Entra e Sai: o extrato do mês, sem exclusão nenhuma =====
   function renderEntraSai() {
@@ -1611,6 +1596,30 @@ function boot(D) {
       <b>${fmt(finRevAt(i))}</b> que entraram são empréstimo/rendimento (não venda) e
       <b>${fmt(loanOutAt(i))}</b> que saíram são devolução de dívida (não despesa da operação).
       Tirando os dois, a operação ${resOperAt(i) >= 0 ? 'gerou' : 'consumiu'} <b>${fmt(Math.abs(resOperAt(i)))}</b>.</p>`;
+  }
+
+
+  // Faixa de conciliação: substitui a antiga "lente" — mostra de onde veio e para
+  // onde foi o dinheiro do banco SEM exigir que o dono troque de modo.
+  function renderConcil() {
+    const el = document.getElementById('concil');
+    if (!el) return;
+    const i = cur;
+    const parc = (rot, v, cls) => v ? `<span class="cc-p ${cls || ''}">${rot} <b>${fmt(v)}</b></span>` : '';
+    el.innerHTML = `
+      <div class="cc-l">
+        <span class="cc-t">Entrou no banco <b>${fmt(revAt(i))}</b></span>
+        <span class="cc-eq">=</span>
+        ${parc('vendas', salesAt(i), 'pos')}${parc('+ empréstimo/rendimento', finRevAt(i), 'w')}
+      </div>
+      <div class="cc-l">
+        <span class="cc-t">Saiu do banco <b>${fmt(expAt(i))}</b></span>
+        <span class="cc-eq">=</span>
+        ${parc('custos da operação', despOperAt(i), '')}${parc('+ retiradas', ownerAt(i), '')}${parc('+ máquinas', investAt(i), '')}${parc('+ devolução de dívida', loanOutAt(i), 'w')}
+      </div>
+      <div class="cc-l cc-fim ${resAt(i) >= 0 ? 'pos' : 'neg'}">
+        <span class="cc-t">${resAt(i) >= 0 ? 'Sobrou' : 'Faltou'} <b>${fmt(Math.abs(resAt(i)))}</b> em ${MONTHS[i]}</span>
+      </div>`;
   }
 
   function renderBlocos3() {
@@ -1823,15 +1832,13 @@ function boot(D) {
 
   function renderAll() {
     renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
-    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai();
+    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai(); renderConcil();
     if (typeof wireResGrupos === 'function') wireResGrupos();
     if (typeof renderAuditoria === 'function') renderAuditoria();
     if (typeof wireCollapsibleCards === 'function') wireCollapsibleCards();
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
   }
 
-  document.querySelectorAll('#lenteNav button').forEach(b => b.onclick = () => aplicaLente(b.dataset.lente));
-  document.querySelectorAll('#lenteNav button').forEach(b => b.classList.toggle('active', b.dataset.lente === lente));
   ACCS.forEach(a => { if ((childrenOf.get(a.code) || []).length && a.level >= 2) collapsed.add(a.code); });
   activeRenderAll = renderAll;
   renderAll();
@@ -2281,9 +2288,7 @@ const GATEABLE_VIEWS = [
   { id: 'insights', label: '💡 Insights' },
   { id: 'overview', label: '📊 Resultado' },
   { id: 'centers',  label: '🎯 Centros' },
-  { id: 'mirror',   label: '🗂️ Todas as Contas' },
-  { id: 'auditoria', label: '🔎 Auditoria' },
-  { id: 'bancos',   label: '🏦 Bancos' },
+  { id: 'mirror',   label: '🔎 Conferência' },
   { id: 'manual',   label: '📘 Manual' },
 ];
 const ALL_VIEW_IDS = GATEABLE_VIEWS.map(v => v.id);
@@ -2296,7 +2301,7 @@ function hashPass(s) { // ofuscação (djb2 + sal) — não é hash criptográfi
 }
 // Abas foram renomeadas/fundidas: buffett->overview, diretrizes/glossary->manual,
 // e 'insights' passou a existir. Sem esta migração, usuário antigo perde telas.
-const PERM_MIGRA = { buffett: 'overview', diretrizes: 'manual', glossary: 'manual' };
+const PERM_MIGRA = { buffett: 'overview', diretrizes: 'manual', glossary: 'manual', auditoria: 'mirror', bancos: 'mirror' };
 function migraPerms(users) {
   let mudou = false;
   (users || []).forEach(u => {
@@ -2335,6 +2340,11 @@ function applyPermissions(user) {
     const ok = v === 'users' ? isMaster : _allowed.has(v);
     b.style.display = ok ? '' : 'none';
   });
+  // Manual e Usuários saíram da barra de abas e viraram ícones no topo
+  const mb = document.getElementById('manualBtn');
+  if (mb) mb.style.display = _allowed.has('manual') ? '' : 'none';
+  const ub = document.getElementById('usersBtn');
+  if (ub) ub.style.display = isMaster ? '' : 'none';
   const activeBtn = document.querySelector('#viewTabs button.active');
   const cur = activeBtn ? activeBtn.dataset.view : null;
   if (!cur || !_allowed.has(cur)) {
@@ -2710,6 +2720,7 @@ function initApp() {
   function switchView(view) {
     if (_allowed.size && !_allowed.has(view)) return; // bloqueia views sem permissão
     tabBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
+    // Manual/Usuários/Conferência-extras não têm botão de aba: nada a marcar
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('hidden', v.id !== 'view-' + view));
     try { localStorage.setItem(VIEW_KEY, view); } catch (_) {}
     window.dispatchEvent(new Event('resize')); // força os gráficos a recalcular tamanho
@@ -2749,6 +2760,10 @@ function initApp() {
   }
 
   // botão "Sincronizar agora" (pull manual) + reconexão automática
+  const manualBtn = document.getElementById('manualBtn');
+  if (manualBtn) manualBtn.onclick = () => switchView('manual');
+  const usersBtn = document.getElementById('usersBtn');
+  if (usersBtn) usersBtn.onclick = () => switchView('users');
   const syncBtn = document.getElementById('syncBtn');
   if (syncBtn) syncBtn.onclick = () => pullCloud(true);
   window.addEventListener('online', () => pullCloud());   // ao voltar a rede: drena a fila e puxa

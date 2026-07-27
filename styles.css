@@ -771,3 +771,20 @@ body.locked { overflow: hidden; }
 /* seletor Total × Por item no gráfico do centro */
 .ccm-seg { margin-bottom: 10px; }
 .b3.inv { border-left-color: #38bdf8; }
+
+/* ===================== Faixa de conciliação (substitui a lente) ===================== */
+.concil {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px 18px; display: flex; flex-direction: column; gap: 7px; box-shadow: var(--shadow);
+}
+.cc-l { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.cc-t { font-weight: 700; color: var(--txt); }
+.cc-t b { font-variant-numeric: tabular-nums; }
+.cc-eq { color: var(--txt-mute); font-weight: 700; }
+.cc-p { color: var(--txt-dim); }
+.cc-p b { color: var(--txt); font-variant-numeric: tabular-nums; }
+.cc-p.pos b { color: var(--pos); }
+.cc-p.w b { color: var(--warn); }
+.cc-fim { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 14px; }
+.cc-fim.pos .cc-t b { color: var(--pos); }
+.cc-fim.neg .cc-t b { color: var(--neg); }

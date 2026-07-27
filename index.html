@@ -90,6 +90,8 @@
     <button id="restoreBtn" class="theme-btn" title="Restaurar de um backup (.json)" aria-label="Importar backup">📂</button>
     <input type="file" id="restoreInput" accept=".json,application/json" hidden />
     <button id="syncBtn" class="theme-btn sync-btn" title="Sincronizar com a nuvem" aria-label="Sincronizar">☁️</button>
+    <button id="manualBtn" class="theme-btn" title="Manual: regras de lançamento e dicionário" aria-label="Manual">📘</button>
+    <button id="usersBtn" class="theme-btn master-only" title="Usuários e permissões" aria-label="Usuários">👤</button>
     <button id="themeToggle" class="theme-btn" title="Alternar tema claro/escuro" aria-label="Alternar tema">🌙</button>
     <div id="userChip" class="user-chip" hidden>
       <span class="uc-avatar" id="ucAvatar">·</span>
@@ -106,11 +108,7 @@
   <button data-view="insights" class="active">💡 Insights</button>
   <button data-view="overview">📊 Resultado</button>
   <button data-view="centers">🎯 Centros</button>
-  <button data-view="mirror">🗂️ Todas as Contas</button>
-  <button data-view="auditoria" class="master-only">🔎 Auditoria</button>
-  <button data-view="bancos">🏦 Bancos</button>
-  <button data-view="manual">📘 Manual</button>
-  <button data-view="users" class="master-only">👤 Usuários</button>
+  <button data-view="mirror">🔎 Conferência</button>
 </nav>
 
 <div id="dropOverlay" class="drop-overlay">
@@ -144,12 +142,9 @@
 
 <main>
   <!-- KPIs (sempre visíveis) -->
-  <!-- Lente dos KPIs: OPERAÇÃO (sem empréstimo) × CAIXA (tudo que entra e sai) -->
-  <nav class="ins-modos lente-nav" id="lenteNav">
-    <button data-lente="op" class="active" title="Só o que a empresa gera: exclui empréstimo captado e devolução de dívida">🎯 Operação</button>
-    <button data-lente="caixa" title="Tudo que entrou e saiu do banco, inclusive empréstimos">💵 Todo o dinheiro (caixa)</button>
-  </nav>
   <section class="kpis" id="kpis"></section>
+  <!-- Conciliação: mostra o lado CAIXA sem precisar de botão/lente -->
+  <section class="concil" id="concil"></section>
 
   <!-- ===================== INSIGHTS ===================== -->
   <div class="view" id="view-insights">
@@ -167,7 +162,6 @@
       <button data-grp="resumo" class="active">🧭 Resumo</button>
       <button data-grp="composicao">🥧 Composição</button>
       <button data-grp="evolucao">📈 Evolução</button>
-      <button data-grp="entrasai">💵 Entra e Sai</button>
       <button data-grp="dono">👑 Visão de Dono</button>
     </nav>
 
@@ -221,6 +215,14 @@
       </div>
     </section>
       </div>
+    
+<section class="card">
+        <div class="card-head">
+          <h2>💵 Todo o dinheiro que entrou e saiu</h2>
+          <span class="hint">extrato do mês: cada real que passou pelo caixa, sem exclusão nenhuma</span>
+        </div>
+        <div id="entraSai"></div>
+      </section>
     </div>
 
     <div class="res-grp hidden" data-grp="evolucao">
@@ -235,16 +237,6 @@
       </div>
       <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
     </section>
-    </div>
-
-    <div class="res-grp hidden" data-grp="entrasai">
-      <section class="card">
-        <div class="card-head">
-          <h2>💵 Todo o dinheiro que entrou e saiu</h2>
-          <span class="hint">extrato do mês: cada real que passou pelo caixa, sem exclusão nenhuma</span>
-        </div>
-        <div id="entraSai"></div>
-      </section>
     </div>
 
     <div class="res-grp hidden" data-grp="dono">
@@ -354,10 +346,7 @@
       <nav class="center-chips" id="bigCenterChips"></nav>
       <div id="bigCenterPanel" class="big-center-panel"></div>
     </section>
-  </div>
 
-  <!-- ===================== AUDITORIA (Mubisys × DRE) ===================== -->
-  <div class="view hidden" id="view-auditoria">
     <section class="card">
       <div class="card-head">
         <h2>🔎 Auditoria · Mubisys × DRE</h2>
@@ -372,7 +361,21 @@
       <div id="audResumo" class="aud-resumo"></div>
       <div id="audTabela"></div>
     </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>🏦 Bancos · Contas para consulta</h2>
+        <div class="tree-controls">
+          <input type="search" id="bancosSearch" placeholder="Buscar banco, titular, chave…" />
+        </div>
+      </div>
+      <p class="hint" style="margin-bottom:16px">Dados das contas Impresilk e Universo. Toque em qualquer valor (ou no botão de copiar) para copiar agência, conta ou chave Pix.</p>
+      <div id="bancosGrid" class="bancos-grid"></div>
+    </section>
   </div>
+
+  <!-- ===================== AUDITORIA (Mubisys × DRE) ===================== -->
+  
 
   <!-- ===================== DIRETRIZES DA DRE ===================== -->
   <div class="view hidden" id="view-diretrizes-REMOVIDO" hidden>
@@ -389,18 +392,7 @@
   </div>
 
   <!-- ===================== BANCOS ===================== -->
-  <div class="view hidden" id="view-bancos">
-    <section class="card">
-      <div class="card-head">
-        <h2>🏦 Bancos · Contas para consulta</h2>
-        <div class="tree-controls">
-          <input type="search" id="bancosSearch" placeholder="Buscar banco, titular, chave…" />
-        </div>
-      </div>
-      <p class="hint" style="margin-bottom:16px">Dados das contas Impresilk e Universo. Toque em qualquer valor (ou no botão de copiar) para copiar agência, conta ou chave Pix.</p>
-      <div id="bancosGrid" class="bancos-grid"></div>
-    </section>
-  </div>
+  
 
   <!-- ===================== GLOSSÁRIO ===================== -->
   <div class="view hidden" id="view-manual">
