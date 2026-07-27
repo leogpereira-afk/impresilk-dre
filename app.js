@@ -974,6 +974,10 @@ function boot(D) {
     });
   }
 
+  const CCM_KEY = 'impresilk_dre_center_chart_mode';
+  let centerChartMode = 'total';
+  try { centerChartMode = localStorage.getItem(CCM_KEY) || 'total'; } catch (_) {}
+
   function renderCenterPanel() {
     const s = get(activeCenter);
     if (!s) { document.getElementById('centerPanel').innerHTML = '<p class="hint">Sem dados.</p>'; return; }
@@ -1020,7 +1024,13 @@ function boot(D) {
         <div class="ck"><span class="ck-l">Oscilação</span><span class="ck-v">${volat}</span><span class="ck-s">varia ${(st.cv * 100).toFixed(0)}% em torno da média</span></div>
       </div>
       <div class="center-grid">
-        <div class="chart-wrap"><canvas id="centerChart"></canvas></div>
+        <div>
+          <div class="seg ccm-seg" id="centerChartMode">
+            <button data-m="total" class="${centerChartMode === 'total' ? 'active' : ''}">Total do centro</button>
+            <button data-m="item" class="${centerChartMode === 'item' ? 'active' : ''}">Por item</button>
+          </div>
+          <div class="chart-wrap"><canvas id="centerChart"></canvas></div>
+        </div>
         <div class="table-scroll">
           <table class="dre"><thead><tr>
             <th class="t-name">Subconta</th><th>Valor</th><th>% do centro</th><th>Variação</th><th>Histórico</th>
@@ -1028,21 +1038,45 @@ function boot(D) {
         </div>
       </div>`;
 
+    // modo "Por item": barras EMPILHADAS com os 6 maiores itens + Outros, mês a
+    // mês — responde "dentro deste centro, o que cresceu ao longo do período?".
+    const kidsAll = (childrenOf.get(s.code) || []).filter(k => k.values.some(x => x !== 0));
+    const top6 = [...kidsAll].sort((a, b) => val(b, cur) - val(a, cur)).slice(0, 6);
+    const outros = kidsAll.filter(k => !top6.includes(k));
+    const dsItem = top6.map((k, n2) => ({
+      type: 'bar', label: k.name, stack: 'c',
+      data: MONTHS.map((_, i) => val(k, i)),
+      backgroundColor: BRK_PALETTE[n2 % BRK_PALETTE.length], borderRadius: 3
+    }));
+    if (outros.length) dsItem.push({
+      type: 'bar', label: `Outros (${outros.length})`, stack: 'c',
+      data: MONTHS.map((_, i) => outros.reduce((a, k) => a + val(k, i), 0)),
+      backgroundColor: 'rgba(148,163,184,.55)', borderRadius: 3
+    });
+    const porItem = centerChartMode === 'item' && dsItem.length > 0;
+
     destroyChart('center');
     _charts.center = new Chart(document.getElementById('centerChart'), {
       type: 'bar',
-      data: { labels: MONTHS, datasets: [
+      data: { labels: MONTHS, datasets: porItem ? dsItem : [
         { type: 'bar', label: s.name, data: vals, backgroundColor: vals.map((_, i) => i === cur ? '#f59e0b' : 'rgba(245,158,158,.55)'), borderRadius: 5, order: 2 },
-        { type: 'line', label: '% das vendas', data: MONTHS.map((_, i) => revAt(i) ? vals[i] / revAt(i) * 100 : 0), yAxisID: 'y2', borderColor: '#38bdf8', backgroundColor: '#38bdf8', tension: .35, pointRadius: 3, order: 1 }
+        { type: 'line', label: '% das vendas', data: MONTHS.map((_, i) => salesAt(i) ? vals[i] / salesAt(i) * 100 : 0), yAxisID: 'y2', borderColor: '#38bdf8', backgroundColor: '#38bdf8', tension: .35, pointRadius: 3, order: 1 }
       ] },
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { labels: { color: cssVar('--chart-tick'), boxWidth: 12, font: { size: 11 } } },
           tooltip: { callbacks: { label: c => c.dataset.yAxisID === 'y2' ? ` ${c.dataset.label}: ${c.raw.toFixed(1)}%` : ` ${c.dataset.label}: ${fmt2(c.raw)}` } } },
         scales: {
-          x: { ticks: { color: cssVar('--chart-tick') }, grid: { color: cssVar('--chart-grid') } },
-          y: { ticks: { color: cssVar('--chart-tick'), callback: v => fmt(v) }, grid: { color: cssVar('--chart-grid') } },
-          y2: { position: 'right', ticks: { color: '#38bdf8', callback: v => v.toFixed(0) + '%' }, grid: { drawOnChartArea: false } }
+          x: { stacked: porItem, ticks: { color: cssVar('--chart-tick') }, grid: { color: cssVar('--chart-grid') } },
+          y: { stacked: porItem, ticks: { color: cssVar('--chart-tick'), callback: v => fmt(v) }, grid: { color: cssVar('--chart-grid') } },
+          y2: { display: !porItem, position: 'right', ticks: { color: '#38bdf8', callback: v => v.toFixed(0) + '%' }, grid: { drawOnChartArea: false } }
         } }
+    });
+
+    const segEl = document.getElementById('centerChartMode');
+    if (segEl) segEl.querySelectorAll('button').forEach(b => b.onclick = () => {
+      centerChartMode = b.dataset.m;
+      try { localStorage.setItem(CCM_KEY, centerChartMode); } catch (_) {}
+      renderCenterPanel();
     });
   }
 

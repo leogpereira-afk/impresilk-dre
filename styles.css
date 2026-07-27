@@ -767,3 +767,6 @@ body.locked { overflow: hidden; }
 /* sub-abas de RECEITA dentro de Centros (verde, para separar de despesa) */
 .subtabs button.is-rev { border-color: var(--pos); color: var(--pos); }
 .subtabs button.is-rev.active { background: var(--pos); color: #05261a; border-color: var(--pos); }
+
+/* seletor Total × Por item no gráfico do centro */
+.ccm-seg { margin-bottom: 10px; }
