@@ -763,3 +763,7 @@ body.locked { overflow: hidden; }
 .es-fecha b { font-size: 18px; font-variant-numeric: tabular-nums; }
 .es-nota { margin-top: 12px; line-height: 1.65; }
 @media (max-width: 860px) { .es-grid { grid-template-columns: 1fr; } }
+
+/* sub-abas de RECEITA dentro de Centros (verde, para separar de despesa) */
+.subtabs button.is-rev { border-color: var(--pos); color: var(--pos); }
+.subtabs button.is-rev.active { background: var(--pos); color: #05261a; border-color: var(--pos); }

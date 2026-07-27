@@ -603,7 +603,7 @@ function boot(D) {
   function renderDRE() {
     const tb = document.querySelector('#dreTable tbody');
     const rows = [];
-    const denom = revAt(cur) || 1;
+    const denom = salesAt(cur) || 1;   // base única: vendas (cabeçalho diz 'sobre as vendas')
 
     function sectionRows(sections, groupCls) {
       sections.forEach(s => {
@@ -803,10 +803,16 @@ function boot(D) {
   let activeCenter = null;
   function renderCenters() {
     const tabsEl = document.getElementById('centerTabs');
-    if (!activeCenter || !get(activeCenter)) activeCenter = expSections.length ? expSections[0].code : null;
-    tabsEl.innerHTML = expSections.map(s => {
+    // Além dos centros de DESPESA, entram os dois de RECEITA (Produtos 1.1.1 e
+    // Serviços 1.1.2). Sem eles, a quebra interna de Serviços — instalação,
+    // pintura, design, hora-máquina — ficava sem tela nenhuma.
+    const receitaCentros = ['1.1.1', '1.1.2'].map(c => get(c)).filter(Boolean);
+    const centros = [...receitaCentros, ...expSections];
+    if (!activeCenter || !get(activeCenter)) activeCenter = centros.length ? centros[0].code : null;
+    tabsEl.innerHTML = centros.map(s => {
       const short = s.name.replace(/^Despesas?\s+/i, '');
-      return `<button data-c="${s.code}" class="${s.code === activeCenter ? 'active' : ''}">${short}</button>`;
+      const rev = String(s.code).startsWith('1');
+      return `<button data-c="${s.code}" class="${s.code === activeCenter ? 'active' : ''} ${rev ? 'is-rev' : ''}">${rev ? '↗ ' : ''}${short}</button>`;
     }).join('');
     tabsEl.querySelectorAll('button').forEach(b => b.onclick = () => { activeCenter = b.dataset.c; renderCenters(); });
     renderCenterPanel();
@@ -1027,7 +1033,7 @@ function boot(D) {
       type: 'bar',
       data: { labels: MONTHS, datasets: [
         { type: 'bar', label: s.name, data: vals, backgroundColor: vals.map((_, i) => i === cur ? '#f59e0b' : 'rgba(245,158,158,.55)'), borderRadius: 5, order: 2 },
-        { type: 'line', label: '% da receita', data: MONTHS.map((_, i) => revAt(i) ? vals[i] / revAt(i) * 100 : 0), yAxisID: 'y2', borderColor: '#38bdf8', backgroundColor: '#38bdf8', tension: .35, pointRadius: 3, order: 1 }
+        { type: 'line', label: '% das vendas', data: MONTHS.map((_, i) => revAt(i) ? vals[i] / revAt(i) * 100 : 0), yAxisID: 'y2', borderColor: '#38bdf8', backgroundColor: '#38bdf8', tension: .35, pointRadius: 3, order: 1 }
       ] },
       options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { labels: { color: cssVar('--chart-tick'), boxWidth: 12, font: { size: 11 } } },
@@ -1166,19 +1172,22 @@ function boot(D) {
   const finRevAt = i => FIN_REV_CODES.reduce((s, c) => s + val(get(c), i), 0);
   const varCostAt = i => VAR_COST_CODES.reduce((s, c) => s + val(get(c), i), 0);
   const bankDebtAt = i => val(get(BANK_DEBT_CODE), i);
+  const LOAN_OUT_CODES = ['2.13.6', '2.13.7'];       // antecipação/devolução + empréstimos bancários
+  // soma também 2.14.3 (empréstimo bancário lançado dentro das societárias)
+  const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0) + bankDebtAt(i);
   const ownerAt = i => OWNER_CODES.reduce((s, c) => s + val(get(c), i), 0) - bankDebtAt(i);
   const salesAt = i => revAt(i) - finRevAt(i);                 // receita operacional (vendas)
   const cmAt = i => salesAt(i) - varCostAt(i);                 // margem de contribuição
-  const fixedAt = i => expAt(i) - varCostAt(i) - ownerAt(i);   // estrutura fixa (sem retiradas)
+  // estrutura fixa = despesa da operação menos custo variável. NÃO inclui
+  // retirada de sócio nem devolução de empréstimo — senão o ponto de equilíbrio
+  // sobe artificialmente e o "resultado operacional" daqui diverge do dos KPIs.
+  const fixedAt = i => expAt(i) - varCostAt(i) - ownerAt(i) - loanOutAt(i);
   const opResAt = i => salesAt(i) - varCostAt(i) - fixedAt(i); // resultado operacional (antes de sócios e financ.)
 
   // ── Visão em 3 blocos (padrão fluxo de caixa) ──────────────────────────────
   // Devolução de empréstimo NÃO é despesa (é o principal voltando) e empréstimo
   // captado NÃO é receita. Somados ao resultado eles mentem sobre a operação:
   // separamos em Operação · Sócios · Financiamento, cuja soma = variação de caixa.
-  const LOAN_OUT_CODES = ['2.13.6', '2.13.7'];       // antecipação/devolução + empréstimos bancários
-  // soma também 2.14.3 (empréstimo bancário lançado dentro das societárias)
-  const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0) + bankDebtAt(i);
   const despOperAt = i => expAt(i) - loanOutAt(i) - ownerAt(i); // despesa só da operação
   const resOperAt = i => salesAt(i) - despOperAt(i);            // resultado limpo da operação
   const financAt = i => finRevAt(i) - loanOutAt(i);             // saldo de financiamento
@@ -2045,7 +2054,7 @@ const GLOSSARY = [
 /* ==================================================================== */
 /*  CARDS RECOLHÍVEIS — injeta um botão de recolher em cada card          */
 /* ==================================================================== */
-const COLLAPSE_KEY = 'impresilk_dre_collapsed';
+const COLLAPSE_KEY = 'impresilk_dre_collapsed_v2';   // v2: chaves deixaram de ser posicionais
 function wireCollapsibleCards() {
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '{}'); } catch (_) {}
@@ -2054,8 +2063,13 @@ function wireCollapsibleCards() {
   document.querySelectorAll('main .card').forEach((card, idx) => {
     const head = card.querySelector('.card-head');
     if (!head || head.querySelector('.card-collapse')) return; // já tem botão
-    // id estável: usa o id da section, senão o índice
-    const key = card.id || ('card-' + idx);
+    // id estável derivado do TÍTULO (o índice mudava sempre que um card era
+    // inserido/removido, e cards injetados por innerHTML colidiam com os fixos)
+    const h2txt = (card.querySelector('h2') || {}).textContent || '';
+    const slug = h2txt.trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+    const key = card.id || slug || ('card-' + idx);
     card.dataset.collapseKey = key;
 
     const btn = document.createElement('button');
@@ -2174,7 +2188,28 @@ function hashPass(s) { // ofuscação (djb2 + sal) — não é hash criptográfi
   for (let i = 0; i < str.length; i++) { h = ((h << 5) + h) ^ str.charCodeAt(i); h |= 0; }
   return (h >>> 0).toString(16);
 }
-function loadUsers() { try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (_) { return []; } }
+// Abas foram renomeadas/fundidas: buffett->overview, diretrizes/glossary->manual,
+// e 'insights' passou a existir. Sem esta migração, usuário antigo perde telas.
+const PERM_MIGRA = { buffett: 'overview', diretrizes: 'manual', glossary: 'manual' };
+function migraPerms(users) {
+  let mudou = false;
+  (users || []).forEach(u => {
+    if (u.role === 'master' || !Array.isArray(u.perms)) return;
+    const novas = new Set();
+    u.perms.forEach(p => novas.add(PERM_MIGRA[p] || p));
+    if (novas.has('overview')) novas.add('insights');   // quem via o resumo vê os insights
+    const arr = [...novas].filter(p => ALL_VIEW_IDS.includes(p));
+    if (arr.length !== u.perms.length || arr.some(p => !u.perms.includes(p))) { u.perms = arr; mudou = true; }
+  });
+  return mudou;
+}
+
+function loadUsers() {
+  let u = [];
+  try { u = JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (_) { return []; }
+  if (migraPerms(u)) { try { localStorage.setItem(USERS_KEY, JSON.stringify(u)); } catch (_) {} }
+  return u;
+}
 function saveUsers(u) { try { localStorage.setItem(USERS_KEY, JSON.stringify(u)); } catch (_) {} }
 function getSession() { try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (_) { return null; } }
 function setSession(s) { try { s ? localStorage.setItem(SESSION_KEY, JSON.stringify(s)) : localStorage.removeItem(SESSION_KEY); } catch (_) {} }
