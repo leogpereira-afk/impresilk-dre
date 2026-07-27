@@ -104,9 +104,8 @@
 
 <nav class="tabs" id="viewTabs">
   <button data-view="insights" class="active">💡 Insights</button>
-  <button data-view="overview">📊 Visão Geral</button>
+  <button data-view="overview">📊 Resultado</button>
   <button data-view="centers">🎯 Centros</button>
-  <button data-view="buffett">🧠 Visão de Dono</button>
   <button data-view="mirror">🗂️ Todas as Contas</button>
   <button data-view="auditoria" class="master-only">🔎 Auditoria</button>
   <button data-view="bancos">🏦 Bancos</button>
@@ -159,8 +158,14 @@
 
   <!-- ===================== VISÃO GERAL ===================== -->
   <div class="view" id="view-overview">
-    <!-- Resultado em 3 blocos (padrão fluxo de caixa): separa o que a operação
-         gera do que é retirada de sócio e do que é apenas empréstimo entrando/saindo -->
+    <nav class="ins-modos res-modos" id="resModos">
+      <button data-grp="resumo" class="active">🧭 Resumo</button>
+      <button data-grp="composicao">🥧 Composição</button>
+      <button data-grp="evolucao">📈 Evolução</button>
+      <button data-grp="dono">👑 Visão de Dono</button>
+    </nav>
+
+    <div class="res-grp" data-grp="resumo">
     <section class="card" id="blocosCard">
       <div class="card-head">
         <h2>🧭 Resultado em 3 blocos</h2>
@@ -168,9 +173,7 @@
       </div>
       <div id="blocos3" class="blocos3"></div>
     </section>
-
-    <div class="two-col">
-      <section class="card">
+    <section class="card">
         <div class="card-head">
           <h2>DRE por Seção</h2>
           <span class="hint">Peso = fatia sobre as vendas · Variação = diferença vs o mês comparado</span>
@@ -189,7 +192,10 @@
           </table>
         </div>
       </section>
+    </div>
 
+    <div class="res-grp hidden" data-grp="composicao">
+      <div class="two-col">
       <section class="card">
         <div class="card-head">
           <h2>Composição de Despesas</h2>
@@ -198,9 +204,7 @@
         <div class="chart-wrap small"><canvas id="compChart"></canvas></div>
         <div id="expenseRank" class="rank"></div>
       </section>
-    </div>
-
-    <section class="card">
+      <section class="card">
       <div class="card-head">
         <h2>Composição de Receitas</h2>
         <span class="hint" id="revCompHint"></span>
@@ -210,7 +214,10 @@
         <div id="revenueRank" class="rank"></div>
       </div>
     </section>
+      </div>
+    </div>
 
+    <div class="res-grp hidden" data-grp="evolucao">
     <section class="card">
       <div class="card-head">
         <h2>Comparativo Mensal</h2>
@@ -222,14 +229,51 @@
       </div>
       <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
     </section>
+    </div>
 
-    <section class="card insights">
+    <div class="res-grp hidden" data-grp="dono">
+    <section class="card owner-earnings">
       <div class="card-head">
-        <h2>Insights do Período</h2>
-        <span class="badge" id="insightBadge"></span>
+        <h2>🧠 Leitura do Negócio — estilo "Owner Earnings"</h2>
+        <span class="hint">Separa a operação real das retiradas dos sócios e do financiamento</span>
       </div>
-      <div id="insights" class="insight-grid"></div>
+      <div id="buffettNarrative" class="narrative"></div>
     </section>
+<section class="card">
+        <div class="card-head"><h2>Operação vs. Retiradas dos Sócios</h2></div>
+        <div class="chart-wrap"><canvas id="opVsOwnerChart"></canvas></div>
+      </section>
+<section class="card">
+        <div class="card-head"><h2>Qualidade do Resultado</h2></div>
+        <div class="chart-wrap"><canvas id="marginLayersChart"></canvas></div>
+      </section>
+<section class="card">
+      <div class="card-head">
+        <h2>Demonstrativo Gerencial Reorganizado</h2>
+        <span class="hint">Visão de dono: margem de contribuição → resultado operacional → resultado final</span>
+      </div>
+      <div class="table-scroll">
+        <table class="dre" id="buffettTable"><tbody></tbody></table>
+      </div>
+    </section>
+<section class="card sim-card">
+      <div class="card-head">
+        <h2>💸 Simulador de Retiradas</h2>
+        <span class="hint">Se a retirada fosse uma % fixa do resultado operacional, quanto sobraria de reserva?</span>
+      </div>
+      <div class="sim-control">
+        <label for="simSlider">Retirada = <b id="simPctLabel">100%</b> do resultado operacional</label>
+        <input type="range" id="simSlider" min="0" max="150" step="5" value="100" />
+      </div>
+      <div id="simKpis" class="sim-kpis"></div>
+      <div id="simNote" class="sim-note"></div>
+    </section>
+<section class="card insights">
+      <div class="card-head"><h2>Sinais & Recomendações</h2></div>
+      <div id="buffettSignals" class="insight-grid"></div>
+    </section>
+    </div>
+  
   </div>
 
   <!-- ===================== CENTROS DE CUSTO ===================== -->
@@ -264,54 +308,7 @@
   </div>
 
   <!-- ===================== ANÁLISE FUNDAMENTALISTA ===================== -->
-  <div class="view hidden" id="view-buffett">
-    <section class="card owner-earnings">
-      <div class="card-head">
-        <h2>🧠 Leitura do Negócio — estilo "Owner Earnings"</h2>
-        <span class="hint">Separa a operação real das retiradas dos sócios e do financiamento</span>
-      </div>
-      <div id="buffettNarrative" class="narrative"></div>
-    </section>
-
-    <div class="two-col">
-      <section class="card">
-        <div class="card-head"><h2>Operação vs. Retiradas dos Sócios</h2></div>
-        <div class="chart-wrap"><canvas id="opVsOwnerChart"></canvas></div>
-      </section>
-      <section class="card">
-        <div class="card-head"><h2>Qualidade do Resultado</h2></div>
-        <div class="chart-wrap"><canvas id="marginLayersChart"></canvas></div>
-      </section>
-    </div>
-
-    <section class="card">
-      <div class="card-head">
-        <h2>Demonstrativo Gerencial Reorganizado</h2>
-        <span class="hint">Visão de dono: margem de contribuição → resultado operacional → resultado final</span>
-      </div>
-      <div class="table-scroll">
-        <table class="dre" id="buffettTable"><tbody></tbody></table>
-      </div>
-    </section>
-
-    <section class="card sim-card">
-      <div class="card-head">
-        <h2>💸 Simulador de Retiradas</h2>
-        <span class="hint">Se a retirada fosse uma % fixa do resultado operacional, quanto sobraria de reserva?</span>
-      </div>
-      <div class="sim-control">
-        <label for="simSlider">Retirada = <b id="simPctLabel">100%</b> do resultado operacional</label>
-        <input type="range" id="simSlider" min="0" max="150" step="5" value="100" />
-      </div>
-      <div id="simKpis" class="sim-kpis"></div>
-      <div id="simNote" class="sim-note"></div>
-    </section>
-
-    <section class="card insights">
-      <div class="card-head"><h2>Sinais & Recomendações</h2></div>
-      <div id="buffettSignals" class="insight-grid"></div>
-    </section>
-  </div>
+  
 
   <!-- ===================== ESPELHO ===================== -->
   <div class="view hidden" id="view-mirror">

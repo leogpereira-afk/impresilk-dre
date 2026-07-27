@@ -559,6 +559,7 @@ function boot(D) {
     const margin = salesAt(cur) ? res / salesAt(cur) : 0;
     const marginP = salesAt(cmp) ? resP / salesAt(cmp) : 0;
     const badge = document.getElementById('insightBadge');
+    if (!badge || !document.getElementById('insights')) return;   // card removido
     badge.className = 'badge ' + (res >= 0 ? 'pos' : 'neg');
     badge.textContent = res >= 0 ? 'Operação no positivo' : 'Operação no negativo';
 
@@ -1632,6 +1633,7 @@ function boot(D) {
   function renderAll() {
     renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
     renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab();
+    if (typeof wireResGrupos === 'function') wireResGrupos();
     if (typeof renderAuditoria === 'function') renderAuditoria();
     if (typeof wireCollapsibleCards === 'function') wireCollapsibleCards();
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
@@ -1772,6 +1774,28 @@ function renderBancos() {
       });
     };
   }
+}
+
+
+/* ------------------------------------------------------------------ */
+/*  Aba 📊 Resultado — seletores internos. Visão Geral e Visão de Dono  */
+/*  viraram uma aba só; cada grupo aparece sob demanda.                 */
+/* ------------------------------------------------------------------ */
+const RES_GRP_KEY = 'impresilk_dre_res_grp';
+function wireResGrupos() {
+  const nav = document.getElementById('resModos');
+  if (!nav || nav._wired) return;
+  nav._wired = true;
+  let atual = 'resumo';
+  try { atual = localStorage.getItem(RES_GRP_KEY) || 'resumo'; } catch (_) {}
+  const aplica = g => {
+    document.querySelectorAll('.res-grp').forEach(el => el.classList.toggle('hidden', el.dataset.grp !== g));
+    nav.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.grp === g));
+    try { localStorage.setItem(RES_GRP_KEY, g); } catch (_) {}
+    window.dispatchEvent(new Event('resize'));   // gráficos recalculam ao aparecer
+  };
+  nav.querySelectorAll('button').forEach(b => b.onclick = () => aplica(b.dataset.grp));
+  aplica(document.querySelector(`.res-grp[data-grp="${atual}"]`) ? atual : 'resumo');
 }
 
 /* ==================================================================== */
@@ -2057,9 +2081,8 @@ const USERS_KEY = 'impresilk_dre_users';
 const SESSION_KEY = 'impresilk_dre_session';
 const GATEABLE_VIEWS = [
   { id: 'insights', label: '💡 Insights' },
-  { id: 'overview', label: '📊 Visão Geral' },
+  { id: 'overview', label: '📊 Resultado' },
   { id: 'centers',  label: '🎯 Centros' },
-  { id: 'buffett',  label: '🧠 Visão de Dono' },
   { id: 'mirror',   label: '🗂️ Todas as Contas' },
   { id: 'auditoria', label: '🔎 Auditoria' },
   { id: 'bancos',   label: '🏦 Bancos' },
@@ -2481,6 +2504,7 @@ function initApp() {
   // glossário (conteúdo estático — independe dos dados)
   renderGlossary();
   renderDiretrizes();
+  wireResGrupos();
   renderAuditoria();
   renderBancos();
 

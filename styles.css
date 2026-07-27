@@ -730,3 +730,8 @@ body.locked { overflow: hidden; }
   .ib-l { grid-template-columns: 1fr; gap: 3px; }
   .ib-v { text-align: left; }
 }
+
+/* Seletores internos da aba Resultado */
+.res-modos { margin-bottom: 4px; }
+.res-grp { display: flex; flex-direction: column; gap: 20px; }
+.res-grp.hidden { display: none; }
