@@ -518,13 +518,22 @@ function boot(D) {
   monthSel.onchange = () => { cur = +monthSel.value; if (cmp === cur) { cmp = cur > 0 ? cur - 1 : Math.min(cur + 1, MONTHS.length - 1); cmpSel.value = cmp; } renderAll(); };
   cmpSel.onchange = () => { cmp = +cmpSel.value; renderAll(); };
 
-  // ===== KPIs =====
+  // ===== KPIs (duas lentes) =====
+  // OPERAÇÃO: só o que a empresa gera — exclui empréstimo captado (1.4/1.3) e
+  //           devolução de dívida (2.13.6/2.13.7/2.14.3).
+  // CAIXA:    tudo que passou pelo banco, sem exclusão — bate com o extrato.
   function renderKPIs() {
-    const cards = [
-      { cls: 'rev', label: 'Receita Total', val: revAt(cur), prev: revAt(cmp), goodUp: true },
-      { cls: 'exp', label: 'Despesa Total', val: expAt(cur), prev: expAt(cmp), goodUp: false },
-      { cls: 'res', label: resAt(cur) >= 0 ? 'Resultado (Lucro)' : 'Resultado (Prejuízo)', val: resAt(cur), prev: resAt(cmp), goodUp: true },
-      { cls: 'mar', label: 'Margem Líquida', val: marginAt(cur), prev: marginAt(cmp), goodUp: true, isPct: true },
+    const opMargem = i => salesAt(i) ? resOperAt(i) / salesAt(i) : 0;
+    const cards = lente === 'caixa' ? [
+      { cls: 'rev', label: 'Entrou (tudo)', val: revAt(cur), prev: revAt(cmp), goodUp: true },
+      { cls: 'exp', label: 'Saiu (tudo)', val: expAt(cur), prev: expAt(cmp), goodUp: false },
+      { cls: 'res', label: 'Variação de Caixa', val: resAt(cur), prev: resAt(cmp), goodUp: true },
+      { cls: 'mar', label: 'Margem de Caixa', val: marginAt(cur), prev: marginAt(cmp), goodUp: true, isPct: true },
+    ] : [
+      { cls: 'rev', label: 'Vendas', val: salesAt(cur), prev: salesAt(cmp), goodUp: true },
+      { cls: 'exp', label: 'Custos da Operação', val: despOperAt(cur), prev: despOperAt(cmp), goodUp: false },
+      { cls: 'res', label: 'Resultado da Operação', val: resOperAt(cur), prev: resOperAt(cmp), goodUp: true },
+      { cls: 'mar', label: 'Margem da Operação', val: opMargem(cur), prev: opMargem(cmp), goodUp: true, isPct: true },
     ];
     document.getElementById('kpis').innerHTML = cards.map(c => {
       let dClass, dTxt;
@@ -1446,6 +1455,67 @@ function boot(D) {
     renderInsightsTab();
   });
 
+
+  // ===== lente global (Operação × Caixa) =====
+  const LENTE_KEY = 'impresilk_dre_lente';
+  let lente = 'op';
+  try { lente = localStorage.getItem(LENTE_KEY) || 'op'; } catch (_) {}
+  function aplicaLente(l) {
+    lente = l;
+    try { localStorage.setItem(LENTE_KEY, l); } catch (_) {}
+    document.querySelectorAll('#lenteNav button').forEach(b => b.classList.toggle('active', b.dataset.lente === l));
+    renderKPIs();
+  }
+
+  // ===== 💵 Entra e Sai: o extrato do mês, sem exclusão nenhuma =====
+  function renderEntraSai() {
+    const host = document.getElementById('entraSai');
+    if (!host) return;
+    const i = cur;
+    const linha = (nome, v, tipo, obs) => ({ nome, v, tipo, obs: obs || '' });
+
+    // ENTRADAS: filhos de 1 (destacando o que é empréstimo)
+    const ent = (childrenOf.get('1') || []).map(c => linha(
+      c.name, val(c, i), 'in',
+      FIN_REV_CODES.includes(c.code) ? 'não é venda — é dinheiro emprestado/rendimento' : ''
+    )).filter(x => x.v);
+    // SAÍDAS: filhos de 2, marcando devolução de dívida e retirada
+    const sai = (childrenOf.get('2') || []).map(c => {
+      let obs = '';
+      if (c.code === '2.13') obs = 'inclui devolução de empréstimo (não é despesa da operação)';
+      if (c.code === '2.14') obs = 'retiradas dos sócios + arrendamento + dívida bancária';
+      if (c.code === '2.16') obs = 'investimentos — decisão do dono, não custo da operação';
+      return linha(c.name, val(c, i), 'out', obs);
+    }).filter(x => x.v);
+
+    const totIn = ent.reduce((a, x) => a + x.v, 0);
+    const totOut = sai.reduce((a, x) => a + x.v, 0);
+    const tabela = (titulo, itens, tot, cls) => `
+      <div class="es-bloco">
+        <div class="es-head ${cls}"><span>${titulo}</span><b>${fmt(tot)}</b></div>
+        <table class="dre es-tab"><tbody>
+          ${itens.sort((a, b) => b.v - a.v).map(x => `<tr>
+            <td class="t-name">${x.nome}${x.obs ? `<span class="es-obs">${x.obs}</span>` : ''}</td>
+            <td class="mono">${fmt(x.v)}</td>
+            <td class="av">${tot ? pct(x.v / tot) : '—'}</td></tr>`).join('')}
+        </tbody></table>
+      </div>`;
+
+    host.innerHTML = `
+      <div class="es-grid">
+        ${tabela('⬅ ENTROU no caixa', ent, totIn, 'in')}
+        ${tabela('SAIU do caixa ➡', sai, totOut, 'out')}
+      </div>
+      <div class="es-fecha ${resAt(i) >= 0 ? 'pos' : 'neg'}">
+        <span>Entrou ${fmt(totIn)} · Saiu ${fmt(totOut)}</span>
+        <b>${resAt(i) >= 0 ? 'Sobrou' : 'Faltou'} ${fmt(Math.abs(resAt(i)))} em ${MONTHS[i]}</b>
+      </div>
+      <p class="hint es-nota">Esta é a visão <b>caixa puro</b>: bate com o extrato bancário. Dentro dela,
+      <b>${fmt(finRevAt(i))}</b> que entraram são empréstimo/rendimento (não venda) e
+      <b>${fmt(loanOutAt(i))}</b> que saíram são devolução de dívida (não despesa da operação).
+      Tirando os dois, a operação ${resOperAt(i) >= 0 ? 'gerou' : 'consumiu'} <b>${fmt(Math.abs(resOperAt(i)))}</b>.</p>`;
+  }
+
   function renderBlocos3() {
     const host = document.getElementById('blocos3');
     if (!host) return;
@@ -1632,13 +1702,15 @@ function boot(D) {
 
   function renderAll() {
     renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
-    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab();
+    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai();
     if (typeof wireResGrupos === 'function') wireResGrupos();
     if (typeof renderAuditoria === 'function') renderAuditoria();
     if (typeof wireCollapsibleCards === 'function') wireCollapsibleCards();
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
   }
 
+  document.querySelectorAll('#lenteNav button').forEach(b => b.onclick = () => aplicaLente(b.dataset.lente));
+  document.querySelectorAll('#lenteNav button').forEach(b => b.classList.toggle('active', b.dataset.lente === lente));
   ACCS.forEach(a => { if ((childrenOf.get(a.code) || []).length && a.level >= 2) collapsed.add(a.code); });
   activeRenderAll = renderAll;
   renderAll();

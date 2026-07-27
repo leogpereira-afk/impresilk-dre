@@ -144,6 +144,11 @@
 
 <main>
   <!-- KPIs (sempre visíveis) -->
+  <!-- Lente dos KPIs: OPERAÇÃO (sem empréstimo) × CAIXA (tudo que entra e sai) -->
+  <nav class="ins-modos lente-nav" id="lenteNav">
+    <button data-lente="op" class="active" title="Só o que a empresa gera: exclui empréstimo captado e devolução de dívida">🎯 Operação</button>
+    <button data-lente="caixa" title="Tudo que entrou e saiu do banco, inclusive empréstimos">💵 Todo o dinheiro (caixa)</button>
+  </nav>
   <section class="kpis" id="kpis"></section>
 
   <!-- ===================== INSIGHTS ===================== -->
@@ -162,6 +167,7 @@
       <button data-grp="resumo" class="active">🧭 Resumo</button>
       <button data-grp="composicao">🥧 Composição</button>
       <button data-grp="evolucao">📈 Evolução</button>
+      <button data-grp="entrasai">💵 Entra e Sai</button>
       <button data-grp="dono">👑 Visão de Dono</button>
     </nav>
 
@@ -229,6 +235,16 @@
       </div>
       <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
     </section>
+    </div>
+
+    <div class="res-grp hidden" data-grp="entrasai">
+      <section class="card">
+        <div class="card-head">
+          <h2>💵 Todo o dinheiro que entrou e saiu</h2>
+          <span class="hint">extrato do mês: cada real que passou pelo caixa, sem exclusão nenhuma</span>
+        </div>
+        <div id="entraSai"></div>
+      </section>
     </div>
 
     <div class="res-grp hidden" data-grp="dono">
