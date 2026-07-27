@@ -1593,8 +1593,8 @@ function boot(D) {
         <div class="b3 soc">
           <span class="b3-t">2 · Sócios</span>
           <span class="b3-v neg">${fmt(-soc)}</span>
-          <span class="b3-s">retiradas, arrendamento e investimentos</span>
-          ${linha('Societárias + investimentos', -soc, 'neg')}
+          <span class="b3-s">retiradas dos sócios e arrendamento</span>
+          ${linha('Retiradas + arrendamento', -soc, 'neg')}
         </div>
         <div class="b3 inv">
           <span class="b3-t">3 · Investimentos</span>
