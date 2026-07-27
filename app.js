@@ -1205,24 +1205,30 @@ function boot(D) {
   // base autoritativa = totais das contas 1 e 2 (batem com a planilha). Vendas = Receita total − receita financeira.
   const finRevAt = i => FIN_REV_CODES.reduce((s, c) => s + val(get(c), i), 0);
   const varCostAt = i => VAR_COST_CODES.reduce((s, c) => s + val(get(c), i), 0);
-  const bankDebtAt = i => val(get(BANK_DEBT_CODE), i);
-  const LOAN_OUT_CODES = ['2.13.6', '2.13.7'];       // antecipação/devolução + empréstimos bancários
-  // soma também 2.14.3 (empréstimo bancário lançado dentro das societárias)
-  const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0) + bankDebtAt(i);
-  const ownerAt = i => OWNER_CODES.reduce((s, c) => s + val(get(c), i), 0) - bankDebtAt(i);
+  // 2.14.3.4 "Nordeste" é FINANCIAMENTO DE MÁQUINA: parcela fixa (~R$ 23 mil) e
+  // sem nenhuma captação correspondente em 1.4 — o banco pagou o fornecedor
+  // direto. Não é dívida rotativa: é a máquina sendo paga. Vai para Investimentos.
+  const MACHINE_FIN_CODE = '2.14.3.4';
+  const bankDebtAt = i => val(get(BANK_DEBT_CODE), i);            // 2.14.3 inteiro
+  const machineFinAt = i => val(get(MACHINE_FIN_CODE), i);        // parcela da máquina
+  const bankRevolvAt = i => bankDebtAt(i) - machineFinAt(i);      // o resto = rotativo
+  const LOAN_OUT_CODES = ['2.13.6', '2.13.7'];       // antecipação/devolução de empréstimo
+  const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0) + bankRevolvAt(i);
+  const investAt = i => val(get('2.16'), i) + machineFinAt(i);    // máquinas: à vista + financiadas
+  const ownerAt = i => val(get('2.14'), i) - bankDebtAt(i);   // retiradas + arrendamento
   const salesAt = i => revAt(i) - finRevAt(i);                 // receita operacional (vendas)
   const cmAt = i => salesAt(i) - varCostAt(i);                 // margem de contribuição
   // estrutura fixa = despesa da operação menos custo variável. NÃO inclui
   // retirada de sócio nem devolução de empréstimo — senão o ponto de equilíbrio
   // sobe artificialmente e o "resultado operacional" daqui diverge do dos KPIs.
-  const fixedAt = i => expAt(i) - varCostAt(i) - ownerAt(i) - loanOutAt(i);
+  const fixedAt = i => expAt(i) - varCostAt(i) - ownerAt(i) - loanOutAt(i) - investAt(i);
   const opResAt = i => salesAt(i) - varCostAt(i) - fixedAt(i); // resultado operacional (antes de sócios e financ.)
 
   // ── Visão em 3 blocos (padrão fluxo de caixa) ──────────────────────────────
   // Devolução de empréstimo NÃO é despesa (é o principal voltando) e empréstimo
   // captado NÃO é receita. Somados ao resultado eles mentem sobre a operação:
   // separamos em Operação · Sócios · Financiamento, cuja soma = variação de caixa.
-  const despOperAt = i => expAt(i) - loanOutAt(i) - ownerAt(i); // despesa só da operação
+  const despOperAt = i => expAt(i) - loanOutAt(i) - ownerAt(i) - investAt(i); // só a operação
   const resOperAt = i => salesAt(i) - despOperAt(i);            // resultado limpo da operação
   const financAt = i => finRevAt(i) - loanOutAt(i);             // saldo de financiamento
 
@@ -1295,7 +1301,7 @@ function boot(D) {
   }
 
   function insMes() {
-    const i = cur, vendas = salesAt(i), op = resOperAt(i), soc = ownerAt(i), fin = financAt(i);
+    const i = cur, vendas = salesAt(i), op = resOperAt(i), soc = ownerAt(i), fin = financAt(i), inv = investAt(i);
     const margem = vendas ? op / vendas : 0;
     const cob = soc > 0 ? op / soc : null;
     const bom = op > 0 && (cob == null || cob >= 1), medio = op > 0;
@@ -1327,7 +1333,7 @@ function boot(D) {
         <div class="ins-tiles">
           ${tile('Resultado da Operação', fmt(op), `margem ${pct(margem)} · ${MONTHS[i]}`, op >= 0 ? 'g' : 'b')}
           ${tile('Retiradas dos Sócios', fmt(-soc), cob != null ? `operação cobre ${pct(cob)}` : 'sem retirada', cob != null && cob < 1 ? 'w' : '')}
-          ${tile('Financiamento', fmt(fin), fin >= 0 ? 'entrou mais do que saiu' : 'pagou mais do que pegou', fin > 0 ? 'w' : 'g')}
+          ${tile('Investimentos', fmt(-inv), 'máquinas — vira patrimônio', '')}
           ${tile('Variação de Caixa', fmt(resAt(i)), 'o que sobrou no banco', resAt(i) >= 0 ? 'g' : 'b')}
         </div>
       </section>
@@ -1356,9 +1362,9 @@ function boot(D) {
 
   function insAno() {
     const n = MONTHS.length;
-    const T = { op: 0, so: 0, fi: 0, vd: 0, cx: 0, inn: 0, out: 0 };
+    const T = { op: 0, so: 0, fi: 0, vd: 0, cx: 0, inn: 0, out: 0, inv: 0 };
     MONTHS.forEach((_, k) => {
-      T.op += resOperAt(k); T.so += ownerAt(k); T.fi += financAt(k);
+      T.op += resOperAt(k); T.so += ownerAt(k); T.fi += financAt(k); T.inv += investAt(k);
       T.vd += salesAt(k); T.cx += resAt(k); T.inn += finRevAt(k); T.out += loanOutAt(k);
     });
     const margem = T.vd ? T.op / T.vd : 0;
@@ -1385,7 +1391,7 @@ function boot(D) {
         <div class="ins-tiles">
           ${tile('Operação · acumulado', fmt(T.op), `${fmt(T.op / n)}/mês`, T.op >= 0 ? 'g' : 'b')}
           ${tile('Retiradas · acumulado', fmt(-T.so), `${fmt(T.so / n)}/mês`, '')}
-          ${tile('Dívida (captado − pago)', fmt(T.inn - T.out), T.inn - T.out > 0 ? 'endividou no período' : 'reduziu dívida', T.inn - T.out > 0 ? 'w' : 'g')}
+          ${tile('Investido em máquinas', fmt(T.inv), `${fmt(T.inv / n)}/mês`, '')}
           ${tile('Melhor / pior mês', `${ops[0].m} / ${ops[ops.length - 1].m}`, `${fmt(ops[0].v)} vs ${fmt(ops[ops.length - 1].v)}`, '')}
         </div>
       </section>
@@ -1408,16 +1414,17 @@ function boot(D) {
         <div class="card-head"><h2>📊 Mês a mês · os 3 blocos</h2>
           <span class="hint">operação (azul) contra retiradas (laranja) e financiamento (roxo)</span></div>
         <div class="table-scroll"><table class="dre">
-          <thead><tr><th class="t-name">Mês</th><th>Operação</th><th>Sócios</th><th>Financiamento</th><th>= Caixa</th></tr></thead>
+          <thead><tr><th class="t-name">Mês</th><th>Operação</th><th>Sócios</th><th>Investim.</th><th>Financiam.</th><th>= Caixa</th></tr></thead>
           <tbody>${MONTHS.map((m, k) => `<tr>
             <td class="t-name"><b>${m}</b></td>
             <td class="${resOperAt(k) >= 0 ? 'v-pos' : 'v-neg'}">${fmt(resOperAt(k))}</td>
             <td>${fmt(-ownerAt(k))}</td>
+            <td>${fmt(-investAt(k))}</td>
             <td>${fmt(financAt(k))}</td>
             <td class="${resAt(k) >= 0 ? 'v-pos' : 'v-neg'}"><b>${fmt(resAt(k))}</b></td></tr>`).join('')}
             <tr class="grp"><td class="t-name"><b>TOTAL</b></td>
             <td class="${T.op >= 0 ? 'v-pos' : 'v-neg'}"><b>${fmt(T.op)}</b></td>
-            <td><b>${fmt(-T.so)}</b></td><td><b>${fmt(T.fi)}</b></td>
+            <td><b>${fmt(-T.so)}</b></td><td><b>${fmt(-T.inv)}</b></td><td><b>${fmt(T.fi)}</b></td>
             <td class="${T.cx >= 0 ? 'v-pos' : 'v-neg'}"><b>${fmt(T.cx)}</b></td></tr>
           </tbody>
         </table></div>
@@ -1569,10 +1576,10 @@ function boot(D) {
     const host = document.getElementById('blocos3');
     if (!host) return;
     const i = cur;
-    const op = resOperAt(i), soc = ownerAt(i), fin = financAt(i), caixa = resAt(i);
+    const op = resOperAt(i), soc = ownerAt(i), fin = financAt(i), inv = investAt(i), caixa = resAt(i);
     const margem = salesAt(i) ? op / salesAt(i) : 0;
-    // conferência: operação − sócios + financiamento tem de fechar com o caixa
-    const bate = Math.abs((op - soc + fin) - caixa) < 1;
+    // conferência: operação − sócios − investimentos + financiamento = caixa
+    const bate = Math.abs((op - soc - inv + fin) - caixa) < 1;
     const linha = (rot, v, cls) => `<div class="b3-l"><span>${rot}</span><b class="${cls || ''}">${fmt(v)}</b></div>`;
     host.innerHTML = `
       <div class="b3-grid">
@@ -1589,8 +1596,15 @@ function boot(D) {
           <span class="b3-s">retiradas, arrendamento e investimentos</span>
           ${linha('Societárias + investimentos', -soc, 'neg')}
         </div>
+        <div class="b3 inv">
+          <span class="b3-t">3 · Investimentos</span>
+          <span class="b3-v neg">${fmt(-inv)}</span>
+          <span class="b3-s">máquinas e equipamentos — vira patrimônio, não é gasto</span>
+          ${linha('Financiamento de máquina (Nordeste)', -machineFinAt(i), 'neg')}
+          ${linha('Investimentos à vista', -val(get('2.16'), i), 'neg')}
+        </div>
         <div class="b3 fin">
-          <span class="b3-t">3 · Financiamento</span>
+          <span class="b3-t">4 · Financiamento</span>
           <span class="b3-v ${fin >= 0 ? 'pos' : 'neg'}">${fmt(fin)}</span>
           <span class="b3-s">não é resultado — é dinheiro emprestado</span>
           ${linha('+ Empréstimos captados / rendimentos', finRevAt(i), 'pos')}
@@ -1602,7 +1616,9 @@ function boot(D) {
           <span class="b3-s">${bate ? 'confere com o extrato ✓' : '⚠ não fecha — revisar contas'}</span>
         </div>
       </div>
-      <p class="hint b3-nota">O <b>lucro de verdade</b> é o bloco 1. Em ${MONTHS[i]} entraram <b>${fmt(finRevAt(i))}</b> de empréstimos/rendimentos que <b>não são venda</b>, e saíram <b>${fmt(loanOutAt(i))}</b> de devolução que <b>não são despesa</b> — por isso o resultado bruto (${fmt(caixa)}) difere do resultado da operação (${fmt(op)}).</p>`;
+      <p class="hint b3-nota">O <b>lucro de verdade</b> é o bloco 1. Em ${MONTHS[i]} entraram <b>${fmt(finRevAt(i))}</b> de empréstimos/rendimentos que <b>não são venda</b>, e saíram <b>${fmt(loanOutAt(i))}</b> de devolução que <b>não são despesa</b>.
+      ${inv > 0 ? `Os <b>${fmt(inv)}</b> de investimento compraram máquina — sai do caixa, mas <b>vira patrimônio</b>, não prejuízo.` : ''}
+      Por isso a variação de caixa (${fmt(caixa)}) difere do resultado da operação (${fmt(op)}).</p>`;
   }
 
   function renderBuffett() {
