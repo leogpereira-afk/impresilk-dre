@@ -547,7 +547,10 @@ function boot(D) {
         dClass = Math.abs(diff) < 1e-9 ? 'flat' : (goodDir ? 'up' : 'down');
         dTxt = signedPct(diff);
       }
-      const arrow = dClass === 'up' ? '▲' : dClass === 'down' ? '▼' : '■';
+      // A SETA mostra a DIREÇÃO do número; a COR mostra se é bom ou ruim.
+      // Antes a seta seguia a cor, então "Custos +28,8%" aparecia com ▼ (para baixo).
+      const subiu = c.isPct ? (c.val - c.prev) > 0 : (c.prev ? (c.val - c.prev) > 0 : false);
+      const arrow = dClass === 'flat' ? '■' : (subiu ? '▲' : '▼');
       const valTxt = c.isPct ? pct(c.val) : fmt2(c.val);
       const valColor = (c.cls === 'res') ? (c.val >= 0 ? 'pos' : 'neg') : '';
       return `<div class="kpi ${c.cls}">
@@ -1271,14 +1274,20 @@ function boot(D) {
     }
     // 3) maior variação por seção vs mês comparado (receita e despesa)
     if (i !== cmp) {
+      // Só entram aqui as seções OPERACIONAIS. Empréstimo captado (1.3/1.4) não é
+      // venda — dizer que subiu é "favorável" induziria o dono a achar bom se
+      // endividar. E 2.13/2.14/2.16 (dívida, sócios, máquinas) não afetam o
+      // resultado da operação: eram reportados como se tivessem "comido" o lucro.
+      const NAO_OPER = ['1.3', '1.4', '2.13', '2.14', '2.16'];
       const secs = [...(childrenOf.get('1') || []), ...(childrenOf.get('2') || [])];
       secs.forEach(sec => {
+        if (NAO_OPER.includes(sec.code)) return;
         const a = val(sec, i), b = val(sec, cmp), d = a - b;
         if (!b || Math.abs(d) < vendas * 0.01) return;
         const rev = String(sec.code).startsWith('1');
         const bom = rev ? d > 0 : d < 0;
-        push(`${rev ? 'Receita' : 'Despesa'}: ${sec.name}`, bom ? 'good' : 'bad',
-          `${sec.name} ${d > 0 ? 'subiu' : 'caiu'} <b>${fmt(Math.abs(d))}</b> (${signedPct(d / b)}) vs ${MONTHS[cmp]} — de ${fmt(b)} para ${fmt(a)}. ${bom ? 'Movimento favorável.' : rev ? 'Perda de faturamento nessa linha.' : 'Esse aumento comeu resultado.'}`,
+        push(`${rev ? 'Venda' : 'Custo'}: ${sec.name.replace(/^Despesas?\s+/i, '')}`, bom ? 'good' : 'bad',
+          `${sec.name.replace(/^Despesas?\s+/i, '')} ${d > 0 ? 'subiu' : 'caiu'} <b>${fmt(Math.abs(d))}</b> (${signedPct(d / b)}) vs ${MONTHS[cmp]} — de ${fmt(b)} para ${fmt(a)}. ${bom ? (rev ? 'Vendeu mais nessa linha.' : 'Economia real na operação.') : rev ? 'Perda de faturamento nessa linha.' : 'Esse aumento comeu o resultado da operação.'}`,
           d);
       });
     }
@@ -1370,11 +1379,22 @@ function boot(D) {
     const margem = T.vd ? T.op / T.vd : 0;
     const cob = T.so > 0 ? T.op / T.so : null;
     // para onde vai cada R$ 100 vendidos
-    const secs = (childrenOf.get('2') || []).map(s => ({
-      nome: s.name.replace(/^Despesas?\s+/i, ''),
-      v: MONTHS.reduce((a, _, k) => a + val(s, k), 0)
+    // Só CUSTOS DA OPERAÇÃO: sem eles as barras somavam 107 de cada 100 vendidos
+    // (entravam retiradas, dívida e máquinas) e ainda diziam "sobraram 20".
+    // 2.14 e 2.16 saem inteiros; de 2.13 sai só a parte de devolução de empréstimo.
+    const somaM = f => MONTHS.reduce((a, _, k) => a + f(k), 0);
+    const secs = (childrenOf.get('2') || []).filter(x => !['2.14', '2.16'].includes(x.code)).map(sx => ({
+      nome: sx.name.replace(/^Despesas?\s+/i, ''),
+      v: sx.code === '2.13'
+        ? somaM(k => val(sx, k) - val(get('2.13.6'), k) - val(get('2.13.7'), k))
+        : somaM(k => val(sx, k))
     })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
     const totSec = secs.reduce((a, x) => a + x.v, 0) || 1;
+    const foraOper = [
+      { nome: 'Retiradas dos sócios e arrendamento', v: somaM(k => ownerAt(k)) },
+      { nome: 'Máquinas e equipamentos', v: somaM(k => investAt(k)) },
+      { nome: 'Devolução de empréstimos', v: somaM(k => loanOutAt(k)) },
+    ].filter(x => x.v > 0);
     // melhor e pior mês pela operação
     const ops = MONTHS.map((m, k) => ({ m, v: resOperAt(k) })).sort((a, b) => b.v - a.v);
 
@@ -1398,7 +1418,7 @@ function boot(D) {
 
       <section class="card">
         <div class="card-head"><h2>💸 Para onde vai cada R$ 100 vendidos</h2>
-          <span class="hint">acumulado dos ${n} meses — inclui retiradas e devolução de empréstimo</span></div>
+          <span class="hint">acumulado dos ${n} meses — só os custos da operação; o resto vem logo abaixo</span></div>
         <div class="ins-barras">
           ${secs.slice(0, 12).map(x => {
             const p = x.v / totSec;
@@ -1407,7 +1427,11 @@ function boot(D) {
               <span class="ib-v">${fmt(x.v / T.vd * 100)} <small>de cada R$100</small></span></div>`;
           }).join('')}
         </div>
-        <p class="hint" style="margin-top:10px">De cada R$ 100 vendidos, sobraram <b>${fmt(margem * 100)}</b> na operação.</p>
+        <p class="hint" style="margin-top:10px">Somando tudo acima dá <b>${fmt(totSec / T.vd * 100)}</b> de cada R$ 100 — o que <b>sobra na operação são ${fmt(margem * 100)}</b>.</p>
+        ${foraOper.length ? `<div class="es-fecha" style="margin-top:14px;display:block">
+          <span style="display:block;margin-bottom:8px"><b>Fora da operação</b> — sai do caixa, mas não é custo de produzir:</span>
+          ${foraOper.map(x => `<div class="ib-l" style="grid-template-columns:1fr auto"><span class="ib-n">${x.nome}</span><span class="ib-v">${fmt(x.v)} · ${fmt(x.v / T.vd * 100)} de cada R$100</span></div>`).join('')}
+        </div>` : ''}
       </section>
 
       <section class="card">
@@ -1633,8 +1657,8 @@ function boot(D) {
     narr.innerHTML = `
       <p>No mês de <b>${MONTHS[i]}</b>, a <b>operação</b> da Impresilk gerou <b class="pos">${fmt2(opRes)}</b> de resultado
       operacional sobre <b>${fmt(salesAt(i))}</b> de vendas — uma <b>margem operacional de ${pct(opMargin)}</b>.
-      A margem de contribuição foi de <b>${pct(cmPct)}</b>, indicando que cada real vendido deixa
-      <b>${fmt(cmPct)}</b> para cobrir estrutura fixa e remunerar o dono.</p>
+      A margem de contribuição foi de <b>${pct(cmPct)}</b>: de cada <b>R$ 100</b> vendidos sobram
+      <b>${fmt(cmPct * 100)}</b> para pagar a estrutura fixa e remunerar o dono.</p>
       <p>As <b>retiradas dos sócios e investimentos</b> consumiram <b class="neg">${fmt2(owner)}</b>
       — equivalente a <b>${pct(ownerVsOp)}</b> de todo o resultado operacional.
       ${finalRes >= 0
