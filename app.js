@@ -1223,13 +1223,21 @@ function boot(D) {
   // 2.14.3.4 (Societárias) e passou para 2.13.7 (Bancárias). É a MESMA parcela
   // de ~R$ 23 mil/mês pagando máquina — as duas contam como INVESTIMENTO, nunca
   // como devolução de dívida rotativa.
-  const MACHINE_FIN_CODES = ['2.13.7', '2.14.3.4'];
-  const machineFinAt = i => MACHINE_FIN_CODES.reduce((s, c) => s + val(get(c), i), 0);
-  const bankDebtAt = i => val(get(BANK_DEBT_CODE), i);            // 2.14.3 inteiro
-  const bankRevolvAt = i => bankDebtAt(i) - val(get('2.14.3.4'), i);  // resto de 2.14.3 = rotativo
-  const LOAN_OUT_CODES = ['2.13.6'];                 // antecipação/devolução (2.13.7 é máquina)
-  const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0) + bankRevolvAt(i);
-  const investAt = i => val(get('2.16'), i) + machineFinAt(i);    // máquinas: à vista + financiadas
+  // A parcela do Banco do Nordeste (2.13.7.1) NÃO é uma coisa só. Lendo lançamento
+  // a lançamento no ERP, ela se divide todo mês em três finalidades diferentes:
+  //   2.13.7.1.1 máquinas (Jaraguá CNC, Impressora UV, Ninacut, Laser…) → ativo
+  //   2.13.7.1.2 veículo (Saveiro)                                       → ativo
+  //   2.13.7.1.3 CAPITAL DE GIRO                                         → dívida pura
+  // Somar tudo como investimento inflava o ativo em ~R$ 9,6 mil/mês.
+  const ATIVO_FIN_CODES = ['2.13.7.1.1', '2.13.7.1.2'];   // financiamento que vira patrimônio
+  const GIRO_CODE = '2.13.7.1.3';                          // financiamento que é só dívida
+  const machineFinAt = i => ATIVO_FIN_CODES.reduce((s, c) => s + val(get(c), i), 0);
+  const giroAt = i => val(get(GIRO_CODE), i);
+  const bankDebtAt = i => val(get(BANK_DEBT_CODE), i);            // 2.14.3 (histórico antigo)
+  const bankRevolvAt = i => bankDebtAt(i) - val(get('2.14.3.4'), i);
+  const LOAN_OUT_CODES = ['2.13.6'];                 // antecipação/devolução de empréstimo
+  const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0) + bankRevolvAt(i) + giroAt(i);
+  const investAt = i => val(get('2.16'), i) + machineFinAt(i);    // ativos: à vista + financiados
   const ownerAt = i => val(get('2.14'), i) - bankDebtAt(i);   // retiradas + arrendamento
   const salesAt = i => revAt(i) - finRevAt(i);                 // receita operacional (vendas)
   const cmAt = i => salesAt(i) - varCostAt(i);                 // margem de contribuição
@@ -1641,7 +1649,7 @@ function boot(D) {
   /* ------------------------------------------------------------------ */
   // Migrações já reconhecidas: o painel trata os dois códigos como a mesma coisa.
   const CONTAS_UNIFICADAS = [
-    { de: '2.14.3.4', para: '2.13.7.1', o_que: 'Financiamento de máquina — Banco do Nordeste', desde: 'Jun/2026' },
+    { de: '2.14.3.4', para: '2.13.7.1', o_que: 'Financiamento Banco do Nordeste (histórico migrado para a conta atual)', desde: 'Jun/2026' },
   ];
 
   function renderEstrutura() {
@@ -1726,7 +1734,7 @@ function boot(D) {
           <span class="b3-t">3 · Investimentos</span>
           <span class="b3-v neg">${fmt(-inv)}</span>
           <span class="b3-s">máquinas e equipamentos — vira patrimônio, não é gasto</span>
-          ${linha('Parcela de máquina financiada (Banco do Nordeste)', -machineFinAt(i), 'neg')}
+          ${linha('Máquinas e veículo financiados (Nordeste)', -machineFinAt(i), 'neg')}
           ${linha('Máquinas compradas à vista', -val(get('2.16'), i), 'neg')}
         </div>
         <div class="b3 fin">
@@ -1734,7 +1742,7 @@ function boot(D) {
           <span class="b3-v ${fin >= 0 ? 'pos' : 'neg'}">${fmt(fin)}</span>
           <span class="b3-s">não é resultado — é dinheiro emprestado</span>
           ${linha('+ Empréstimos captados / rendimentos', finRevAt(i), 'pos')}
-          ${linha('− Devolução de empréstimos', -loanOutAt(i), 'neg')}
+          ${linha('− Devolução de empréstimos', -(loanOutAt(i) - giroAt(i)), 'neg')}${linha('− Capital de giro (Nordeste)', -giroAt(i), 'neg')}
         </div>
         <div class="b3 cx">
           <span class="b3-t">= Variação de caixa</span>
