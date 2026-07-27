@@ -1219,11 +1219,15 @@ function boot(D) {
   // 2.14.3.4 "Nordeste" é FINANCIAMENTO DE MÁQUINA: parcela fixa (~R$ 23 mil) e
   // sem nenhuma captação correspondente em 1.4 — o banco pagou o fornecedor
   // direto. Não é dívida rotativa: é a máquina sendo paga. Vai para Investimentos.
-  const MACHINE_FIN_CODE = '2.14.3.4';
+  // O financiamento do Banco do Nordeste MUDOU DE CONTA em jun/2026: saiu de
+  // 2.14.3.4 (Societárias) e passou para 2.13.7 (Bancárias). É a MESMA parcela
+  // de ~R$ 23 mil/mês pagando máquina — as duas contam como INVESTIMENTO, nunca
+  // como devolução de dívida rotativa.
+  const MACHINE_FIN_CODES = ['2.13.7', '2.14.3.4'];
+  const machineFinAt = i => MACHINE_FIN_CODES.reduce((s, c) => s + val(get(c), i), 0);
   const bankDebtAt = i => val(get(BANK_DEBT_CODE), i);            // 2.14.3 inteiro
-  const machineFinAt = i => val(get(MACHINE_FIN_CODE), i);        // parcela da máquina
-  const bankRevolvAt = i => bankDebtAt(i) - machineFinAt(i);      // o resto = rotativo
-  const LOAN_OUT_CODES = ['2.13.6', '2.13.7'];       // antecipação/devolução de empréstimo
+  const bankRevolvAt = i => bankDebtAt(i) - val(get('2.14.3.4'), i);  // resto de 2.14.3 = rotativo
+  const LOAN_OUT_CODES = ['2.13.6'];                 // antecipação/devolução (2.13.7 é máquina)
   const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0) + bankRevolvAt(i);
   const investAt = i => val(get('2.16'), i) + machineFinAt(i);    // máquinas: à vista + financiadas
   const ownerAt = i => val(get('2.14'), i) - bankDebtAt(i);   // retiradas + arrendamento
@@ -1656,8 +1660,8 @@ function boot(D) {
           <span class="b3-t">3 · Investimentos</span>
           <span class="b3-v neg">${fmt(-inv)}</span>
           <span class="b3-s">máquinas e equipamentos — vira patrimônio, não é gasto</span>
-          ${linha('Financiamento de máquina (Nordeste)', -machineFinAt(i), 'neg')}
-          ${linha('Investimentos à vista', -val(get('2.16'), i), 'neg')}
+          ${linha('Parcela de máquina financiada (Banco do Nordeste)', -machineFinAt(i), 'neg')}
+          ${linha('Máquinas compradas à vista', -val(get('2.16'), i), 'neg')}
         </div>
         <div class="b3 fin">
           <span class="b3-t">4 · Financiamento</span>
