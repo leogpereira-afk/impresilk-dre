@@ -850,7 +850,7 @@ function boot(D) {
       <div class="ck"><span class="ck-l">⚡ Energia · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur)}</span><span class="delta ${dCls(eAh)}">${dArr(eAh)} ${eAh == null ? '—' : signedPct(eAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
       <div class="ck"><span class="ck-l">💧 Água · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(wCur)}</span><span class="delta ${dCls(wAh)}">${dArr(wAh)} ${wAh == null ? '—' : signedPct(wAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
       <div class="ck"><span class="ck-l">Total Utilidades · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur + wCur)}</span><span class="ck-s">energia + água no mês</span></div>
-      <div class="ck"><span class="ck-l">Média Energia ${MONTHS.length}m</span><span class="ck-v">${fmt(eAvg)}</span><span class="ck-s">${isRev ? 'faturamento médio mensal' : 'gasto médio mensal'}</span></div>
+      <div class="ck"><span class="ck-l">Média Energia ${MONTHS.length}m</span><span class="ck-v">${fmt(eAvg)}</span><span class="ck-s">gasto médio mensal</span></div>
       <div class="ck"><span class="ck-l">Média Água ${MONTHS.length}m</span><span class="ck-v">${fmt(wAvg)}</span><span class="ck-s">gasto médio mensal</span></div>`;
 
     tbody.innerHTML = MONTHS.map((m, i) => `<tr>
@@ -1029,7 +1029,7 @@ function boot(D) {
         </div>
         <div class="ck"><span class="ck-l">% das vendas</span><span class="ck-v">${pct(shareRev)}</span><span class="ck-s">${isRev ? 'fatia do faturamento' : 'peso sobre o que foi vendido'}</span></div>
         <div class="ck"><span class="ck-l">% das Despesas</span><span class="ck-v">${pct(shareExp)}</span><span class="ck-s">peso no total de gastos</span></div>
-        <div class="ck"><span class="ck-l">Média ${MONTHS.length}m</span><span class="ck-v">${fmt(st.mean)}</span><span class="ck-s">gasto médio mensal</span></div>
+        <div class="ck"><span class="ck-l">Média ${MONTHS.length}m</span><span class="ck-v">${fmt(st.mean)}</span><span class="ck-s">${isRev ? 'faturamento médio mensal' : 'gasto médio mensal'}</span></div>
         <div class="ck"><span class="ck-l">Tendência</span><span class="ck-v ${trendCls === 'up' ? 'pos' : trendCls === 'down' ? 'neg' : ''}">${trendLabel}</span><span class="ck-s">${(st.slopePctMonth * 100 >= 0 ? '+' : '') + (st.slopePctMonth * 100).toFixed(1)}% por mês</span></div>
         <div class="ck"><span class="ck-l">Oscilação</span><span class="ck-v">${volat}</span><span class="ck-s">varia ${(st.cv * 100).toFixed(0)}% em torno da média</span></div>
       </div>
