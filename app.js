@@ -810,7 +810,14 @@ function boot(D) {
     // Além dos centros de DESPESA, entram os dois de RECEITA (Produtos 1.1.1 e
     // Serviços 1.1.2). Sem eles, a quebra interna de Serviços — instalação,
     // pintura, design, hora-máquina — ficava sem tela nenhuma.
-    const receitaCentros = ['1.1.1', '1.1.2'].map(c => get(c)).filter(Boolean);
+    // Centros de RECEITA montados a partir dos dados, não de uma lista fixa:
+    // 1.1 abre nos filhos (Produtos/Serviços) e as demais seções de venda entram
+    // inteiras. Antes ficavam de fora — Portas/Painéis (R$ 181 mil em 8 meses) e
+    // PDV não tinham nenhuma tela de análise.
+    const receitaCentros = [
+      ...(childrenOf.get('1.1') || []),
+      ...(childrenOf.get('1') || []).filter(x => x.code !== '1.1' && !FIN_REV_CODES.includes(x.code)),
+    ].filter(x => x && x.values.some(v => v !== 0));
     const centros = [...receitaCentros, ...expSections];
     if (!activeCenter || !get(activeCenter)) activeCenter = centros.length ? centros[0].code : null;
     tabsEl.innerHTML = centros.map(s => {
@@ -1202,7 +1209,6 @@ function boot(D) {
   // Classificação econômica das contas
   const FIN_REV_CODES = ['1.3', '1.4'];                // rendimentos + empréstimos captados
   const VAR_COST_CODES = ['2.6', '2.10', '2.11', '2.12']; // custos variáveis ligados à produção/obra
-  const OWNER_CODES = ['2.14', '2.16'];                // retiradas sócios + investimentos (não operacional)
   // 2.14.3 (Empréstimos Bancários) mora dentro de 2.14, mas é DEVOLUÇÃO DE DÍVIDA,
   // não retirada de sócio. Sem descontar, o bloco "Sócios" inflava 46% (R$ 340 mil
   // no acumulado) e o simulador de retiradas simulava em cima de número errado.
