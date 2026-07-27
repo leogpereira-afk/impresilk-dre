@@ -683,3 +683,50 @@ body.locked { overflow: hidden; }
   background: var(--card-2); border: 1px solid var(--line); color: var(--txt-dim); white-space: nowrap;
 }
 .aud-sit.warn { color: var(--warn); border-color: var(--warn); }
+
+/* ===================== Aba Insights ===================== */
+.ins-modos { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.ins-modos button {
+  background: var(--card); border: 1px solid var(--line); color: var(--txt-dim);
+  border-radius: 999px; padding: 9px 18px; font: inherit; font-size: 13.5px; font-weight: 700;
+  cursor: pointer; transition: all .18s;
+}
+.ins-modos button:hover { border-color: var(--accent); color: var(--txt); }
+.ins-modos button.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #06241f; border-color: transparent; box-shadow: 0 4px 14px rgba(45,212,191,.3);
+}
+.ins-head { border-left: 4px solid var(--line); }
+.ins-head.g { border-left-color: var(--pos); }
+.ins-head.w { border-left-color: var(--warn); }
+.ins-head.b { border-left-color: var(--neg); }
+.ins-manchete { display: flex; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
+.ins-sem { font-size: 32px; line-height: 1; flex: none; }
+.ins-manchete h2 { font-size: 21px; font-weight: 800; letter-spacing: -.4px; margin-bottom: 7px; line-height: 1.25; }
+.ins-manchete p { font-size: 14px; line-height: 1.65; color: var(--txt-dim); }
+.ins-manchete p b { color: var(--txt); }
+.ins-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.ins-tile {
+  background: var(--card-2); border: 1px solid var(--line); border-top: 3px solid var(--line);
+  border-radius: 11px; padding: 13px 15px; display: flex; flex-direction: column; gap: 3px;
+}
+.ins-tile.g { border-top-color: var(--pos); }
+.ins-tile.w { border-top-color: var(--warn); }
+.ins-tile.b { border-top-color: var(--neg); }
+.it-l { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--txt-dim); font-weight: 700; }
+.it-v { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.3px; }
+.it-s { font-size: 11.5px; color: var(--txt-mute); }
+.ins-barras { display: flex; flex-direction: column; gap: 7px; }
+.ib-l { display: grid; grid-template-columns: minmax(120px,1.4fr) 3fr minmax(120px,auto); gap: 10px; align-items: center; font-size: 12.5px; }
+.ib-n { color: var(--txt-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ib-bar { background: var(--card-2); border-radius: 999px; height: 9px; overflow: hidden; }
+.ib-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: 999px; }
+.ib-v { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--txt); }
+.ib-v small { color: var(--txt-mute); font-weight: 500; }
+.ins-selects { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.ins-vs { font-size: 13px; color: var(--txt-mute); font-weight: 700; padding-bottom: 10px; }
+@media (max-width: 640px) {
+  .ins-manchete h2 { font-size: 17.5px; }
+  .ib-l { grid-template-columns: 1fr; gap: 3px; }
+  .ib-v { text-align: left; }
+}

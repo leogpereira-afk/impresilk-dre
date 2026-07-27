@@ -1134,10 +1134,15 @@ function boot(D) {
   const FIN_REV_CODES = ['1.3', '1.4'];                // rendimentos + empréstimos captados
   const VAR_COST_CODES = ['2.6', '2.10', '2.11', '2.12']; // custos variáveis ligados à produção/obra
   const OWNER_CODES = ['2.14', '2.16'];                // retiradas sócios + investimentos (não operacional)
+  // 2.14.3 (Empréstimos Bancários) mora dentro de 2.14, mas é DEVOLUÇÃO DE DÍVIDA,
+  // não retirada de sócio. Sem descontar, o bloco "Sócios" inflava 46% (R$ 340 mil
+  // no acumulado) e o simulador de retiradas simulava em cima de número errado.
+  const BANK_DEBT_CODE = '2.14.3';
   // base autoritativa = totais das contas 1 e 2 (batem com a planilha). Vendas = Receita total − receita financeira.
   const finRevAt = i => FIN_REV_CODES.reduce((s, c) => s + val(get(c), i), 0);
   const varCostAt = i => VAR_COST_CODES.reduce((s, c) => s + val(get(c), i), 0);
-  const ownerAt = i => OWNER_CODES.reduce((s, c) => s + val(get(c), i), 0);
+  const bankDebtAt = i => val(get(BANK_DEBT_CODE), i);
+  const ownerAt = i => OWNER_CODES.reduce((s, c) => s + val(get(c), i), 0) - bankDebtAt(i);
   const salesAt = i => revAt(i) - finRevAt(i);                 // receita operacional (vendas)
   const cmAt = i => salesAt(i) - varCostAt(i);                 // margem de contribuição
   const fixedAt = i => expAt(i) - varCostAt(i) - ownerAt(i);   // estrutura fixa (sem retiradas)
@@ -1148,10 +1153,283 @@ function boot(D) {
   // captado NÃO é receita. Somados ao resultado eles mentem sobre a operação:
   // separamos em Operação · Sócios · Financiamento, cuja soma = variação de caixa.
   const LOAN_OUT_CODES = ['2.13.6', '2.13.7'];       // antecipação/devolução + empréstimos bancários
-  const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0);
+  // soma também 2.14.3 (empréstimo bancário lançado dentro das societárias)
+  const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0) + bankDebtAt(i);
   const despOperAt = i => expAt(i) - loanOutAt(i) - ownerAt(i); // despesa só da operação
   const resOperAt = i => salesAt(i) - despOperAt(i);            // resultado limpo da operação
   const financAt = i => finRevAt(i) - loanOutAt(i);             // saldo de financiamento
+
+
+  /* ================================================================== */
+  /*  ABA INSIGHTS — 3 modos: Mês · Ano · Comparar                       */
+  /*  Regra de ouro: o número que manda é o RESULTADO DA OPERAÇÃO.       */
+  /*  Empréstimo captado NÃO é venda; devolução NÃO é despesa.           */
+  /* ================================================================== */
+  const INS_MODO_KEY = 'impresilk_dre_ins_modo';
+  let insModo = 'mes';
+  try { insModo = localStorage.getItem(INS_MODO_KEY) || 'mes'; } catch (_) {}
+
+  const semaforo = (bom, medio) => bom ? '🟢' : medio ? '🟡' : '🔴';
+  const tile = (rot, valor, sub, cls) =>
+    `<div class="ins-tile ${cls || ''}"><span class="it-l">${rot}</span><span class="it-v">${valor}</span><span class="it-s">${sub}</span></div>`;
+
+  // sinais candidatos do mês, pontuados por |impacto em R$| — mostramos só os 3 maiores
+  function sinaisDoMes(i) {
+    const out = [];
+    const vendas = salesAt(i), op = resOperAt(i), soc = ownerAt(i);
+    const push = (t, tipo, txt, peso) => out.push({ t, tipo, txt, peso: Math.abs(peso || 0) });
+
+    // 1) cobertura das retiradas pela operação
+    if (soc > 0) {
+      const cob = op / soc;
+      push('Retiradas vs. operação', cob >= 1.1 ? 'good' : cob >= 0.9 ? 'warn' : 'bad',
+        `A operação gerou <b>${fmt(op)}</b> e os sócios retiraram <b>${fmt(soc)}</b> — cobertura de <b>${pct(cob)}</b>. ${cob >= 1.1 ? 'Sobra caixa depois de remunerar os donos.' : cob >= 0.9 ? 'No limite: quase tudo que a operação gera vai para os sócios.' : 'A operação <b>não cobre</b> as retiradas — a diferença sai de empréstimo ou do caixa.'}`,
+        Math.abs(op - soc));
+    }
+    // 2) margem operacional vs média dos demais meses
+    if (vendas > 0) {
+      const m = op / vendas;
+      const outros = MONTHS.map((_, k) => k !== i && salesAt(k) ? resOperAt(k) / salesAt(k) : null).filter(v => v != null);
+      const mediaM = outros.length ? outros.reduce((s, v) => s + v, 0) / outros.length : m;
+      const d = m - mediaM;
+      push('Margem da operação', m >= 0.15 ? 'good' : m >= 0.05 ? 'warn' : 'bad',
+        `Cada R$ 100 vendidos deixaram <b>${fmt(m * 100)}</b> na operação (${pct(m)}). A média dos outros meses é ${pct(mediaM)} — ${d >= 0 ? 'está <b>acima</b>' : 'está <b>abaixo</b>'} em ${(Math.abs(d) * 100).toFixed(1)} p.p.`,
+        Math.abs(d) * vendas);
+    }
+    // 3) maior variação por seção vs mês comparado (receita e despesa)
+    if (i !== cmp) {
+      const secs = [...(childrenOf.get('1') || []), ...(childrenOf.get('2') || [])];
+      secs.forEach(sec => {
+        const a = val(sec, i), b = val(sec, cmp), d = a - b;
+        if (!b || Math.abs(d) < vendas * 0.01) return;
+        const rev = String(sec.code).startsWith('1');
+        const bom = rev ? d > 0 : d < 0;
+        push(`${rev ? 'Receita' : 'Despesa'}: ${sec.name}`, bom ? 'good' : 'bad',
+          `${sec.name} ${d > 0 ? 'subiu' : 'caiu'} <b>${fmt(Math.abs(d))}</b> (${signedPct(d / b)}) vs ${MONTHS[cmp]} — de ${fmt(b)} para ${fmt(a)}. ${bom ? 'Movimento favorável.' : rev ? 'Perda de faturamento nessa linha.' : 'Esse aumento comeu resultado.'}`,
+          d);
+      });
+    }
+    // 4) peso do financiamento (destaque pedido pelo dono)
+    const fin = financAt(i), inn = finRevAt(i), outv = loanOutAt(i);
+    if (inn > 0 || outv > 0) {
+      push('Empréstimos no mês', outv > inn ? 'good' : inn > vendas * 0.15 ? 'bad' : 'warn',
+        `Entraram <b>${fmt(inn)}</b> de empréstimo/rendimento e saíram <b>${fmt(outv)}</b> de devolução — saldo de <b>${fmt(fin)}</b>. ${inn > vendas * 0.15 ? `A captação equivale a <b>${pct(inn / vendas)}</b> das vendas: parte do que parece receita é <b>dinheiro emprestado</b>.` : outv > inn ? 'Você pagou mais dívida do que pegou — dívida caindo.' : 'Movimento pequeno em relação às vendas.'}`,
+        Math.max(inn, outv));
+    }
+    // 5) ponto de equilíbrio
+    const cmPct = vendas ? cmAt(i) / vendas : 0;
+    if (cmPct > 0) {
+      const be = Math.max(0, fixedAt(i)) / cmPct;
+      push('Ponto de equilíbrio', vendas > be ? 'good' : 'bad',
+        `Para pagar a estrutura era preciso vender <b>${fmt(be)}</b>. Vendeu <b>${fmt(vendas)}</b> — ${vendas > be ? `<b>${fmt(vendas - be)}</b> acima` : `<b>${fmt(be - vendas)}</b> abaixo`} do equilíbrio.`,
+        Math.abs(vendas - be));
+    }
+    return out.sort((a, b) => b.peso - a.peso);
+  }
+
+  function insMes() {
+    const i = cur, vendas = salesAt(i), op = resOperAt(i), soc = ownerAt(i), fin = financAt(i);
+    const margem = vendas ? op / vendas : 0;
+    const cob = soc > 0 ? op / soc : null;
+    const bom = op > 0 && (cob == null || cob >= 1), medio = op > 0;
+    const sinais = sinaisDoMes(i);
+    const top = sinais.slice(0, 3);
+
+    // movimentações que mais mudaram (contas-folha)
+    const movs = [];
+    if (i !== cmp) {
+      ACCS.forEach(a => {
+        if ((childrenOf.get(a.code) || []).length) return;
+        const va = val(a, i), vb = val(a, cmp), d = va - vb;
+        if (Math.abs(d) > vendas * 0.005) movs.push({ nome: a.name, code: a.code, va, vb, d, rev: String(a.code).startsWith('1') });
+      });
+      movs.sort((a, b) => Math.abs(b.d) - Math.abs(a.d));
+    }
+
+    return `
+      <section class="card ins-head ${bom ? 'g' : medio ? 'w' : 'b'}">
+        <div class="ins-manchete">
+          <span class="ins-sem">${semaforo(bom, medio)}</span>
+          <div>
+            <h2>${MONTHS[i]} · a operação ${op >= 0 ? 'gerou' : 'consumiu'} ${fmt(Math.abs(op))}</h2>
+            <p>Vendas de <b>${fmt(vendas)}</b> com margem de <b>${pct(margem)}</b>.
+            ${soc > 0 ? `Os sócios retiraram <b>${fmt(soc)}</b>${cob != null ? ` — a operação cobriu <b>${pct(cob)}</b> disso.` : '.'}` : ''}
+            ${Math.abs(fin) > 1 ? ` O caixa ainda ${fin >= 0 ? 'recebeu' : 'devolveu'} <b>${fmt(Math.abs(fin))}</b> de empréstimos.` : ''}</p>
+          </div>
+        </div>
+        <div class="ins-tiles">
+          ${tile('Resultado da Operação', fmt(op), `margem ${pct(margem)} · ${MONTHS[i]}`, op >= 0 ? 'g' : 'b')}
+          ${tile('Retiradas dos Sócios', fmt(-soc), cob != null ? `operação cobre ${pct(cob)}` : 'sem retirada', cob != null && cob < 1 ? 'w' : '')}
+          ${tile('Financiamento', fmt(fin), fin >= 0 ? 'entrou mais do que saiu' : 'pagou mais do que pegou', fin > 0 ? 'w' : 'g')}
+          ${tile('Variação de Caixa', fmt(resAt(i)), 'o que sobrou no banco', resAt(i) >= 0 ? 'g' : 'b')}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>🎯 As 3 coisas que mais importam</h2>
+          <span class="hint">ordenadas pelo dinheiro em jogo, não por ordem de tela</span></div>
+        <div class="insight-grid">
+          ${top.map((s, n) => `<div class="insight ${s.tipo}"><span class="it ${s.tipo}">${n + 1}º · ${s.t}</span>${s.txt}</div>`).join('') || '<p class="hint">Sem sinais relevantes neste mês.</p>'}
+        </div>
+      </section>
+
+      ${movs.length ? `<section class="card">
+        <div class="card-head"><h2>🔀 O que mais mudou vs ${MONTHS[cmp]}</h2>
+          <span class="hint">as 8 contas com maior variação em reais</span></div>
+        <div class="table-scroll"><table class="dre">
+          <thead><tr><th class="t-name">Conta</th><th>${MONTHS[cmp]}</th><th>${MONTHS[i]}</th><th>Variação</th></tr></thead>
+          <tbody>${movs.slice(0, 8).map(m => {
+            const bomM = m.rev ? m.d > 0 : m.d < 0;
+            return `<tr><td class="t-name">${m.nome}</td><td>${fmt(m.vb)}</td><td>${fmt(m.va)}</td>
+              <td class="${bomM ? 'v-pos' : 'v-neg'}">${m.d >= 0 ? '+' : ''}${fmt(m.d)}</td></tr>`;
+          }).join('')}</tbody>
+        </table></div>
+      </section>` : ''}`;
+  }
+
+  function insAno() {
+    const n = MONTHS.length;
+    const T = { op: 0, so: 0, fi: 0, vd: 0, cx: 0, inn: 0, out: 0 };
+    MONTHS.forEach((_, k) => {
+      T.op += resOperAt(k); T.so += ownerAt(k); T.fi += financAt(k);
+      T.vd += salesAt(k); T.cx += resAt(k); T.inn += finRevAt(k); T.out += loanOutAt(k);
+    });
+    const margem = T.vd ? T.op / T.vd : 0;
+    const cob = T.so > 0 ? T.op / T.so : null;
+    // para onde vai cada R$ 100 vendidos
+    const secs = (childrenOf.get('2') || []).map(s => ({
+      nome: s.name.replace(/^Despesas?\s+/i, ''),
+      v: MONTHS.reduce((a, _, k) => a + val(s, k), 0)
+    })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+    const totSec = secs.reduce((a, x) => a + x.v, 0) || 1;
+    // melhor e pior mês pela operação
+    const ops = MONTHS.map((m, k) => ({ m, v: resOperAt(k) })).sort((a, b) => b.v - a.v);
+
+    return `
+      <section class="card ins-head ${T.op > 0 && (cob == null || cob >= 1) ? 'g' : T.op > 0 ? 'w' : 'b'}">
+        <div class="ins-manchete">
+          <span class="ins-sem">${semaforo(T.op > 0 && (cob == null || cob >= 1), T.op > 0)}</span>
+          <div>
+            <h2>Nos ${n} meses, a operação ${T.op >= 0 ? 'gerou' : 'consumiu'} ${fmt(Math.abs(T.op))}</h2>
+            <p>Média de <b>${fmt(T.op / n)}</b> por mês sobre vendas de <b>${fmt(T.vd)}</b> (margem ${pct(margem)}).
+            Os sócios retiraram <b>${fmt(T.so)}</b> — <b>${fmt(T.so / n)}</b>/mês${cob != null ? `, e a operação cobriu <b>${pct(cob)}</b> disso` : ''}.</p>
+          </div>
+        </div>
+        <div class="ins-tiles">
+          ${tile('Operação · acumulado', fmt(T.op), `${fmt(T.op / n)}/mês`, T.op >= 0 ? 'g' : 'b')}
+          ${tile('Retiradas · acumulado', fmt(-T.so), `${fmt(T.so / n)}/mês`, '')}
+          ${tile('Dívida (captado − pago)', fmt(T.inn - T.out), T.inn - T.out > 0 ? 'endividou no período' : 'reduziu dívida', T.inn - T.out > 0 ? 'w' : 'g')}
+          ${tile('Melhor / pior mês', `${ops[0].m} / ${ops[ops.length - 1].m}`, `${fmt(ops[0].v)} vs ${fmt(ops[ops.length - 1].v)}`, '')}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>💸 Para onde vai cada R$ 100 vendidos</h2>
+          <span class="hint">acumulado dos ${n} meses — inclui retiradas e devolução de empréstimo</span></div>
+        <div class="ins-barras">
+          ${secs.slice(0, 12).map(x => {
+            const p = x.v / totSec;
+            return `<div class="ib-l"><span class="ib-n">${x.nome}</span>
+              <span class="ib-bar"><i style="width:${(p * 100).toFixed(1)}%"></i></span>
+              <span class="ib-v">${fmt(x.v / T.vd * 100)} <small>de cada R$100</small></span></div>`;
+          }).join('')}
+        </div>
+        <p class="hint" style="margin-top:10px">De cada R$ 100 vendidos, sobraram <b>${fmt(margem * 100)}</b> na operação.</p>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>📊 Mês a mês · os 3 blocos</h2>
+          <span class="hint">operação (azul) contra retiradas (laranja) e financiamento (roxo)</span></div>
+        <div class="table-scroll"><table class="dre">
+          <thead><tr><th class="t-name">Mês</th><th>Operação</th><th>Sócios</th><th>Financiamento</th><th>= Caixa</th></tr></thead>
+          <tbody>${MONTHS.map((m, k) => `<tr>
+            <td class="t-name"><b>${m}</b></td>
+            <td class="${resOperAt(k) >= 0 ? 'v-pos' : 'v-neg'}">${fmt(resOperAt(k))}</td>
+            <td>${fmt(-ownerAt(k))}</td>
+            <td>${fmt(financAt(k))}</td>
+            <td class="${resAt(k) >= 0 ? 'v-pos' : 'v-neg'}"><b>${fmt(resAt(k))}</b></td></tr>`).join('')}
+            <tr class="grp"><td class="t-name"><b>TOTAL</b></td>
+            <td class="${T.op >= 0 ? 'v-pos' : 'v-neg'}"><b>${fmt(T.op)}</b></td>
+            <td><b>${fmt(-T.so)}</b></td><td><b>${fmt(T.fi)}</b></td>
+            <td class="${T.cx >= 0 ? 'v-pos' : 'v-neg'}"><b>${fmt(T.cx)}</b></td></tr>
+          </tbody>
+        </table></div>
+      </section>`;
+  }
+
+  function insComp() {
+    const a = insCompA, b = insCompB;
+    const bloco = k => ({ op: resOperAt(k), so: ownerAt(k), fi: financAt(k), vd: salesAt(k), cx: resAt(k) });
+    const A = bloco(a), B = bloco(b);
+    const dOp = B.op - A.op;
+    // decomposição: efeito volume (vendas) x efeito margem (custos)
+    const mA = A.vd ? A.op / A.vd : 0;
+    const efVolume = (B.vd - A.vd) * mA;
+    const efMargem = dOp - efVolume;
+    const linhas = (childrenOf.get('2') || []).map(s => ({
+      nome: s.name.replace(/^Despesas?\s+/i, ''), a: val(s, a), b: val(s, b)
+    })).filter(x => x.a || x.b).map(x => ({ ...x, d: x.b - x.a })).sort((x, y) => Math.abs(y.d) - Math.abs(x.d));
+
+    return `
+      <section class="card">
+        <div class="card-head"><h2>⚖️ Comparar dois meses</h2>
+          <span class="hint">escolha A e B — a análise recalcula sozinha</span></div>
+        <div class="ins-selects">
+          <label class="ctrl"><span>Período A</span><select id="insSelA">${MONTHS.map((m, k) => `<option value="${k}" ${k === a ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+          <span class="ins-vs">vs</span>
+          <label class="ctrl"><span>Período B</span><select id="insSelB">${MONTHS.map((m, k) => `<option value="${k}" ${k === b ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+        </div>
+      </section>
+
+      <section class="card ins-head ${dOp >= 0 ? 'g' : 'b'}">
+        <div class="ins-manchete">
+          <span class="ins-sem">${dOp >= 0 ? '🟢' : '🔴'}</span>
+          <div>
+            <h2>De ${MONTHS[a]} para ${MONTHS[b]}, a operação ${dOp >= 0 ? 'melhorou' : 'piorou'} ${fmt(Math.abs(dOp))}</h2>
+            <p>Resultado da operação foi de <b>${fmt(A.op)}</b> para <b>${fmt(B.op)}</b>.
+            Desse total, <b>${fmt(efVolume)}</b> vieram da <b>mudança no volume de vendas</b> e
+            <b>${fmt(efMargem)}</b> da <b>mudança em custos e eficiência</b>.</p>
+          </div>
+        </div>
+        <div class="ins-tiles">
+          ${tile('Vendas', `${fmt(A.vd)} → ${fmt(B.vd)}`, signedPct(A.vd ? B.vd / A.vd - 1 : 0), B.vd >= A.vd ? 'g' : 'b')}
+          ${tile('Operação', `${fmt(A.op)} → ${fmt(B.op)}`, signedPct(A.op ? B.op / A.op - 1 : 0), dOp >= 0 ? 'g' : 'b')}
+          ${tile('Retiradas', `${fmt(A.so)} → ${fmt(B.so)}`, signedPct(A.so ? B.so / A.so - 1 : 0), '')}
+          ${tile('Financiamento', `${fmt(A.fi)} → ${fmt(B.fi)}`, 'saldo de empréstimos', '')}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2>🧾 Onde a diferença aconteceu</h2>
+          <span class="hint">por centro de custo, ordenado pelo tamanho da mudança</span></div>
+        <div class="table-scroll"><table class="dre">
+          <thead><tr><th class="t-name">Centro</th><th>${MONTHS[a]}</th><th>${MONTHS[b]}</th><th>Variação</th><th>% das vendas A → B</th></tr></thead>
+          <tbody>${linhas.slice(0, 12).map(l => `<tr>
+            <td class="t-name">${l.nome}</td><td>${fmt(l.a)}</td><td>${fmt(l.b)}</td>
+            <td class="${l.d <= 0 ? 'v-pos' : 'v-neg'}">${l.d >= 0 ? '+' : ''}${fmt(l.d)}</td>
+            <td>${A.vd ? pct(l.a / A.vd) : '—'} → ${B.vd ? pct(l.b / B.vd) : '—'}</td></tr>`).join('')}</tbody>
+        </table></div>
+      </section>`;
+  }
+
+  let insCompA = 0, insCompB = 0;
+  function renderInsightsTab() {
+    const host = document.getElementById('insConteudo');
+    if (!host) return;
+    if (insCompB !== cur || insCompA !== cmp) { insCompA = cmp; insCompB = cur; }
+    host.innerHTML = insModo === 'ano' ? insAno() : insModo === 'comp' ? insComp() : insMes();
+    document.querySelectorAll('#insModos button').forEach(b =>
+      b.classList.toggle('active', b.dataset.modo === insModo));
+    const sa = document.getElementById('insSelA'), sb = document.getElementById('insSelB');
+    if (sa) sa.onchange = () => { insCompA = +sa.value; renderInsightsTab(); };
+    if (sb) sb.onchange = () => { insCompB = +sb.value; renderInsightsTab(); };
+    if (typeof wireCollapsibleCards === 'function') wireCollapsibleCards();
+  }
+  document.querySelectorAll('#insModos button').forEach(b => b.onclick = () => {
+    insModo = b.dataset.modo;
+    try { localStorage.setItem(INS_MODO_KEY, insModo); } catch (_) {}
+    renderInsightsTab();
+  });
 
   function renderBlocos3() {
     const host = document.getElementById('blocos3');
@@ -1339,7 +1617,7 @@ function boot(D) {
 
   function renderAll() {
     renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
-    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3();
+    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab();
     if (typeof renderAuditoria === 'function') renderAuditoria();
     if (typeof wireCollapsibleCards === 'function') wireCollapsibleCards();
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
@@ -1725,8 +2003,9 @@ function renderTermGrid(gridId, searchId, items) {
     };
   }
 }
-function renderGlossary() { renderTermGrid('glossaryGrid', 'glossarySearch', GLOSSARY); }
-function renderDiretrizes() { renderTermGrid('diretrizesGrid', 'diretrizesSearch', DIRETRIZES); }
+// Manual = Diretrizes (regras de lançamento) + Glossário (dicionário), num grid só.
+function renderGlossary() { renderTermGrid('glossaryGrid', 'glossarySearch', DIRETRIZES.concat(GLOSSARY)); }
+function renderDiretrizes() { /* fundido no Manual */ }
 
 /* ==================================================================== */
 /*  DIRETRIZES DA DRE — como funciona + regras da casa de classificação   */
@@ -1763,14 +2042,14 @@ const DIRETRIZES = [
 const USERS_KEY = 'impresilk_dre_users';
 const SESSION_KEY = 'impresilk_dre_session';
 const GATEABLE_VIEWS = [
+  { id: 'insights', label: '💡 Insights' },
   { id: 'overview', label: '📊 Visão Geral' },
   { id: 'centers',  label: '🎯 Centros de Custo' },
   { id: 'buffett',  label: '🧠 Análise Fundamentalista' },
   { id: 'mirror',   label: '🗂️ Espelho' },
   { id: 'auditoria', label: '🔎 Auditoria' },
-  { id: 'diretrizes', label: '📘 Diretrizes DRE' },
   { id: 'bancos',   label: '🏦 Bancos' },
-  { id: 'glossary', label: '📖 Glossário' },
+  { id: 'manual',   label: '📘 Manual' },
 ];
 const ALL_VIEW_IDS = GATEABLE_VIEWS.map(v => v.id);
 
@@ -1944,7 +2223,7 @@ function openUserModal(username) {
   document.getElementById('umPass').value = '';
   document.getElementById('umPassLabel').textContent = _editUser ? 'Nova senha (em branco mantém a atual)' : 'Senha';
   const role = document.getElementById('umRole'); role.value = _editUser ? _editUser.role : 'user';
-  buildPermChecks(_editUser ? (_editUser.perms || []) : ['overview', 'glossary']);
+  buildPermChecks(_editUser ? (_editUser.perms || []) : ['insights', 'overview', 'manual']);
   togglePermVisibility(role.value);
   document.getElementById('umErr').hidden = true;
   modal.hidden = false;

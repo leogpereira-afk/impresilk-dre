@@ -103,14 +103,14 @@
 </header>
 
 <nav class="tabs" id="viewTabs">
-  <button data-view="overview" class="active">📊 Visão Geral</button>
+  <button data-view="insights" class="active">💡 Insights</button>
+  <button data-view="overview">📊 Visão Geral</button>
   <button data-view="centers">🎯 Centros de Custo</button>
   <button data-view="buffett">🧠 Análise Fundamentalista</button>
   <button data-view="mirror">🗂️ Espelho</button>
   <button data-view="auditoria" class="master-only">🔎 Auditoria</button>
-  <button data-view="diretrizes">📘 Diretrizes DRE</button>
   <button data-view="bancos">🏦 Bancos</button>
-  <button data-view="glossary">📖 Glossário</button>
+  <button data-view="manual">📘 Manual</button>
   <button data-view="users" class="master-only">👤 Usuários</button>
 </nav>
 
@@ -146,6 +146,16 @@
 <main>
   <!-- KPIs (sempre visíveis) -->
   <section class="kpis" id="kpis"></section>
+
+  <!-- ===================== INSIGHTS ===================== -->
+  <div class="view" id="view-insights">
+    <nav class="ins-modos" id="insModos">
+      <button data-modo="mes" class="active">📅 Mês</button>
+      <button data-modo="ano">📈 Ano</button>
+      <button data-modo="comp">⚖️ Comparar</button>
+    </nav>
+    <div id="insConteudo"></div>
+  </div>
 
   <!-- ===================== VISÃO GERAL ===================== -->
   <div class="view" id="view-overview">
@@ -353,7 +363,7 @@
   </div>
 
   <!-- ===================== DIRETRIZES DA DRE ===================== -->
-  <div class="view hidden" id="view-diretrizes">
+  <div class="view hidden" id="view-diretrizes-REMOVIDO" hidden>
     <section class="card">
       <div class="card-head">
         <h2>📘 DRE · Diretrizes e regras de classificação</h2>
@@ -381,15 +391,15 @@
   </div>
 
   <!-- ===================== GLOSSÁRIO ===================== -->
-  <div class="view hidden" id="view-glossary">
+  <div class="view hidden" id="view-manual">
     <section class="card">
       <div class="card-head">
-        <h2>📖 Glossário · Entenda cada termo</h2>
+        <h2>📘 Manual · Regras da casa e dicionário</h2>
         <div class="tree-controls">
-          <input type="search" id="glossarySearch" placeholder="Buscar termo…" />
+          <input type="search" id="glossarySearch" placeholder="Buscar regra ou termo…" />
         </div>
       </div>
-      <p class="hint" style="margin-bottom:16px">Explicações em linguagem simples de todos os indicadores e títulos que aparecem no painel. Pensado para quem não é da área financeira.</p>
+      <p class="hint" style="margin-bottom:16px">Como esta DRE funciona, <b>onde lançar cada coisa</b> e o que cada termo significa. Pensado para quem não é da área financeira.</p>
       <div id="glossaryGrid" class="glossary-grid"></div>
     </section>
   </div>
