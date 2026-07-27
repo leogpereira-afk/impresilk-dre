@@ -788,3 +788,7 @@ body.locked { overflow: hidden; }
 .cc-fim { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 14px; }
 .cc-fim.pos .cc-t b { color: var(--pos); }
 .cc-fim.neg .cc-t b { color: var(--neg); }
+
+/* Estrutura do plano de contas (Conferência) */
+.estr-grp { margin-bottom: 20px; }
+.estr-grp:last-child { margin-bottom: 0; }

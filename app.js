@@ -1632,6 +1632,72 @@ function boot(D) {
       </div>`;
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /*  Estrutura do plano de contas: detecta conta que sumiu, apareceu ou */
+  /*  trocou de código. Nasceu de um caso real — o financiamento do      */
+  /*  Banco do Nordeste saiu de 2.14.3.4 e virou 2.13.7.1 em jun/2026,   */
+  /*  e por dois meses a parcela foi somada como devolução de dívida.    */
+  /* ------------------------------------------------------------------ */
+  // Migrações já reconhecidas: o painel trata os dois códigos como a mesma coisa.
+  const CONTAS_UNIFICADAS = [
+    { de: '2.14.3.4', para: '2.13.7.1', o_que: 'Financiamento de máquina — Banco do Nordeste', desde: 'Jun/2026' },
+  ];
+
+  function renderEstrutura() {
+    const box = document.getElementById('estruturaBox');
+    if (!box) return;
+    const norm = t => String(t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+    const mov = new Map();
+    ACCS.forEach(a => {
+      const ms = [];
+      MONTHS.forEach((_, k) => { if (val(a, k)) ms.push(k); });
+      if (ms.length) mov.set(a.code, { a, ini: ms[0], fim: ms[ms.length - 1], n: ms.length });
+    });
+    const ult = MONTHS.length - 1;
+    const pararam = [...mov.values()].filter(x => x.fim < ult - 1 && x.n >= 3);
+    const surgiram = [...mov.values()].filter(x => x.ini >= ult - 1);
+
+    // casa nome parecido + períodos que se completam + mesma ordem de grandeza
+    const migra = [];
+    pararam.forEach(p => surgiram.forEach(q => {
+      const np = norm(p.a.name), nq = norm(q.a.name);
+      if (!(np === nq || np.includes(nq) || nq.includes(np))) return;
+      if (p.fim >= q.ini) return;
+      const mp = MONTHS.reduce((s, _, k) => s + val(p.a, k), 0) / p.n;
+      const mq = MONTHS.reduce((s, _, k) => s + val(q.a, k), 0) / q.n;
+      const r = mp ? mq / mp : 0;
+      if (r <= 0.4 || r >= 2.5) return;
+      const jaSabe = CONTAS_UNIFICADAS.some(u => u.de === p.a.code && u.para === q.a.code);
+      migra.push({ p, q, mp, mq, jaSabe });
+    }));
+
+    const lista = (titulo, itens, render) => itens.length ? `
+      <div class="estr-grp"><h3 class="banco-group-title">${titulo}</h3>
+      <div class="table-scroll"><table class="dre"><tbody>${itens.map(render).join('')}</tbody></table></div></div>` : '';
+
+    box.innerHTML = `
+      <p class="hint" style="margin-bottom:14px">${ACCS.length} contas na série · ${MONTHS.length} meses.
+      Quando o Mubisys reorganiza o plano, uma conta some e outra nasce com o mesmo papel —
+      aqui isso fica visível <b>no mês em que acontece</b>.</p>
+
+      ${migra.length ? `<div class="estr-grp"><h3 class="banco-group-title">🔀 Trocaram de código (mesmo item, conta nova)</h3>
+      <div class="table-scroll"><table class="dre"><tbody>${migra.map(m => `<tr>
+        <td class="t-name"><b>${m.p.a.code}</b> ${m.p.a.name} <span class="es-obs">até ${MONTHS[m.p.fim]} · média ${fmt(m.mp)}</span></td>
+        <td class="t-name">➜ <b>${m.q.a.code}</b> ${m.q.a.name} <span class="es-obs">desde ${MONTHS[m.q.ini]} · média ${fmt(m.mq)}</span></td>
+        <td>${m.jaSabe ? '<span class="aud-sit">já unificada ✓</span>' : '<span class="aud-sit warn">verificar</span>'}</td>
+      </tr>`).join('')}</tbody></table></div></div>` : '<p class="hint">Nenhuma troca de código detectada. ✓</p>'}
+
+      ${lista('⏹ Pararam de aparecer (3+ meses de uso, sem movimento nos últimos 2)', pararam.filter(x => !migra.some(m => m.p.a.code === x.a.code)).sort((a, b) => a.a.code.localeCompare(b.a.code)),
+        x => `<tr><td class="t-name"><b>${x.a.code}</b> ${x.a.name}</td><td>${MONTHS[x.ini]} → ${MONTHS[x.fim]}</td><td>${x.n} ${x.n === 1 ? 'mês' : 'meses'}</td></tr>`)}
+
+      ${lista('🆕 Apareceram agora', surgiram.filter(x => !migra.some(m => m.q.a.code === x.a.code)).sort((a, b) => a.a.code.localeCompare(b.a.code)),
+        x => `<tr><td class="t-name"><b>${x.a.code}</b> ${x.a.name}</td><td>desde ${MONTHS[x.ini]}</td><td>${fmt(val(x.a, ult))}</td></tr>`)}
+
+      ${CONTAS_UNIFICADAS.length ? `<div class="estr-grp"><h3 class="banco-group-title">🔗 Já integradas pelo painel</h3>
+      ${CONTAS_UNIFICADAS.map(u => `<p class="hint"><b>${u.de}</b> ➜ <b>${u.para}</b> — ${u.o_que} <i>(desde ${u.desde})</i>. O histórico é tratado como uma série só.</p>`).join('')}</div>` : ''}`;
+  }
+
   function renderBlocos3() {
     const host = document.getElementById('blocos3');
     if (!host) return;
@@ -1842,7 +1908,7 @@ function boot(D) {
 
   function renderAll() {
     renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
-    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai(); renderConcil();
+    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai(); renderConcil(); renderEstrutura();
     if (typeof wireResGrupos === 'function') wireResGrupos();
     if (typeof renderAuditoria === 'function') renderAuditoria();
     if (typeof wireCollapsibleCards === 'function') wireCollapsibleCards();
