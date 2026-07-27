@@ -55,7 +55,7 @@ function janela(body) {
 }
 
 // Busca genérica num recurso financeiro do Mubisys (contas-pagar, contas-receber…).
-async function buscar(recurso, creds, { status, filtrodata, datainicial, datafinal }) {
+async function buscar(recurso, creds, { status, filtrodata, datainicial, datafinal }, timeoutMs = 22000) {
   const q = new URLSearchParams();
   if (status) q.set('status', status);
   if (filtrodata) q.set('filtrodata', filtrodata);
@@ -63,7 +63,7 @@ async function buscar(recurso, creds, { status, filtrodata, datainicial, datafin
   if (datafinal) q.set('datafinal', datafinal);
   const url = `${creds.base}/${creds.publicKey}/${recurso}${q.toString() ? '?' + q : ''}`;
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25000);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(url, {
       headers: { 'Access-Token': creds.accessToken, 'Accept': 'application/json' },
@@ -72,6 +72,46 @@ async function buscar(recurso, creds, { status, filtrodata, datainicial, datafin
     const data = await r.json().catch(() => null);
     return { ok: r.ok, http: r.status, data };
   } finally { clearTimeout(timer); }
+}
+
+// Divide [ini, fim] (AAAA-MM-DD) em fatias de N dias — o mês inteiro estoura o
+// tempo do Mubisys; semanas voltam rápido e rodam em paralelo.
+function fatiar(ini, fim, dias = 7) {
+  const out = [];
+  let d = new Date(ini + 'T00:00:00Z');
+  const end = new Date(fim + 'T00:00:00Z');
+  while (d <= end) {
+    const a = d.toISOString().slice(0, 10);
+    const dn = new Date(d); dn.setUTCDate(dn.getUTCDate() + dias - 1);
+    const b = dn <= end ? dn.toISOString().slice(0, 10) : fim;
+    out.push([a, b]);
+    dn.setUTCDate(dn.getUTCDate() + 1);
+    d = dn;
+  }
+  return out;
+}
+
+// "2.13.5-Juros Cartão" → { code:'2.13.5', nome:'Juros Cartão' }
+function planoCodigo(pc) {
+  const s = String(pc || '').trim();
+  const m = s.match(/^([\d][\d.]*?)\s*-\s*(.*)$/);
+  if (m) return { code: m[1].replace(/\.+$/, ''), nome: (m[2] || '').trim() };
+  return { code: '', nome: s };
+}
+
+// Valor de CAIXA do título dentro da janela: soma os pagamentos cujo pagamento
+// caiu no período (o topo do título às vezes vem com valor_pagamento zerado).
+function valorCaixa(t, ini, fim) {
+  const pgs = Array.isArray(t.pagamentos) ? t.pagamentos : [];
+  if (pgs.length) {
+    let s = 0;
+    for (const p of pgs) {
+      const dp = String(p.data_pagamento || p.data_credito || '').slice(0, 10);
+      if (dp >= ini && dp <= fim) s += Number(p.valor) || 0;
+    }
+    if (s) return s;
+  }
+  return Number(t.valor_pagamento) || Number(t.valor_titulo) || 0;
 }
 
 export default async (req) => {
@@ -146,6 +186,51 @@ export default async (req) => {
       if (!r.ok) return json({ erro: `Mubisys HTTP ${r.http}`, detalhe: r.data }, 502);
       const lista = extrairLista(r.data);
       return json({ ok: true, recurso, total: lista.length, itens: lista });
+    }
+
+    // ── importarMes: agrega contas-pagar + contas-receber por plano de contas ──
+    // Puxa o mês em fatias semanais (paralelas), filtra compoe_dre=Sim e soma o
+    // valor de caixa por código de conta. Devolve o mapa {codigo:{nome,valor}}
+    // + totais, no formato que o painel usa para montar o mês da DRE.
+    if (action === 'importarMes') {
+      if (!datainicial || !datafinal) return json({ erro: 'datainicial/datafinal obrigatórios' }, 400);
+      const fatias = fatiar(datainicial, datafinal, 7);
+      const recursos = [
+        { recurso: 'contas-pagar',   status: 'PAGO', filtrodata: 'PAGAMENTO' },
+        { recurso: 'contas-receber', status: 'PAGO', filtrodata: 'PAGAMENTO' },
+      ];
+      const tarefas = [];
+      for (const rc of recursos) for (const [a, b] of fatias) {
+        tarefas.push(
+          buscar(rc.recurso, creds, { status: rc.status, filtrodata: rc.filtrodata, datainicial: a, datafinal: b }, 20000)
+            .then(res => ({ a, b, res })).catch(() => null)
+        );
+      }
+      const resultados = await Promise.all(tarefas);
+      const porCodigo = {};
+      let incluidos = 0, ignorados = 0, semCodigo = 0, falhas = 0;
+      for (const it of resultados) {
+        if (!it || !it.res || !it.res.ok) { falhas++; continue; }
+        for (const t of extrairLista(it.res.data)) {
+          if (String(t.compoe_dre || '').toLowerCase() !== 'sim') { ignorados++; continue; }
+          const { code, nome } = planoCodigo(t.plano_contas);
+          if (!code) { semCodigo++; continue; }
+          const v = valorCaixa(t, it.a, it.b);
+          if (!porCodigo[code]) porCodigo[code] = { nome, valor: 0 };
+          porCodigo[code].valor += v;
+          incluidos++;
+        }
+      }
+      for (const k in porCodigo) porCodigo[k].valor = Math.round(porCodigo[k].valor * 100) / 100;
+      const somaGrupo = pref => Math.round(
+        Object.entries(porCodigo)
+          .filter(([c]) => c === pref || c.startsWith(pref + '.'))
+          .reduce((s, [, v]) => s + v.valor, 0) * 100) / 100;
+      return json({
+        ok: true, porCodigo,
+        totais: { receita: somaGrupo('1'), despesa: somaGrupo('2') },
+        diag: { incluidos, ignorados, semCodigo, falhas, fatias: fatias.length }
+      });
     }
 
     return json({ erro: `Ação desconhecida: ${action}` }, 400);
