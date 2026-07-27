@@ -1143,6 +1143,56 @@ function boot(D) {
   const fixedAt = i => expAt(i) - varCostAt(i) - ownerAt(i);   // estrutura fixa (sem retiradas)
   const opResAt = i => salesAt(i) - varCostAt(i) - fixedAt(i); // resultado operacional (antes de sócios e financ.)
 
+  // ── Visão em 3 blocos (padrão fluxo de caixa) ──────────────────────────────
+  // Devolução de empréstimo NÃO é despesa (é o principal voltando) e empréstimo
+  // captado NÃO é receita. Somados ao resultado eles mentem sobre a operação:
+  // separamos em Operação · Sócios · Financiamento, cuja soma = variação de caixa.
+  const LOAN_OUT_CODES = ['2.13.6', '2.13.7'];       // antecipação/devolução + empréstimos bancários
+  const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0);
+  const despOperAt = i => expAt(i) - loanOutAt(i) - ownerAt(i); // despesa só da operação
+  const resOperAt = i => salesAt(i) - despOperAt(i);            // resultado limpo da operação
+  const financAt = i => finRevAt(i) - loanOutAt(i);             // saldo de financiamento
+
+  function renderBlocos3() {
+    const host = document.getElementById('blocos3');
+    if (!host) return;
+    const i = cur;
+    const op = resOperAt(i), soc = ownerAt(i), fin = financAt(i), caixa = resAt(i);
+    const margem = salesAt(i) ? op / salesAt(i) : 0;
+    // conferência: operação − sócios + financiamento tem de fechar com o caixa
+    const bate = Math.abs((op - soc + fin) - caixa) < 1;
+    const linha = (rot, v, cls) => `<div class="b3-l"><span>${rot}</span><b class="${cls || ''}">${fmt(v)}</b></div>`;
+    host.innerHTML = `
+      <div class="b3-grid">
+        <div class="b3 op">
+          <span class="b3-t">1 · Operação</span>
+          <span class="b3-v ${op >= 0 ? 'pos' : 'neg'}">${fmt(op)}</span>
+          <span class="b3-s">margem ${pct(margem)} sobre vendas</span>
+          ${linha('Vendas', salesAt(i))}
+          ${linha('− Custos e estrutura', -despOperAt(i), 'neg')}
+        </div>
+        <div class="b3 soc">
+          <span class="b3-t">2 · Sócios</span>
+          <span class="b3-v neg">${fmt(-soc)}</span>
+          <span class="b3-s">retiradas, arrendamento e investimentos</span>
+          ${linha('Societárias + investimentos', -soc, 'neg')}
+        </div>
+        <div class="b3 fin">
+          <span class="b3-t">3 · Financiamento</span>
+          <span class="b3-v ${fin >= 0 ? 'pos' : 'neg'}">${fmt(fin)}</span>
+          <span class="b3-s">não é resultado — é dinheiro emprestado</span>
+          ${linha('+ Empréstimos captados / rendimentos', finRevAt(i), 'pos')}
+          ${linha('− Devolução de empréstimos', -loanOutAt(i), 'neg')}
+        </div>
+        <div class="b3 cx">
+          <span class="b3-t">= Variação de caixa</span>
+          <span class="b3-v ${caixa >= 0 ? 'pos' : 'neg'}">${fmt(caixa)}</span>
+          <span class="b3-s">${bate ? 'confere com o extrato ✓' : '⚠ não fecha — revisar contas'}</span>
+        </div>
+      </div>
+      <p class="hint b3-nota">O <b>lucro de verdade</b> é o bloco 1. Em ${MONTHS[i]} entraram <b>${fmt(finRevAt(i))}</b> de empréstimos/rendimentos que <b>não são venda</b>, e saíram <b>${fmt(loanOutAt(i))}</b> de devolução que <b>não são despesa</b> — por isso o resultado bruto (${fmt(caixa)}) difere do resultado da operação (${fmt(op)}).</p>`;
+  }
+
   function renderBuffett() {
     // ---- narrativa ----
     const i = cur;
@@ -1289,7 +1339,8 @@ function boot(D) {
 
   function renderAll() {
     renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
-    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett();
+    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3();
+    if (typeof renderAuditoria === 'function') renderAuditoria();
     if (typeof wireCollapsibleCards === 'function') wireCollapsibleCards();
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
   }
@@ -1429,6 +1480,114 @@ function renderBancos() {
       });
     };
   }
+}
+
+/* ==================================================================== */
+/*  AUDITORIA — compara o DRE com o financeiro do Mubisys (só leitura)    */
+/*  As despesas do ERP vêm com plano de contas + fornecedor, então dá     */
+/*  para achar lançamento em conta errada sem abrir o sistema.            */
+/* ==================================================================== */
+// "Jun/2026" -> { ini:'2026-06-01', fim:'2026-06-30' }
+function mesParaDatas(label) {
+  const k = monthSortKey(label);
+  if (k < 0) return null;
+  const ano = Math.floor(k / 12), mi = k % 12;
+  const p2 = n => String(n).padStart(2, '0');
+  const ultimo = new Date(Date.UTC(ano, mi + 1, 0)).getUTCDate();
+  return { ini: `${ano}-${p2(mi + 1)}-01`, fim: `${ano}-${p2(mi + 1)}-${p2(ultimo)}` };
+}
+
+// formatadores próprios: fmt/pct do painel vivem dentro de boot() e não
+// alcançam esta função (que é global e roda fora daquele escopo).
+const _audBRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 2 });
+const fmtA = v => _audBRL.format(v || 0);
+const pctA = v => (v == null || !isFinite(v)) ? '—' : (v * 100).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+
+let _audWired = false;
+function renderAuditoria() {
+  const sel = document.getElementById('audMes');
+  if (!sel || typeof apiFn !== 'function') return;
+  const D = getCurrentData();
+  const meses = (D && D.months) || [];
+  const atual = sel.value;
+  sel.innerHTML = meses.map(m => `<option value="${escAttr(m)}">${escAttr(m)}</option>`).join('');
+  if (atual && meses.includes(atual)) sel.value = atual;
+  else if (meses.length) sel.value = meses[meses.length - 1];
+  if (_audWired) return;
+  _audWired = true;
+
+  document.getElementById('audRodar').onclick = async () => {
+    const label = sel.value;
+    const st = document.getElementById('audStatus');
+    const resumo = document.getElementById('audResumo');
+    const tab = document.getElementById('audTabela');
+    const per = mesParaDatas(label);
+    if (!per) { st.textContent = 'Não consegui identificar o período.'; return; }
+    st.textContent = 'Consultando o Mubisys… (pode levar até 1 min)';
+    resumo.innerHTML = ''; tab.innerHTML = '';
+    let r;
+    try {
+      r = await apiFn('financas', 'importarMes', { datainicial: per.ini, datafinal: per.fim }, 90000);
+    } catch (_) { st.textContent = 'Falha ao consultar o Mubisys (timeout ou rede).'; return; }
+    if (!r || !r.ok) { st.textContent = 'Erro: ' + ((r && r.erro) || '—'); return; }
+
+    // valores do DRE para o mês escolhido
+    const D2 = getCurrentData();
+    const mi = (D2.months || []).indexOf(label);
+    const dre = {}, nomes = {};
+    (D2.accounts || []).forEach(a => { dre[a.code] = +(a.values[mi] || 0); nomes[a.code] = a.name; });
+
+    const api = r.porCodigo || {};
+    const codes = [...new Set([...Object.keys(api), ...Object.keys(dre)])];
+    const linhas = [];
+    let soApi = 0, soDre = 0, difs = 0;
+    codes.forEach(c => {
+      const temFilho = codes.some(o => o !== c && o.startsWith(c + '.'));
+      if (temFilho) return;                       // compara só as folhas
+      const va = api[c] ? api[c].valor : null;
+      const vd = (c in dre) ? dre[c] : null;
+      if (va == null && (vd == null || Math.abs(vd) < 0.01)) return;
+      const dif = (va || 0) - (vd || 0);
+      if (Math.abs(dif) < 0.5) return;
+      if (va != null && vd == null) soApi++;
+      else if (va == null) soDre++;
+      else difs++;
+      linhas.push({ c, nome: nomes[c] || (api[c] && api[c].nome) || '', va, vd, dif });
+    });
+    linhas.sort((a, b) => Math.abs(b.dif) - Math.abs(a.dif));
+
+    const dg = r.diag || {};
+    const tApi = (r.totais && r.totais.despesa) || 0;
+    const tDre = dre['2'] || 0;
+    st.textContent = '';
+    resumo.innerHTML = `
+      <div class="aud-kpis">
+        <div class="ak"><span class="ak-l">Despesas · Mubisys</span><span class="ak-v">${fmtA(tApi)}</span><span class="ak-s">${dg.incluidos || 0} lançamentos</span></div>
+        <div class="ak"><span class="ak-l">Despesas · DRE</span><span class="ak-v">${fmtA(tDre)}</span><span class="ak-s">painel</span></div>
+        <div class="ak"><span class="ak-l">Diferença</span><span class="ak-v ${Math.abs(tApi - tDre) > tDre * 0.02 ? 'neg' : 'pos'}">${fmtA(tApi - tDre)}</span><span class="ak-s">${tDre ? pctA((tApi - tDre) / tDre) : '—'}</span></div>
+        <div class="ak"><span class="ak-l">Contas divergentes</span><span class="ak-v">${linhas.length}</span><span class="ak-s">${difs} c/ valor diferente · ${soApi} só no ERP · ${soDre} só no DRE</span></div>
+      </div>`;
+
+    tab.innerHTML = linhas.length ? `
+      <div class="table-scroll">
+        <table class="dre aud-tab">
+          <thead><tr><th class="t-name">Conta</th><th>Mubisys</th><th>DRE</th><th>Diferença</th><th class="t-name">Situação</th></tr></thead>
+          <tbody>${linhas.map(l => {
+            const sit = l.va == null ? 'só no DRE' : l.vd == null ? 'só no Mubisys' : 'valor diferente';
+            const cls = l.va == null || l.vd == null ? 'warn' : '';
+            return `<tr>
+              <td class="t-name"><b>${escAttr(l.c)}</b> ${escAttr(l.nome)}</td>
+              <td>${l.va == null ? '—' : fmtA(l.va)}</td>
+              <td>${l.vd == null ? '—' : fmtA(l.vd)}</td>
+              <td class="${l.dif >= 0 ? 'v-pos' : 'v-neg'}">${fmtA(l.dif)}</td>
+              <td class="t-name"><span class="aud-sit ${cls}">${sit}</span></td>
+            </tr>`;
+          }).join('')}</tbody>
+        </table>
+      </div>
+      <p class="hint" style="margin-top:12px">Só aparecem contas-folha com diferença acima de R$ 0,50. Diferença positiva = o Mubisys tem mais que o DRE.</p>`
+      : '<p class="hint">✅ Nenhuma divergência relevante — o DRE bate com o Mubisys neste mês.</p>';
+  };
 }
 
 /* ==================================================================== */
@@ -1608,6 +1767,7 @@ const GATEABLE_VIEWS = [
   { id: 'centers',  label: '🎯 Centros de Custo' },
   { id: 'buffett',  label: '🧠 Análise Fundamentalista' },
   { id: 'mirror',   label: '🗂️ Espelho' },
+  { id: 'auditoria', label: '🔎 Auditoria' },
   { id: 'diretrizes', label: '📘 Diretrizes DRE' },
   { id: 'bancos',   label: '🏦 Bancos' },
   { id: 'glossary', label: '📖 Glossário' },
@@ -2028,6 +2188,7 @@ function initApp() {
   // glossário (conteúdo estático — independe dos dados)
   renderGlossary();
   renderDiretrizes();
+  renderAuditoria();
   renderBancos();
 
   // botões de recolher em cada card

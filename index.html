@@ -107,6 +107,7 @@
   <button data-view="centers">🎯 Centros de Custo</button>
   <button data-view="buffett">🧠 Análise Fundamentalista</button>
   <button data-view="mirror">🗂️ Espelho</button>
+  <button data-view="auditoria" class="master-only">🔎 Auditoria</button>
   <button data-view="diretrizes">📘 Diretrizes DRE</button>
   <button data-view="bancos">🏦 Bancos</button>
   <button data-view="glossary">📖 Glossário</button>
@@ -148,6 +149,16 @@
 
   <!-- ===================== VISÃO GERAL ===================== -->
   <div class="view" id="view-overview">
+    <!-- Resultado em 3 blocos (padrão fluxo de caixa): separa o que a operação
+         gera do que é retirada de sócio e do que é apenas empréstimo entrando/saindo -->
+    <section class="card" id="blocosCard">
+      <div class="card-head">
+        <h2>🧭 Resultado em 3 blocos</h2>
+        <span class="hint">Separa o que a operação gera, o que os sócios tiram e o que é só empréstimo entrando/saindo</span>
+      </div>
+      <div id="blocos3" class="blocos3"></div>
+    </section>
+
     <div class="two-col">
       <section class="card">
         <div class="card-head">
@@ -320,6 +331,24 @@
       </div>
       <nav class="center-chips" id="bigCenterChips"></nav>
       <div id="bigCenterPanel" class="big-center-panel"></div>
+    </section>
+  </div>
+
+  <!-- ===================== AUDITORIA (Mubisys × DRE) ===================== -->
+  <div class="view hidden" id="view-auditoria">
+    <section class="card">
+      <div class="card-head">
+        <h2>🔎 Auditoria · Mubisys × DRE</h2>
+        <span class="hint">Confere conta a conta se o painel bate com o ERP e mostra quem é o fornecedor de cada lançamento</span>
+      </div>
+      <p class="hint" style="margin-bottom:14px">Puxa as <b>despesas pagas</b> direto do Mubisys no período e compara com o DRE. Serve para achar lançamento em conta errada, valor divergente e conta que existe num lado e não no outro. <i>Não altera nada</i> — é só leitura.</p>
+      <div class="aud-bar">
+        <label class="ctrl"><span>Mês</span><select id="audMes"></select></label>
+        <button id="audRodar" class="upload-btn">Conferir mês</button>
+        <span id="audStatus" class="hint"></span>
+      </div>
+      <div id="audResumo" class="aud-resumo"></div>
+      <div id="audTabela"></div>
     </section>
   </div>
 
