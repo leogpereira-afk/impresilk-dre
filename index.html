@@ -142,6 +142,11 @@
 
 <main>
   <!-- KPIs (sempre visíveis) -->
+  <!-- Alterna os KPIs entre o resultado REAL da operação e o valor COM financiamentos -->
+  <nav class="ins-modos lente-nav" id="lenteNav">
+    <button data-lente="op" class="active" title="Só o que a empresa gera: sem empréstimo captado nem devolução de dívida">🎯 Valor real (operação)</button>
+    <button data-lente="caixa" title="Tudo que passou pelo banco, inclusive empréstimos e financiamentos">💵 Com financiamentos (caixa)</button>
+  </nav>
   <section class="kpis" id="kpis"></section>
   <!-- Conciliação: mostra o lado CAIXA sem precisar de botão/lente -->
   <section class="concil" id="concil"></section>

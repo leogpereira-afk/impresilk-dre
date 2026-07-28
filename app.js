@@ -518,13 +518,32 @@ function boot(D) {
   monthSel.onchange = () => { cur = +monthSel.value; if (cmp === cur) { cmp = cur > 0 ? cur - 1 : Math.min(cur + 1, MONTHS.length - 1); cmpSel.value = cmp; } renderAll(); };
   cmpSel.onchange = () => { cmp = +cmpSel.value; renderAll(); };
 
+
+  // Seletor de lente: o dono alterna entre o resultado REAL da operação e o
+  // valor COM os financiamentos. A faixa de conciliação abaixo continua fixa,
+  // mostrando a composição das duas leituras ao mesmo tempo.
+  const LENTE_KEY = 'impresilk_dre_lente';
+  let lente = 'op';
+  try { lente = localStorage.getItem(LENTE_KEY) || 'op'; } catch (_) {}
+  function aplicaLente(l) {
+    lente = l;
+    try { localStorage.setItem(LENTE_KEY, l); } catch (_) {}
+    document.querySelectorAll('#lenteNav button').forEach(b => b.classList.toggle('active', b.dataset.lente === l));
+    renderKPIs();
+  }
+
   // ===== KPIs (duas lentes) =====
   // OPERAÇÃO: só o que a empresa gera — exclui empréstimo captado (1.4/1.3) e
   //           devolução de dívida (2.13.6/2.13.7/2.14.3).
   // CAIXA:    tudo que passou pelo banco, sem exclusão — bate com o extrato.
   function renderKPIs() {
     const opMargem = i => salesAt(i) ? resOperAt(i) / salesAt(i) : 0;
-    const cards = [
+    const cards = lente === 'caixa' ? [
+      { cls: 'rev', label: 'Entrou no banco', val: revAt(cur), prev: revAt(cmp), goodUp: true },
+      { cls: 'exp', label: 'Saiu do banco', val: expAt(cur), prev: expAt(cmp), goodUp: false },
+      { cls: 'res', label: 'Variação de Caixa', val: resAt(cur), prev: resAt(cmp), goodUp: true },
+      { cls: 'mar', label: 'Margem de Caixa', val: marginAt(cur), prev: marginAt(cmp), goodUp: true, isPct: true },
+    ] : [
       { cls: 'rev', label: 'Vendas', val: salesAt(cur), prev: salesAt(cmp), goodUp: true },
       { cls: 'exp', label: 'Custos da Operação', val: despOperAt(cur), prev: despOperAt(cmp), goodUp: false },
       { cls: 'res', label: 'Resultado da Operação', val: resOperAt(cur), prev: resOperAt(cmp), goodUp: true },
@@ -1923,6 +1942,7 @@ function boot(D) {
     document.getElementById('footMeta').textContent = `${MONTHS.length} meses · ${ACCS.length} contas · ${MONTHS[0]} → ${MONTHS[MONTHS.length - 1]}`;
   }
 
+  document.querySelectorAll('#lenteNav button').forEach(b => { b.onclick = () => aplicaLente(b.dataset.lente); b.classList.toggle('active', b.dataset.lente === lente); });
   ACCS.forEach(a => { if ((childrenOf.get(a.code) || []).length && a.level >= 2) collapsed.add(a.code); });
   activeRenderAll = renderAll;
   renderAll();
