@@ -792,3 +792,14 @@ body.locked { overflow: hidden; }
 /* Estrutura do plano de contas (Conferência) */
 .estr-grp { margin-bottom: 20px; }
 .estr-grp:last-child { margin-bottom: 0; }
+
+/* Período/Comparar na ponta direita da topbar, agrupados e separados das ações */
+.ctrl-periodo {
+  display: flex; gap: 12px; align-items: flex-end;
+  padding-left: 14px; margin-left: 2px;
+  border-left: 1px solid var(--line);
+}
+@media (max-width: 900px) {
+  .ctrl-periodo { border-left: 0; padding-left: 0; width: 100%; }
+  .ctrl-periodo .ctrl { flex: 1; }
+}

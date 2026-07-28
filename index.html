@@ -74,14 +74,6 @@
   </div>
   <div class="controls">
     <label class="ctrl">
-      <span>Período</span>
-      <select id="monthSelect"></select>
-    </label>
-    <label class="ctrl">
-      <span>Comparar com</span>
-      <select id="compareSelect"></select>
-    </label>
-    <label class="ctrl">
       <span>Dados</span>
       <button id="addMonthBtn" class="upload-btn" title="Subir dados de um novo mês (export 'Plano de Contas' do MubySys)">📥 Subir mês</button>
       <input type="file" id="monthFileInput" accept=".xlsx,.xlsm,.xls" hidden />
@@ -100,6 +92,17 @@
         <span class="uc-role" id="ucRole">—</span>
       </span>
       <button id="logoutBtn" class="uc-logout" title="Sair">⎋</button>
+    </div>
+    <!-- Período fica na ponta direita: é o controle mais usado do painel -->
+    <div class="ctrl-periodo">
+    <label class="ctrl">
+      <span>Período</span>
+      <select id="monthSelect"></select>
+    </label>
+    <label class="ctrl">
+      <span>Comparar com</span>
+      <select id="compareSelect"></select>
+    </label>
     </div>
   </div>
 </header>
