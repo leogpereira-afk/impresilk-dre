@@ -575,45 +575,10 @@ function boot(D) {
     }).join('');
   }
 
-  // ===== Insights =====
-  function renderInsights() {
-    // O número que manda é o RESULTADO DA OPERAÇÃO. Antes este card usava
-    // resAt (receita − despesa) e anunciava "Prejuízo" logo abaixo do card de
-    // 3 blocos, que existe justamente para mostrar que aquele número mistura
-    // empréstimo captado com venda.
-    const res = resOperAt(cur), resP = resOperAt(cmp);
-    const margin = salesAt(cur) ? res / salesAt(cur) : 0;
-    const marginP = salesAt(cmp) ? resP / salesAt(cmp) : 0;
-    const badge = document.getElementById('insightBadge');
-    if (!badge || !document.getElementById('insights')) return;   // card removido
-    badge.className = 'badge ' + (res >= 0 ? 'pos' : 'neg');
-    badge.textContent = res >= 0 ? 'Operação no positivo' : 'Operação no negativo';
+  // (o antigo card 'Insights do Período' virou a aba 💡 Insights; seus dois
+  //  sinais exclusivos — concentração de faturamento e maior peso nos custos —
+  //  foram recompostos em sinaisDoMes)
 
-    const items = [];
-    items.push({ type: res >= 0 ? 'good' : 'bad', title: res >= 0 ? 'A operação deu lucro' : 'A operação deu prejuízo',
-      html: `Em <b>${MONTHS[cur]}</b> a operação ${res >= 0 ? 'gerou' : 'consumiu'} <b>${fmt2(Math.abs(res))}</b> (margem ${pct(margin)} sobre vendas). ` + (resP !== 0 ? `No mês comparado foi ${fmt2(resP)}. ` : '') + `<i>Este número exclui empréstimo captado e devolução de dívida — por isso difere da variação de caixa.</i>` });
-
-    const dRev = revAt(cmp) ? (revAt(cur) - revAt(cmp)) / revAt(cmp) : 0;
-    items.push({ type: dRev >= 0 ? 'good' : 'warn', title: dRev >= 0 ? 'Receita em alta' : 'Receita em queda',
-      html: `Receita ${dRev >= 0 ? 'subiu' : 'caiu'} <b>${signedPct(dRev)}</b> vs ${MONTHS[cmp]} (${fmt(revAt(cur))} contra ${fmt(revAt(cmp))}).` });
-
-    const moves = expSections.map(s => { const a = val(s, cur), b = val(s, cmp); return { name: s.name, cur: a, prev: b, abs: a - b, rel: b ? (a - b) / b : (a ? 1 : 0) }; }).filter(m => Math.abs(m.abs) > 1);
-    const upMove = [...moves].sort((x, y) => y.abs - x.abs)[0];
-    const downMove = [...moves].sort((x, y) => x.abs - y.abs)[0];
-    if (upMove && upMove.abs > 0) items.push({ type: 'warn', title: 'Maior aumento de despesa', html: `<b>${upMove.name}</b> subiu <b>${fmt(upMove.abs)}</b> (${signedPct(upMove.rel)}) — de ${fmt(upMove.prev)} para ${fmt(upMove.cur)}.` });
-    if (downMove && downMove.abs < 0) items.push({ type: 'good', title: 'Maior redução de despesa', html: `<b>${downMove.name}</b> caiu <b>${fmt(Math.abs(downMove.abs))}</b> (${signedPct(downMove.rel)}) — de ${fmt(downMove.prev)} para ${fmt(downMove.cur)}.` });
-
-    const topExp = [...expSections].map(s => ({ name: s.name, v: val(s, cur) })).sort((a, b) => b.v - a.v)[0];
-    if (topExp) items.push({ type: 'warn', title: 'Maior peso nas despesas', html: `<b>${topExp.name}</b> representa <b>${pct(expAt(cur) ? topExp.v / expAt(cur) : 0)}</b> das despesas (${fmt(topExp.v)}), ou ${pct(revAt(cur) ? topExp.v / revAt(cur) : 0)} da receita.` });
-
-    const topRev = [...revSections].map(s => ({ name: s.name, v: val(s, cur) })).sort((a, b) => b.v - a.v)[0];
-    if (topRev) items.push({ type: revAt(cur) && topRev.v / revAt(cur) > 0.6 ? 'warn' : 'good', title: 'Concentração de receita', html: `<b>${topRev.name}</b> gera <b>${pct(revAt(cur) ? topRev.v / revAt(cur) : 0)}</b> da receita do mês.` });
-
-    const dM = margin - marginP;
-    items.push({ type: dM >= 0 ? 'good' : 'bad', title: 'Tendência de margem', html: `Margem ${dM >= 0 ? 'melhorou' : 'piorou'} <b>${(dM >= 0 ? '+' : '') + (dM * 100).toFixed(1)} p.p.</b> vs ${MONTHS[cmp]} (de ${pct(marginP)} para ${pct(margin)}).` });
-
-    document.getElementById('insights').innerHTML = items.map(it => `<div class="insight ${it.type}"><span class="it ${it.type}">${it.title}</span>${it.html}</div>`).join('');
-  }
 
   // ===== DRE por seção =====
   const openSections = new Set();
@@ -1337,7 +1302,35 @@ function boot(D) {
         `Entraram <b>${fmt(inn)}</b> de empréstimo/rendimento e saíram <b>${fmt(outv)}</b> de devolução — saldo de <b>${fmt(fin)}</b>. ${inn > vendas * 0.15 ? `A captação equivale a <b>${pct(inn / vendas)}</b> das vendas: parte do que parece receita é <b>dinheiro emprestado</b>.` : outv > inn ? 'Você pagou mais dívida do que pegou — dívida caindo.' : 'Movimento pequeno em relação às vendas.'}`,
         Math.max(inn, outv));
     }
-    // 5) ponto de equilíbrio
+    // 5) concentração de faturamento — risco de depender de um produto só.
+    // Voltou do card "Insights do Período": era o único alerta de risco de
+    // dependência e não tinha substituto na aba nova.
+    const familias = [
+      ...(childrenOf.get('1.1.1') || []),
+      ...(childrenOf.get('1.1') || []).filter(x => x.code !== '1.1.1'),
+      ...(childrenOf.get('1') || []).filter(x => x.code !== '1.1' && !FIN_REV_CODES.includes(x.code)),
+    ].map(x => ({ nome: x.name, v: val(x, i) })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+    if (familias.length && vendas > 0) {
+      const top = familias[0], sh = top.v / vendas;
+      push('Concentração do faturamento', sh > 0.6 ? 'bad' : sh > 0.4 ? 'warn' : 'good',
+        `<b>${top.nome}</b> respondeu por <b>${pct(sh)}</b> das vendas do mês (${fmt(top.v)}) — de ${familias.length} linhas de receita. ${sh > 0.6 ? 'Dependência <b>alta</b>: se essa linha cair, o mês cai junto.' : sh > 0.4 ? 'Concentração relevante — vale desenvolver as outras linhas.' : 'Faturamento bem distribuído.'}`,
+        sh > 0.4 ? top.v * (sh - 0.4) : 0);
+    }
+
+    // 6) qual centro consome mais da operação (também vinha do card antigo)
+    const centrosOper = (childrenOf.get('2') || []).filter(x => !['2.14', '2.16'].includes(x.code))
+      .map(sx => ({
+        nome: sx.code === '2.13' ? 'Bancárias (tarifas e juros)' : sx.name.replace(/^Despesas?\s+/i, ''),
+        v: sx.code === '2.13' ? val(sx, i) - val(get('2.13.6'), i) - val(get('2.13.7'), i) : val(sx, i)
+      })).filter(x => x.v > 0).sort((a, b) => b.v - a.v);
+    if (centrosOper.length && despOperAt(i) > 0) {
+      const tc = centrosOper[0], shc = tc.v / despOperAt(i);
+      push('Maior peso nos custos', shc > 0.35 ? 'warn' : 'good',
+        `<b>${tc.nome}</b> é o maior custo do mês: <b>${fmt(tc.v)}</b>, ou <b>${pct(shc)}</b> de tudo que a operação gastou — equivale a <b>${pct(vendas ? tc.v / vendas : 0)}</b> das vendas.`,
+        tc.v * shc);
+    }
+
+    // 7) ponto de equilíbrio
     const cmPct = vendas ? cmAt(i) / vendas : 0;
     if (cmPct > 0) {
       const be = Math.max(0, fixedAt(i)) / cmPct;
@@ -1934,7 +1927,7 @@ function boot(D) {
   }
 
   function renderAll() {
-    renderKPIs(); renderInsights(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
+    renderKPIs(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
     renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai(); renderConcil(); renderEstrutura();
     if (typeof wireResGrupos === 'function') wireResGrupos();
     if (typeof renderAuditoria === 'function') renderAuditoria();
