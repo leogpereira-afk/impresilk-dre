@@ -3,7 +3,7 @@
 // ▶ A cada mudança nos arquivos, SUBA o número do CACHE (v1 → v2 → …). No
 //   evento "activate" apagamos todo cache com nome diferente, o que força os
 //   aparelhos a baixarem a versão nova (evita ficar preso em arquivos antigos).
-const CACHE = 'app-shell-v37';
+const CACHE = 'app-shell-v38';
 
 // Arquivos estáticos pré-cacheados na instalação (o "app shell"). São o mínimo
 // para o app abrir offline. CDNs (Chart.js, fonts) não entram aqui: serão
@@ -43,6 +43,7 @@ self.addEventListener('fetch', (e) => {
 
   // NUNCA cachear as funções: os dados são responsabilidade da fila do cliente
   // (IndexedDB/sync), não do cache de arquivos. Deixa passar direto.
+  if (url.hostname.endsWith('supabase.co')) return;
   if (url.pathname.startsWith('/.netlify/functions/')) return;
 
   e.respondWith(

@@ -2140,7 +2140,11 @@ function renderAuditoria() {
     resumo.innerHTML = ''; tab.innerHTML = '';
     let r;
     try {
-      r = await apiFn('financas', 'importarMes', { datainicial: per.ini, datafinal: per.fim }, 90000);
+      // 150s: o backend agora consulta o Mubisys numa fila de 2 com orcamento de
+      // 120s (a rajada antiga afogava o ERP e perdia fatias em silencio). O
+      // cliente precisa esperar MAIS que o servidor, senao aborta um resultado
+      // que chegaria.
+      r = await apiFn('financas', 'importarMes', { datainicial: per.ini, datafinal: per.fim }, 150000);
     } catch (_) { st.textContent = 'Falha ao consultar o Mubisys (timeout ou rede).'; return; }
     if (!r || !r.ok) { st.textContent = 'Erro: ' + ((r && r.erro) || '—'); return; }
 

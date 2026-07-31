@@ -11,7 +11,12 @@ const TOKEN = 'tok_55606031e843116d7d944c7c1503afd663e742cc';
 
 // Endpoint do backend (função roteadora). Caminho relativo: funciona em
 // qualquer domínio onde o site estiver publicado.
-const API = '/.netlify/functions/os';
+// Backend: Edge Functions do Supabase (antes: Netlify Functions no mesmo
+// dominio). Nomes com prefixo dre- porque o projeto e compartilhado com os
+// outros sistemas da Impresilk.
+const API_BASE = 'https://heveemylixartyijxewh.supabase.co/functions/v1';
+const API_FN = { os: 'dre-sync', financas: 'dre-financas' };
+const API = API_BASE + '/dre-sync';
 
 // Helper de chamada: injeta o header x-token e o JSON da ação.
 // Timeout de 15s via AbortController: em sinal fraco, navigator.onLine pode
@@ -27,7 +32,7 @@ async function apiFn(fn, action, payload = {}, timeoutMs = 30000) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch('/.netlify/functions/' + fn, {
+    const r = await fetch(API_BASE + '/' + (API_FN[fn] || fn), {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-token': TOKEN },
       body: JSON.stringify({ action, ...payload }),
