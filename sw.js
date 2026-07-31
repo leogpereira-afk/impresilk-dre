@@ -9,13 +9,13 @@ const CACHE = 'app-shell-v38';
 // para o app abrir offline. CDNs (Chart.js, fonts) não entram aqui: serão
 // cacheados sob demanda pelo fetch network-first abaixo.
 const SHELL = [
-  '/',
-  '/index.html',
-  '/app.js',
-  '/styles.css',
-  '/data.js',
-  '/config.js',
-  '/logo.png',
+  './',
+  './index.html',
+  './app.js',
+  './styles.css',
+  './data.js',
+  './config.js',
+  './logo.png',
 ];
 
 // INSTALL: pré-cacheia o shell e assume o controle imediatamente.
