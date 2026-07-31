@@ -6,12 +6,6 @@
   command = ""           # SEM build: nada para compilar/transpilar
   functions = "netlify/functions"   # onde moram as funções serverless
 
-# Função agendada (cron na nuvem). Mantém os Blobs "quentes" e serve de
-# healthcheck periódico. @hourly = uma vez por hora. É opcional; remova o
-# bloco se não quiser a execução automática.
-[functions."cron"]
-  schedule = "@hourly"
-
 # ── Cabeçalhos de segurança em TODAS as respostas ────────────────────────────
 # DENY  : impede que o site seja embutido em <iframe> (anti clickjacking).
 # nosniff: impede o browser de "adivinhar" o content-type (anti MIME sniffing).
