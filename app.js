@@ -1732,44 +1732,45 @@ function boot(D) {
     try { p = ((await api('getCfg')) || {}).cfg?.previaERP || null; } catch (_) {}
     if (!p) {
       box.innerHTML = `<p class="hint">Ainda não há prévia gravada. O robô roda todo dia às 6h;
-        você também pode disparar na hora pelo GitHub (aba Actions → “Prévia do ERP”).</p>`;
+        dá para disparar na hora no GitHub (aba <b>Actions</b> → “Prévia do ERP” → Run workflow).</p>`;
       return;
     }
     const D = getCurrentData();
     const mi = (D.months || []).indexOf(p.label);
-    const oficial = mi >= 0
-      ? { receita: val(get('1'), mi), despesa: val(get('2'), mi) }
-      : null;
-    const dif = (a, b) => (a == null || b == null) ? null : a - b;
-    const dR = oficial ? dif(p.totais.receita, oficial.receita) : null;
-    const dD = oficial ? dif(p.totais.despesa, oficial.despesa) : null;
-    const quando = new Date(p.geradoEm);
-    const linha = (rot, api_, of, d) => `<tr>
-      <td class="t-name">${rot}</td>
-      <td class="mono">${fmt(api_)}</td>
-      <td class="mono">${of == null ? '—' : fmt(of)}</td>
-      <td class="${d == null ? 'av' : Math.abs(d) < 1 ? 'v-pos' : 'v-neg'}">${d == null ? '—' : (d >= 0 ? '+' : '') + fmt(d)}</td></tr>`;
-
+    const of = mi >= 0 ? { receita: val(get('1'), mi), despesa: val(get('2'), mi) } : null;
+    const d = p.diag || {};
+    const semQuebra = d.receitaSemCodigo || 0;
+    const linha = (rot, erp, ofc, obs) => {
+      const dif = ofc == null ? null : erp - ofc;
+      return `<tr>
+        <td class="t-name">${rot}${obs ? `<span class="es-obs">${obs}</span>` : ''}</td>
+        <td class="mono">${fmt(erp)}</td>
+        <td class="mono">${ofc == null ? '—' : fmt(ofc)}</td>
+        <td class="${dif == null ? 'av' : Math.abs(dif) < 1 ? 'v-pos' : 'v-neg'}">${dif == null ? '—' : (dif >= 0 ? '+' : '') + fmt(dif)}</td></tr>`;
+    };
     box.innerHTML = `
       <p class="hint" style="margin-bottom:12px">Mês <b>${escAttr(p.label)}</b> lido do Mubisys em
-      <b>${quando.toLocaleString('pt-BR')}</b> · ${(p.diag || {}).incluidos || 0} lançamentos
-      ${p.parcial ? '<b class="v-neg">· leitura PARCIAL, o ERP não devolveu tudo</b>' : ''}</p>
+      <b>${new Date(p.geradoEm).toLocaleString('pt-BR')}</b> ·
+      ${d.titulosReceita || 0} recebimentos e ${d.titulosDespesa || 0} pagamentos ·
+      ${d.contas || 0} contas de despesa</p>
       <div class="table-scroll"><table class="dre">
         <thead><tr><th class="t-name">Total do mês</th><th>ERP (hoje)</th><th>Oficial (planilha)</th><th>Diferença</th></tr></thead>
         <tbody>
-          ${linha('Receitas', p.totais.receita, oficial?.receita, dR)}
-          ${linha('Despesas', p.totais.despesa, oficial?.despesa, dD)}
+          ${linha('Receitas', p.totais.receita, of?.receita)}
+          ${linha('Despesas', p.totais.despesa, of?.despesa)}
         </tbody>
       </table></div>
-      <p class="hint" style="margin-top:12px">
-      ${oficial
-        ? `A diferença é esperada por dois motivos conhecidos: <b>(1)</b> o ERP já contém lançamentos posteriores
-           à data em que a planilha foi exportada; <b>(2)</b> ${(p.diag || {}).semCodigo || 0} títulos voltam do ERP
-           sem plano de contas (a maioria das <b>receitas</b>), então não entram no total lido.
-           Por isso a prévia <b>não substitui</b> o mês oficial — ela serve para acompanhar o mês em andamento.`
-        : `Este mês ainda não foi subido pela planilha, então não há com o que comparar — a coluna “oficial” fica vazia
-           até você subir o export.`}</p>`;
+      ${semQuebra > 0 ? `<p class="hint" style="margin-top:12px">⚠️ <b>${fmt(semQuebra)}</b> da receita
+      (${pct(p.totais.receita ? semQuebra / p.totais.receita : 0)}) vem <b>sem quebra por produto</b>: no Mubisys a
+      venda é classificada pela <b>Ordem de Serviço</b>, não pelo título financeiro. O total acima está certo —
+      o que falta é dizer <i>de qual produto</i> veio cada real.</p>` : ''}
+      <p class="hint" style="margin-top:10px">
+      ${of ? `Diferença contra a planilha é esperada enquanto o mês corre: o ERP já tem lançamentos posteriores
+             à data em que você exportou. <b>A planilha continua sendo a fonte oficial</b> — esta leitura serve
+             para acompanhar o mês em andamento sem esperar o fechamento.`
+           : `Este mês ainda não foi subido pela planilha, então não há com o que comparar.`}</p>`;
   }
+
 
   function renderBlocos3() {
     const host = document.getElementById('blocos3');

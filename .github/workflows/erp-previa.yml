@@ -1,18 +1,20 @@
 name: Prévia do ERP (Mubisys)
 
-# Alimenta automaticamente uma PRÉVIA do mês em andamento, lida direto do
-# Mubisys. NÃO escreve nos meses oficiais do DRE: esses continuam vindo do
-# export "Plano de Contas" (.xlsx), que é a fonte da verdade.
+# Puxa sozinho o mês corrente do Mubisys e grava a PRÉVIA (cfg.previaERP).
+# NÃO escreve nos meses oficiais: esses continuam vindo do export .xlsx.
 #
-# Por que prévia e não substituição: a API e o .xlsx ainda NÃO reconciliam
-# (jul/26: despesa API 562.175 x planilha 489.463; receita 88% dos títulos
-# volta com "Conta não encontrada"). Enquanto isso não fechar, alimentar o
-# DRE direto do ERP corromperia a série. A prévia serve para acompanhar o mês
-# corrente e para medir a diferença todo dia, sem risco.
+# Por que não usa a ação importarMes do servidor: ela só soma títulos que têm
+# plano de contas, e receita OPERACIONAL nunca tem (no Mubisys a venda é
+# classificada pela Ordem de Serviço, não pelo título). O importarMes reportava
+# R$ 205 mil de receita quando o mês tinha R$ 460 mil. Aqui somamos por fora:
+#   - despesa: 100% classificada por conta (o ERP entrega o plano de contas)
+#   - receita: total correto, com a parte classificada destacada à parte
+# Assim os TOTAIS ficam certos e fica explícito o quanto da receita ainda não
+# tem quebra por produto (isso só sai depois de ler a OS).
 
 on:
   schedule:
-    - cron: '0 9 * * *'      # 06:00 em Brasília, todo dia
+    - cron: '0 9 * * *'      # 06:00 em Brasília
   workflow_dispatch: {}
 
 concurrency:
@@ -25,67 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Puxar o mês corrente do ERP e gravar a prévia
+      - name: Ler o mês corrente do ERP e gravar a prévia
         env:
-          # O token do app já é público (vai no config.js para o navegador).
-          # Lemos de lá para não haver dois lugares para atualizar.
           TZ: America/Sao_Paulo
-        run: |
-          python3 - <<'PY'
-          import json, re, urllib.request, datetime, time, os
-
-          cfg = open('config.js', encoding='utf-8').read()
-          TOKEN = re.search(r"const TOKEN\s*=\s*'([^']+)'", cfg).group(1)
-          BASE  = re.search(r"const API_BASE\s*=\s*'([^']+)'", cfg).group(1)
-
-          def call(fn, payload, timeout=170):
-              req = urllib.request.Request(
-                  f'{BASE}/{fn}', data=json.dumps(payload).encode(),
-                  headers={'content-type': 'application/json', 'x-token': TOKEN})
-              return json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode())
-
-          hoje = datetime.date.today()
-          ini  = hoje.replace(day=1)
-          fim  = (ini + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
-          PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
-          label = f'{PT[ini.month-1]}/{ini.year}'
-
-          imp = None
-          for tent in range(3):
-              try:
-                  imp = call('dre-financas', {'action': 'importarMes',
-                                              'datainicial': ini.isoformat(),
-                                              'datafinal': fim.isoformat()})
-                  if imp.get('ok'): break
-              except Exception as e:
-                  print('tentativa', tent + 1, 'falhou:', str(e)[:120])
-              time.sleep(20)
-
-          if not imp or not imp.get('ok'):
-              raise SystemExit('ERP não respondeu — prévia não atualizada (a anterior continua valendo)')
-
-          previa = {
-              'label':      label,
-              'geradoEm':   datetime.datetime.now(datetime.timezone.utc).isoformat(),
-              'periodo':    {'de': ini.isoformat(), 'ate': fim.isoformat()},
-              'totais':     imp.get('totais', {}),
-              'diag':       imp.get('diag', {}),
-              'parcial':    bool(imp.get('parcial')),
-              'porCodigo':  imp.get('porCodigo', {}),
-          }
-
-          # Preserva o resto da configuração (ex.: 'removidos') — setCfg troca o objeto inteiro.
-          atual = {}
-          try:
-              atual = (call('dre-sync', {'action': 'getCfg'}, 60) or {}).get('cfg') or {}
-          except Exception as e:
-              print('aviso: não consegui ler a cfg atual:', str(e)[:120])
-          atual['previaERP'] = previa
-          call('dre-sync', {'action': 'setCfg', 'cfg': atual}, 60)
-
-          t = previa['totais']
-          print(f"prévia de {label}: receita R$ {t.get('receita', 0):,.2f} · "
-                f"despesa R$ {t.get('despesa', 0):,.2f} · "
-                f"{previa['diag'].get('incluidos', 0)} lançamentos"
-                f"{' (PARCIAL)' if previa['parcial'] else ''}")
-          PY
+        run: python3 scripts/erp_previa.py
