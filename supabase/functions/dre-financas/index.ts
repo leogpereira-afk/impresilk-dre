@@ -73,7 +73,11 @@ const extrairLista = (d: any): any[] =>
   : Array.isArray(d?.data) ? d.data
   : Array.isArray(d?.items) ? d.items
   : Array.isArray(d?.results) ? d.results
-  : d?.data ? [d.data] : [];
+  : d?.data ? [d.data]
+  // Endpoints de item único (contas-receber/{id}, ordem-servico/numero/{n})
+  // devolvem o objeto CRU, sem envelope. Sem esta linha eles voltavam vazios.
+  : (d && typeof d === "object" && !d.error && Object.keys(d).length) ? [d]
+  : [];
 
 async function buscar(recurso: string, creds: any, f: any, timeoutMs = 22000) {
   const q = new URLSearchParams();
@@ -187,6 +191,18 @@ Deno.serve(async (req: Request) => {
     if (action === "ping") {
       const r = await buscar("contas-pagar", creds, { status: "PAGO", filtrodata: "PAGAMENTO", datainicial, datafinal });
       return json({ ok: r.ok, http: r.http });
+    }
+
+    // Diagnóstico: devolve a resposta do Mubisys EXATAMENTE como veio, sem
+    // extrair lista. Serve para mapear endpoint novo antes de escrever código.
+    if (action === "raw") {
+      const recurso = body.recurso || "contas-pagar";
+      const r = await buscar(recurso, creds, {
+        status: body.status ?? "",
+        filtrodata: body.filtrodata ?? "",
+        datainicial, datafinal,
+      });
+      return json({ ok: r.ok, http: r.http, resposta: r.data });
     }
 
     if (action === "preview" || action === "listar") {
