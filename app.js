@@ -1718,6 +1718,59 @@ function boot(D) {
       ${CONTAS_UNIFICADAS.map(u => `<p class="hint"><b>${u.de}</b> ➜ <b>${u.para}</b> — ${u.o_que} <i>(desde ${u.desde})</i>. O histórico é tratado como uma série só.</p>`).join('')}</div>` : ''}`;
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /*  Prévia do ERP: um robô diário lê o mês corrente direto do Mubisys  */
+  /*  e grava em cfg.previaERP. Aqui só EXIBIMOS e medimos a diferença   */
+  /*  contra o mês oficial (que vem do .xlsx). Nada é sobrescrito.       */
+  /* ------------------------------------------------------------------ */
+  async function renderPrevia() {
+    const box = document.getElementById('previaBox');
+    if (!box || typeof api !== 'function') return;
+    box.innerHTML = '<p class="hint">Consultando…</p>';
+    let p = null;
+    try { p = ((await api('getCfg')) || {}).cfg?.previaERP || null; } catch (_) {}
+    if (!p) {
+      box.innerHTML = `<p class="hint">Ainda não há prévia gravada. O robô roda todo dia às 6h;
+        você também pode disparar na hora pelo GitHub (aba Actions → “Prévia do ERP”).</p>`;
+      return;
+    }
+    const D = getCurrentData();
+    const mi = (D.months || []).indexOf(p.label);
+    const oficial = mi >= 0
+      ? { receita: val(get('1'), mi), despesa: val(get('2'), mi) }
+      : null;
+    const dif = (a, b) => (a == null || b == null) ? null : a - b;
+    const dR = oficial ? dif(p.totais.receita, oficial.receita) : null;
+    const dD = oficial ? dif(p.totais.despesa, oficial.despesa) : null;
+    const quando = new Date(p.geradoEm);
+    const linha = (rot, api_, of, d) => `<tr>
+      <td class="t-name">${rot}</td>
+      <td class="mono">${fmt(api_)}</td>
+      <td class="mono">${of == null ? '—' : fmt(of)}</td>
+      <td class="${d == null ? 'av' : Math.abs(d) < 1 ? 'v-pos' : 'v-neg'}">${d == null ? '—' : (d >= 0 ? '+' : '') + fmt(d)}</td></tr>`;
+
+    box.innerHTML = `
+      <p class="hint" style="margin-bottom:12px">Mês <b>${escAttr(p.label)}</b> lido do Mubisys em
+      <b>${quando.toLocaleString('pt-BR')}</b> · ${(p.diag || {}).incluidos || 0} lançamentos
+      ${p.parcial ? '<b class="v-neg">· leitura PARCIAL, o ERP não devolveu tudo</b>' : ''}</p>
+      <div class="table-scroll"><table class="dre">
+        <thead><tr><th class="t-name">Total do mês</th><th>ERP (hoje)</th><th>Oficial (planilha)</th><th>Diferença</th></tr></thead>
+        <tbody>
+          ${linha('Receitas', p.totais.receita, oficial?.receita, dR)}
+          ${linha('Despesas', p.totais.despesa, oficial?.despesa, dD)}
+        </tbody>
+      </table></div>
+      <p class="hint" style="margin-top:12px">
+      ${oficial
+        ? `A diferença é esperada por dois motivos conhecidos: <b>(1)</b> o ERP já contém lançamentos posteriores
+           à data em que a planilha foi exportada; <b>(2)</b> ${(p.diag || {}).semCodigo || 0} títulos voltam do ERP
+           sem plano de contas (a maioria das <b>receitas</b>), então não entram no total lido.
+           Por isso a prévia <b>não substitui</b> o mês oficial — ela serve para acompanhar o mês em andamento.`
+        : `Este mês ainda não foi subido pela planilha, então não há com o que comparar — a coluna “oficial” fica vazia
+           até você subir o export.`}</p>`;
+  }
+
   function renderBlocos3() {
     const host = document.getElementById('blocos3');
     if (!host) return;
@@ -1928,7 +1981,7 @@ function boot(D) {
 
   function renderAll() {
     renderKPIs(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
-    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai(); renderConcil(); renderEstrutura();
+    renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai(); renderConcil(); renderEstrutura(); renderPrevia();
     if (typeof wireResGrupos === 'function') wireResGrupos();
     if (typeof renderAuditoria === 'function') renderAuditoria();
     if (typeof wireCollapsibleCards === 'function') wireCollapsibleCards();
