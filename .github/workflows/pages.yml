@@ -1,10 +1,9 @@
 name: DRE no GitHub Pages
 
-# TRANSICAO: publica da branch migracao-supabase -- a main ainda e o Netlify de
-# producao. Na virada, o gatilho passa para a main e o Netlify morre.
+# VIRADA FEITA: publica da main.
 on:
   push:
-    branches: [migracao-supabase]
+    branches: [main]
   workflow_dispatch: {}
 
 permissions:
