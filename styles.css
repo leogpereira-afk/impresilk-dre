@@ -803,3 +803,25 @@ body.locked { overflow: hidden; }
   .ctrl-periodo { border-left: 0; padding-left: 0; width: 100%; }
   .ctrl-periodo .ctrl { flex: 1; }
 }
+
+/* ===================== DETALHE DO CARD =====================
+   Todo card do painel abre e mostra de onde o número vem: a fórmula em
+   palavras, as contas que somam nele e a série de todos os meses. */
+.clicavel { cursor: pointer; position: relative; transition: transform .12s ease, box-shadow .12s ease; }
+.clicavel:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 0, 0, .10); }
+.clicavel:focus-visible { outline: 2px solid var(--brand, #3b82f6); outline-offset: 2px; }
+/* a lupa some no celular: lá o toque já é o gesto natural e o ícone rouba espaço */
+.clicavel::after {
+  content: '🔎'; position: absolute; top: 8px; right: 10px;
+  font-size: .72rem; opacity: 0; transition: opacity .12s ease;
+}
+.clicavel:hover::after { opacity: .5; }
+@media (hover: none) { .clicavel::after { content: none; } .clicavel:hover { transform: none; box-shadow: none; } }
+
+.det-box { max-width: 720px; width: min(720px, 94vw); max-height: 88vh; overflow-y: auto; }
+.det-top { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin: 10px 0 4px; }
+.det-v { font-size: 2rem; font-weight: 700; letter-spacing: -.02em; }
+.det-v.neg { color: var(--neg, #dc2626); }
+.det-spark { margin: 6px 0 10px; }
+.cur-row { background: rgba(59, 130, 246, .07); }
+.cur-row .t-name { font-weight: 600; }

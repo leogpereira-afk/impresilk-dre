@@ -183,7 +183,13 @@ function monthsToDataset(records) {
     return { code, name: m.name, level: m.level, parent: m.parent, values };
   });
   const last = recs[recs.length - 1] || {};
-  return { company: last.company, basis: last.basis, months, accounts };
+  // origem de cada mês: "planilha" (veio do .xlsx) ou "erp" (o robô montou).
+  // Os dois têm o MESMO plano de despesa, mas a receita é quebrada de formas
+  // diferentes — a planilha usa as subcontas (Acrílicos, Lonas…) e o ERP usa o
+  // produto vendido. Comparar folha com folha entre os dois faria a receita
+  // inteira "sumir" de um mês e "nascer" no outro.
+  return { company: last.company, basis: last.basis, months, accounts,
+           origens: recs.map(r => r.origem || 'planilha') };
 }
 
 // indicador visual no botão de sync: ☁️ ok · ⏳ trabalhando · 📴 offline/erro · ⚠️ pendências
@@ -473,6 +479,22 @@ function trendStats(values) {
   return { mean, slope, slopePctMonth, cv, first: values[0], last: values[n - 1] };
 }
 
+/* Detalhe do card: o ouvinte mora aqui fora e é registrado uma vez só; boot()
+   apenas aponta esta variável para a sua própria função (ver fim de boot). */
+let abrirDetalheAtual = null;
+document.addEventListener('click', e => {
+  const alvo = e.target.closest && e.target.closest('[data-det]');
+  if (alvo && abrirDetalheAtual) abrirDetalheAtual(alvo.dataset.det);
+});
+document.addEventListener('keydown', e => {
+  const m = document.getElementById('detModal');
+  if (e.key === 'Escape' && m && !m.hidden) m.hidden = true;
+});
+document.addEventListener('click', e => {
+  // clicar no fundo escuro fecha
+  if (e.target && e.target.id === 'detModal') e.target.hidden = true;
+});
+
 function boot(D) {
   const MONTHS = D.months;
   const ACCS = D.accounts;
@@ -488,6 +510,38 @@ function boot(D) {
   });
   const get = c => byCode.get(c);
   const val = (a, i) => (a ? a.values[i] : 0);
+
+  /* ------------------------------------------------------------------ *
+   *  Comparar mês com mês quando o plano de receita mudou de forma
+   *  ------------------------------------------------------------------
+   *  Mês de planilha quebra a receita nas subcontas do plano (1.1.1.1
+   *  Acrílicos, 1.1.1.3 Lonas…). Mês do ERP quebra no PRODUTO vendido
+   *  (1.1.1.51 Placa ACM…), porque a API não diz a que subconta cada
+   *  produto pertence. Confrontar folha com folha entre os dois faz toda
+   *  a receita aparecer como "Acrílicos −100%" e "Placa ACM +∞": foram
+   *  76 contas sumindo (R$ 324 mil) e 79 nascendo (R$ 616 mil) na virada
+   *  de Jun para Jul. A DESPESA não tem esse problema — o plano é o mesmo
+   *  dos dois lados.
+   *
+   *  Onde a receita ainda é comparável: nos totais de galho, que existem
+   *  nas duas formas. Abaixo disso, o painel mostra "—" e explica.       */
+  const ORIGENS = D.origens || MONTHS.map(() => 'planilha');
+  const RECEITA_COMPARAVEL = new Set(['1', '1.1', '1.1.1', '1.1.2', '1.2', '1.3', '1.4', '1.5', '1.6']);
+  const mesmaEstrutura = (i, j) => ORIGENS[i] === ORIGENS[j];
+  const comparavel = (code, i, j) =>
+    mesmaEstrutura(i, j) || !String(code).startsWith('1') || RECEITA_COMPARAVEL.has(String(code));
+  // variação relativa que respeita a regra acima (null = não dá para comparar)
+  const ahEntre = (a, code, i, j) => {
+    if (!comparavel(code, i, j)) return null;
+    const v = val(a, i), vp = val(a, j);
+    return vp ? (v - vp) / vp : (v ? 1 : null);
+  };
+  const AVISO_ESTRUTURA = (i, j) => mesmaEstrutura(i, j) ? '' :
+    `<p class="hint" style="margin-top:8px">⚠️ ${MONTHS[i]} e ${MONTHS[j]} quebram a receita de formas diferentes —
+     ${ORIGENS[i] === 'erp' ? MONTHS[i] : MONTHS[j]} vem do ERP e lista o <b>produto vendido</b>;
+     ${ORIGENS[i] === 'erp' ? MONTHS[j] : MONTHS[i]} veio da planilha e lista as <b>subcontas do plano</b>.
+     Por isso a comparação de receita aparece só nos totais, e produto a produto fica "—".
+     A despesa compara normal, o plano de contas é o mesmo nos dois.</p>`;
 
   const REC = get('1'), DESP = get('2');
   const revAt = i => val(REC, i);
@@ -539,15 +593,15 @@ function boot(D) {
   function renderKPIs() {
     const opMargem = i => salesAt(i) ? resOperAt(i) / salesAt(i) : 0;
     const cards = lente === 'caixa' ? [
-      { cls: 'rev', label: 'Entrou no banco', val: revAt(cur), prev: revAt(cmp), goodUp: true },
-      { cls: 'exp', label: 'Saiu do banco', val: expAt(cur), prev: expAt(cmp), goodUp: false },
-      { cls: 'res', label: 'Variação de Caixa', val: resAt(cur), prev: resAt(cmp), goodUp: true },
-      { cls: 'mar', label: 'Margem de Caixa', val: marginAt(cur), prev: marginAt(cmp), goodUp: true, isPct: true },
+      { cls: 'rev', label: 'Entrou no banco', val: revAt(cur), prev: revAt(cmp), goodUp: true, det: 'entrou' },
+      { cls: 'exp', label: 'Saiu do banco', val: expAt(cur), prev: expAt(cmp), goodUp: false, det: 'saiu' },
+      { cls: 'res', label: 'Variação de Caixa', val: resAt(cur), prev: resAt(cmp), goodUp: true, det: 'caixa' },
+      { cls: 'mar', label: 'Margem de Caixa', val: marginAt(cur), prev: marginAt(cmp), goodUp: true, isPct: true, det: 'margemCaixa' },
     ] : [
-      { cls: 'rev', label: 'Vendas', val: salesAt(cur), prev: salesAt(cmp), goodUp: true },
-      { cls: 'exp', label: 'Custos da Operação', val: despOperAt(cur), prev: despOperAt(cmp), goodUp: false },
-      { cls: 'res', label: 'Resultado da Operação', val: resOperAt(cur), prev: resOperAt(cmp), goodUp: true },
-      { cls: 'mar', label: 'Margem da Operação', val: opMargem(cur), prev: opMargem(cmp), goodUp: true, isPct: true },
+      { cls: 'rev', label: 'Vendas', val: salesAt(cur), prev: salesAt(cmp), goodUp: true, det: 'vendas' },
+      { cls: 'exp', label: 'Custos da Operação', val: despOperAt(cur), prev: despOperAt(cmp), goodUp: false, det: 'custos' },
+      { cls: 'res', label: 'Resultado da Operação', val: resOperAt(cur), prev: resOperAt(cmp), goodUp: true, det: 'resultadoOper' },
+      { cls: 'mar', label: 'Margem da Operação', val: opMargem(cur), prev: opMargem(cmp), goodUp: true, isPct: true, det: 'margemOper' },
     ];
     document.getElementById('kpis').innerHTML = cards.map(c => {
       let dClass, dTxt;
@@ -567,7 +621,7 @@ function boot(D) {
       const arrow = dClass === 'flat' ? '■' : (subiu ? '▲' : '▼');
       const valTxt = c.isPct ? pct(c.val) : fmt2(c.val);
       const valColor = (c.cls === 'res') ? (c.val >= 0 ? 'pos' : 'neg') : '';
-      return `<div class="kpi ${c.cls}">
+      return `<div class="kpi ${c.cls} clicavel" data-det="${c.det}" role="button" tabindex="0" title="Clique para ver de onde vem este número">
         <div class="label">${c.label}</div>
         <div class="value ${valColor}">${valTxt}</div>
         <div class="delta ${dClass}">${arrow} ${dTxt} <span class="vs">vs ${MONTHS[cmp]}</span></div>
@@ -833,8 +887,8 @@ function boot(D) {
     const dArr = ah => ah == null ? '■' : ah <= 0 ? '▼' : '▲';
 
     kpisEl.innerHTML = `
-      <div class="ck"><span class="ck-l">⚡ Energia · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur)}</span><span class="delta ${dCls(eAh)}">${dArr(eAh)} ${eAh == null ? '—' : signedPct(eAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
-      <div class="ck"><span class="ck-l">💧 Água · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(wCur)}</span><span class="delta ${dCls(wAh)}">${dArr(wAh)} ${wAh == null ? '—' : signedPct(wAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
+      <div class="ck clicavel" data-det="cemig" role="button" tabindex="0" title="Clique para ver mês a mês"><span class="ck-l">⚡ Energia · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur)}</span><span class="delta ${dCls(eAh)}">${dArr(eAh)} ${eAh == null ? '—' : signedPct(eAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
+      <div class="ck clicavel" data-det="copasa" role="button" tabindex="0" title="Clique para ver mês a mês"><span class="ck-l">💧 Água · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(wCur)}</span><span class="delta ${dCls(wAh)}">${dArr(wAh)} ${wAh == null ? '—' : signedPct(wAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
       <div class="ck"><span class="ck-l">Total Utilidades · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur + wCur)}</span><span class="ck-s">energia + água no mês</span></div>
       <div class="ck"><span class="ck-l">Média Energia ${MONTHS.length}m</span><span class="ck-v">${fmt(eAvg)}</span><span class="ck-s">gasto médio mensal</span></div>
       <div class="ck"><span class="ck-l">Média Água ${MONTHS.length}m</span><span class="ck-v">${fmt(wAvg)}</span><span class="ck-s">gasto médio mensal</span></div>`;
@@ -996,12 +1050,12 @@ function boot(D) {
     const kidsRows = kids.filter(k => k.values.some(x => x !== 0)).map(k => {
       const kst = trendStats(k.values);
       const kv = k.values[cur], kvp = k.values[cmp];
-      const kah = kvp ? (kv - kvp) / kvp : (kv ? 1 : null);
+      const kah = ahEntre(k, k.code, cur, cmp);
       return `<tr>
         <td class="t-name">${k.name}</td>
         <td class="mono">${fmt(kv)}</td>
         <td class="av">${pct(v ? kv / v : 0)}</td>
-        <td class="${kah == null ? 'av' : (isRev ? kah >= 0 : kah <= 0) ? 'pos' : 'neg'}">${kah == null ? '—' : signedPct(kah)}</td>
+        <td class="${kah == null ? 'av' : (isRev ? kah >= 0 : kah <= 0) ? 'pos' : 'neg'}" ${kah == null && !comparavel(k.code, cur, cmp) ? 'title="Os dois meses quebram a receita de formas diferentes — só dá para comparar o total do galho."' : ''}>${kah == null ? '—' : signedPct(kah)}</td>
         <td class="spark-cell">${sparkline(k.values, { w: 90, h: 22 })}</td>
       </tr>`;
     }).join('') || `<tr><td colspan="5" class="hint">Sem subcontas com movimento.</td></tr>`;
@@ -1019,6 +1073,7 @@ function boot(D) {
         <div class="ck"><span class="ck-l">Tendência</span><span class="ck-v ${trendCls === 'up' ? 'pos' : trendCls === 'down' ? 'neg' : ''}">${trendLabel}</span><span class="ck-s">${(st.slopePctMonth * 100 >= 0 ? '+' : '') + (st.slopePctMonth * 100).toFixed(1)}% por mês</span></div>
         <div class="ck"><span class="ck-l">Oscilação</span><span class="ck-v">${volat}</span><span class="ck-s">varia ${(st.cv * 100).toFixed(0)}% em torno da média</span></div>
       </div>
+      ${isRev ? AVISO_ESTRUTURA(cur, cmp) : ''}
       <div class="center-grid">
         <div>
           <div class="seg ccm-seg" id="centerChartMode">
@@ -1109,13 +1164,17 @@ function boot(D) {
     const isRev = s.code.startsWith('1');
 
     // itens = folhas do centro (produto a produto). Ordena pela maior variação absoluta.
+    // Quando os dois meses quebram a receita de formas diferentes, a folha do
+    // outro mês não existe deste lado: entra só o que tem movimento no mês
+    // atual, e a variação sai zerada em vez de fingir uma queda de 100%.
+    const podeComparar = comparavel(s.code + '.x', cur, cmp);
     const items = leavesUnder(s.code)
-      .filter(k => k.values[cur] !== 0 || k.values[cmp] !== 0)
+      .filter(k => podeComparar ? (k.values[cur] !== 0 || k.values[cmp] !== 0) : k.values[cur] !== 0)
       .map(k => {
-        const v = k.values[cur], vp = k.values[cmp];
+        const v = k.values[cur], vp = podeComparar ? k.values[cmp] : v;
         const abs = v - vp;
-        const rel = vp ? abs / vp : (v ? 1 : null);
-        return { name: k.name, code: k.code, v, vp, abs, rel, vals: k.values };
+        const rel = podeComparar ? (vp ? abs / vp : (v ? 1 : null)) : null;
+        return { name: k.name, code: k.code, v, vp, abs, rel, vals: k.values, semCmp: !podeComparar };
       });
     items.sort((a, b) => Math.abs(b.abs) - Math.abs(a.abs));
 
@@ -1149,7 +1208,7 @@ function boot(D) {
         <td class="spark-cell">${sparkline(it.vals, { w: 90, h: 22 })}</td>
       </tr>`).join('') || `<tr><td colspan="7" class="hint">Sem itens com movimento.</td></tr>`;
 
-    panel.innerHTML = head + `
+    panel.innerHTML = head + (isRev ? AVISO_ESTRUTURA(cur, cmp) : '') + `
       <div class="bc-chart-wrap"><canvas id="bigCenterChart"></canvas></div>
       <div class="table-scroll">
         <table class="dre bc-table">
@@ -1237,6 +1296,113 @@ function boot(D) {
   // separamos em Operação · Sócios · Financiamento, cuja soma = variação de caixa.
   const despOperAt = i => expAt(i) - loanOutAt(i) - ownerAt(i) - investAt(i); // só a operação
   const resOperAt = i => salesAt(i) - despOperAt(i);            // resultado limpo da operação
+
+  /* ------------------------------------------------------------------ *
+   *  DETALHE DO CARD — todo card do painel abre e mostra de onde vem
+   *  ------------------------------------------------------------------
+   *  Cada card mostrava um número sem dizer de onde ele saiu. Clicando,
+   *  abre a conta: a fórmula em palavras, quais contas somam nele e a
+   *  série de todos os meses. Um registro por chave; o card só declara
+   *  data-det="chave".                                                  */
+  const detNoOper = ['2.13', '2.14', '2.16'];
+  const filhosDe = c => (childrenOf.get(c) || []).map(x => x.code);
+  const DETALHES = {
+    entrou: () => ({ t: 'Entrou no banco', f: i => revAt(i), contas: filhosDe('1'),
+      exp: 'Tudo que entrou na conta no mês, sem exclusão nenhuma — bate com o extrato. Inclui empréstimo captado, que não é venda.' }),
+    saiu: () => ({ t: 'Saiu do banco', f: i => expAt(i), contas: filhosDe('2'),
+      exp: 'Tudo que saiu da conta no mês. Inclui retirada de sócio, devolução de empréstimo e compra de máquina — que não são custo da operação.' }),
+    caixa: () => ({ t: 'Variação de Caixa', f: i => resAt(i), contas: ['1', '2'],
+      exp: 'O que entrou menos o que saiu. É a variação do saldo no mês, não o lucro.' }),
+    margemCaixa: () => ({ t: 'Margem de Caixa', f: i => marginAt(i), pct: true,
+      exp: 'Variação de caixa dividida pelo que entrou. Quanto sobrou de cada R$ 100 que passaram pela conta.' }),
+    vendas: () => ({ t: 'Vendas', f: i => salesAt(i),
+      contas: filhosDe('1').filter(c => !FIN_REV_CODES.includes(c)),
+      exp: 'Receita de verdade: tudo que entrou MENOS rendimentos (1.3) e empréstimos captados (1.4). Dinheiro emprestado não é venda.' }),
+    custos: () => ({ t: 'Custos da Operação', f: i => despOperAt(i),
+      contas: filhosDe('2').filter(c => !detNoOper.includes(c)),
+      exp: 'O que saiu MENOS devolução de empréstimo, retirada de sócio e compra de máquina. Só o que a operação consumiu.' }),
+    resultadoOper: () => ({ t: 'Resultado da Operação', f: i => resOperAt(i),
+      exp: 'Vendas menos custos da operação. É o que o negócio gerou, limpo de dívida, sócio e máquina.' }),
+    margemOper: () => ({ t: 'Margem da Operação', f: i => (salesAt(i) ? resOperAt(i) / salesAt(i) : 0), pct: true,
+      exp: 'Resultado da operação dividido pelas vendas. Quanto sobra de cada R$ 100 vendidos.' }),
+    blocoOper: () => ({ t: '1 · Operação', f: i => resOperAt(i),
+      exp: 'Primeiro dos 4 blocos: vendas menos custos operacionais. Operação − Sócios − Investimentos + Financiamento = variação de caixa.' }),
+    blocoSocios: () => ({ t: '2 · Sócios', f: i => -ownerAt(i), contas: filhosDe('2.14'),
+      exp: 'Retiradas dos sócios e arrendamento (2.14), fora a devolução de empréstimo bancário que mora no mesmo galho.' }),
+    blocoInvest: () => ({ t: '3 · Investimentos', f: i => -investAt(i), contas: ['2.16', ...ATIVO_FIN_CODES],
+      exp: 'Máquinas e veículos, à vista ou financiados. Vira patrimônio — sai do caixa mas não é gasto.' }),
+    blocoFinanc: () => ({ t: '4 · Financiamento', f: i => financAt(i), contas: [...FIN_REV_CODES, ...LOAN_OUT_CODES],
+      exp: 'Empréstimo entrando menos empréstimo saindo. Não é resultado: é dinheiro emprestado indo e voltando.' }),
+    cemig: () => ({ t: '⚡ Energia (Cemig)', f: i => val(get('2.5.3'), i), contas: filhosDe('2.5.3'), desp: true,
+      exp: 'Conta 2.5.3 do plano. Segue a data de PAGAMENTO: uma conta paga no dia 1º do mês seguinte cai no mês seguinte.' }),
+    copasa: () => ({ t: '💧 Água (Copasa)', f: i => val(get('2.5.1'), i), contas: filhosDe('2.5.1'), desp: true,
+      exp: 'Conta 2.5.1 do plano. Segue a data de PAGAMENTO, igual à energia.' }),
+  };
+
+  function abrirDetalhe(chave) {
+    const mk = DETALHES[chave];
+    const box = document.getElementById('detBox');
+    if (!mk || !box) return;
+    const d = mk();
+    const serie = MONTHS.map((_, i) => d.f(i));
+    const v = serie[cur], vp = serie[cmp];
+    const dif = d.pct ? v - vp : (vp ? (v - vp) / Math.abs(vp) : null);
+    const st = trendStats(serie);
+    const bom = d.desp ? (v <= vp) : (v >= vp);
+    const linhas = (d.contas || []).map(c => get(c)).filter(Boolean)
+      .map(a => ({ a, v: val(a, cur), ah: ahEntre(a, a.code, cur, cmp) }))
+      .filter(x => x.v || x.ah != null)
+      .sort((x, y) => Math.abs(y.v) - Math.abs(x.v));
+    const somaLinhas = linhas.reduce((s, x) => s + Math.abs(x.v), 0);
+
+    box.innerHTML = `
+      <div class="modal-head"><strong>${d.t} · ${MONTHS[cur]}</strong>
+        <button class="modal-x" id="detClose" aria-label="Fechar">✕</button></div>
+      <div class="det-top">
+        <div class="det-v ${v >= 0 ? '' : 'neg'}">${d.pct ? pct(v) : fmt2(v)}</div>
+        <div class="delta ${dif == null ? 'flat' : bom ? 'up' : 'down'}">
+          ${dif == null ? '—' : (v > vp ? '▲' : v < vp ? '▼' : '■') + ' ' +
+            (d.pct ? ((dif >= 0 ? '+' : '') + (dif * 100).toFixed(1) + ' p.p.') : signedPct(dif))}
+          <span class="vs">vs ${MONTHS[cmp]}</span></div>
+      </div>
+      <p class="hint">${d.exp}</p>
+      ${linhas.length ? `<h3 class="banco-group-title">De onde vem</h3>
+      <div class="table-scroll"><table class="dre">
+        <thead><tr><th class="t-name">Conta</th><th>${MONTHS[cur]}</th><th>peso</th><th>vs ${MONTHS[cmp]}</th></tr></thead>
+        <tbody>${linhas.map(x => `<tr>
+          <td class="t-name"><b>${x.a.code}</b> ${escAttr(x.a.name)}</td>
+          <td class="mono">${fmt(x.v)}</td>
+          <td class="av">${pct(somaLinhas ? Math.abs(x.v) / somaLinhas : 0)}</td>
+          <td class="${x.ah == null ? 'av' : (d.desp ? x.ah <= 0 : x.ah >= 0) ? 'pos' : 'neg'}">${x.ah == null ? '—' : signedPct(x.ah)}</td>
+        </tr>`).join('')}</tbody></table></div>` : ''}
+      ${!mesmaEstrutura(cur, cmp) && linhas.some(x => x.ah == null) ? AVISO_ESTRUTURA(cur, cmp) : ''}
+      <h3 class="banco-group-title">Mês a mês</h3>
+      <div class="det-spark">${sparkline(serie, { w: 260, h: 40 })}</div>
+      <div class="table-scroll"><table class="dre">
+        <thead><tr><th class="t-name">Mês</th><th>Valor</th><th>vs mês anterior</th></tr></thead>
+        <tbody>${MONTHS.map((m, i) => {
+          const ant = i ? serie[i - 1] : null;
+          const dd = ant == null ? null : (d.pct ? serie[i] - ant : (ant ? (serie[i] - ant) / Math.abs(ant) : null));
+          const okk = d.desp ? serie[i] <= (ant ?? serie[i]) : serie[i] >= (ant ?? serie[i]);
+          return `<tr${i === cur ? ' class="cur-row"' : ''}>
+            <td class="t-name">${m}${i === cur ? ' <span class="u-now">atual</span>' : ''}</td>
+            <td class="mono">${d.pct ? pct(serie[i]) : fmt(serie[i])}</td>
+            <td class="${dd == null ? 'av' : okk ? 'pos' : 'neg'}">${dd == null ? '—' :
+              d.pct ? ((dd >= 0 ? '+' : '') + (dd * 100).toFixed(1) + ' p.p.') : signedPct(dd)}</td></tr>`;
+        }).join('')}</tbody></table></div>
+      <p class="hint" style="margin-top:10px">Média dos ${MONTHS.length} meses: <b>${d.pct ? pct(st.mean) : fmt(st.mean)}</b> ·
+      oscila ${(st.cv * 100).toFixed(0)}% em torno dela · tendência de
+      ${(st.slopePctMonth * 100 >= 0 ? '+' : '') + (st.slopePctMonth * 100).toFixed(1)}% por mês.</p>`;
+
+    const modal = document.getElementById('detModal');
+    modal.hidden = false;
+    document.getElementById('detClose').onclick = () => { modal.hidden = true; };
+  }
+
+  // boot() roda de novo a cada sincronização; o ouvinte de clique é registrado
+  // UMA vez lá fora e só troca de alvo aqui. Registrar aqui dentro empilharia
+  // um ouvinte por boot e o detalhe seria remontado várias vezes por clique.
+  abrirDetalheAtual = abrirDetalhe;
   const financAt = i => finRevAt(i) - loanOutAt(i);             // saldo de financiamento
 
 
@@ -1888,27 +2054,27 @@ function boot(D) {
     const linha = (rot, v, cls) => `<div class="b3-l"><span>${rot}</span><b class="${cls || ''}">${fmt(v)}</b></div>`;
     host.innerHTML = `
       <div class="b3-grid">
-        <div class="b3 op">
+        <div class="b3 op clicavel" data-det="blocoOper" role="button" tabindex="0" title="Clique para ver de onde vem este número">
           <span class="b3-t">1 · Operação</span>
           <span class="b3-v ${op >= 0 ? 'pos' : 'neg'}">${fmt(op)}</span>
           <span class="b3-s">margem ${pct(margem)} sobre vendas</span>
           ${linha('Vendas', salesAt(i))}
           ${linha('− Custos e estrutura', -despOperAt(i), 'neg')}
         </div>
-        <div class="b3 soc">
+        <div class="b3 soc clicavel" data-det="blocoSocios" role="button" tabindex="0" title="Clique para ver de onde vem este número">
           <span class="b3-t">2 · Sócios</span>
           <span class="b3-v neg">${fmt(-soc)}</span>
           <span class="b3-s">retiradas dos sócios e arrendamento</span>
           ${linha('Retiradas + arrendamento', -soc, 'neg')}
         </div>
-        <div class="b3 inv">
+        <div class="b3 inv clicavel" data-det="blocoInvest" role="button" tabindex="0" title="Clique para ver de onde vem este número">
           <span class="b3-t">3 · Investimentos</span>
           <span class="b3-v neg">${fmt(-inv)}</span>
           <span class="b3-s">máquinas e equipamentos — vira patrimônio, não é gasto</span>
           ${linha('Máquinas e veículo financiados (Nordeste)', -machineFinAt(i), 'neg')}
           ${linha('Máquinas compradas à vista', -val(get('2.16'), i), 'neg')}
         </div>
-        <div class="b3 fin">
+        <div class="b3 fin clicavel" data-det="blocoFinanc" role="button" tabindex="0" title="Clique para ver de onde vem este número">
           <span class="b3-t">4 · Financiamento</span>
           <span class="b3-v ${fin >= 0 ? 'pos' : 'neg'}">${fmt(fin)}</span>
           <span class="b3-s">não é resultado — é dinheiro emprestado</span>
