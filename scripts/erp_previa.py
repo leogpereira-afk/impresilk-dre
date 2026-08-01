@@ -260,23 +260,33 @@ def main():
     }
 
     # O mês oficial, montado direto do ERP — é isto que aposenta o .xlsx.
-    registro = erp_mes.montar(label, receber, pagar, por_produto,
-                              lambda t: valor_na_janela(t, si, sf), codigo)
+    # Os códigos de produto vêm do servidor para serem os mesmos todo mês, e os
+    # nomes das contas vêm dos meses que já estão lá (o plano de contas inteiro).
+    cfg_atual = (call("dre-sync", {"action": "getCfg"}, 60) or {}).get("cfg") or {}
+    lista = call("dre-sync", {"action": "list"}, 90) or {}
+    meses_servidor = lista.get("itens") or []
+    nomes_contas = {}
+    for r in meses_servidor:
+        for c in (r.get("cells") or []):
+            if c.get("name") and c.get("code"):
+                nomes_contas.setdefault(c["code"], c["name"])
+
+    registro, cod_produtos = erp_mes.montar(
+        label, receber, pagar, por_produto, lambda t: valor_na_janela(t, si, sf),
+        codigo, cfg_atual.get("produtosCodigo"), erp_os.MAPA_CONTA, nomes_contas)
 
     if "--dry" in sys.argv:
         print("(--dry: não gravou nada no servidor)")
     else:
-        atual = (call("dre-sync", {"action": "getCfg"}, 60) or {}).get("cfg") or {}
-        atual["previaERP"] = previa
-        call("dre-sync", {"action": "setCfg", "cfg": atual}, 90)
+        cfg_atual["previaERP"] = previa
+        cfg_atual["produtosCodigo"] = cod_produtos
+        call("dre-sync", {"action": "setCfg", "cfg": cfg_atual}, 90)
 
         # TRAVA: nunca reescrever mês que veio da planilha. Os 8 meses do
         # histórico (Dez/25→Jul/26) foram conferidos conta a conta e não podem
         # ser sobrescritos por uma leitura automática. Só grava mês novo ou mês
         # que este mesmo robô gerou antes (origem "erp").
-        lista = call("dre-sync", {"action": "list"}, 90) or {}
-        antigo = next((r for r in (lista.get("itens") or [])
-                       if r.get("id") == registro["id"]), None)
+        antigo = next((r for r in meses_servidor if r.get("id") == registro["id"]), None)
         if antigo and antigo.get("origem") != "erp" and "--forcar" not in sys.argv:
             print(f"NÃO gravei {label}: já existe e veio da planilha "
                   f"(atualizado em {antigo.get('atualizadoEm')}). "

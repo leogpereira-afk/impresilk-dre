@@ -6,17 +6,20 @@ Substitui o .xlsx. O que muda em relação à planilha:
   * DESPESA — igual. O ERP entrega o plano de contas em 100% dos pagamentos e
     a árvore bate conta a conta (medido em jun/26: R$ 428.500,64 contra
     R$ 430.433,54 da planilha, e a diferença é fatura de cartão).
-  * RECEITA — por PRODUTO, não pela árvore 1.1.1.x. No Mubisys a venda é
-    classificada pela Ordem de Serviço, e a API não expõe a que conta cada
-    produto está amarrado; tentar adivinhar errava ~R$ 85 mil/mês de linha
-    (o total sempre bateu). Então a receita de venda entra em 1.7, uma conta
-    nova, com um filho por produto vendido — cada real cai no produto que o
-    gerou. 1.3/1.4 (rendimentos e empréstimos) continuam vindo classificados
-    pelo próprio título.
+  * RECEITA — a venda entra em COMUNICAÇÃO VISUAL, como sempre foi: cada
+    produto vendido vira um filho de `1.1.1 Produtos`, e o que é serviço vai
+    para `1.1.2 Serviços`. Portas/Painéis, PDV e Material Político seguem nos
+    seus galhos (1.2, 1.6, 1.5), que batem no centavo contra a planilha.
+    O que NÃO dá para fazer é dizer em qual subconta (Acrílicos, Lonas,
+    Placas…) cada produto cai: a API não expõe o vínculo produto→conta e
+    adivinhar errava ~R$ 85 mil/mês de linha. Então o produto aparece com o
+    próprio nome. 1.3/1.4 continuam classificados pelo próprio título.
 
-Por que 1.7: o plano de contas vai de 1.1 a 1.6, então 1.7 está livre e não
-colide com o histórico. Meses antigos ficam com 1.7 = 0 e os novos com
-1.1/1.2 = 0 — nenhum número do passado é reescrito.
+Os códigos dos produtos começam em .51 para não colidir com o plano de contas
+real (que vai até 1.1.1.17), e são ESTÁVEIS: ficam guardados em
+`cfg.produtosCodigo`, então "Placa ACM" é sempre o mesmo código em todo mês.
+Se o código dependesse da ordem de valor, o mesmo código teria nome diferente
+a cada mês e a árvore do painel embaralharia.
 """
 import json
 import re
@@ -46,17 +49,62 @@ def _acumular(folhas, nomes):
 # Nomes das contas de topo, para quando o mês não tiver lançamento no galho e
 # o nome não vier de nenhum título.
 NOMES_BASE = {
-    "1": "Receitas", "1.3": "Rendimentos", "1.4": "Empréstimos",
-    "1.7": "Vendas por produto", "2": "Despesas",
+    "1": "Receitas", "1.1": "Comunicação Visual", "1.1.1": "Produtos",
+    "1.1.2": "Serviços", "1.2": "Portas/Painéis", "1.3": "Rendimentos",
+    "1.4": "Empréstimos", "1.5": "Material Político", "1.6": "PDV",
+    "2": "Despesas",
 }
 
+# Em que GALHO da receita cada produto entra. Só o galho — a subconta exata
+# (Acrílicos, Lonas, Placas…) a API não diz. Estes quatro batem no centavo
+# contra a planilha nos dois meses medidos; o resto é Comunicação Visual.
+GALHOS = {"1.1.2": "1.1.2", "1.2": "1.2", "1.5": "1.5", "1.6": "1.6"}
+PRIMEIRO_CODIGO = 51        # o plano de contas real vai até .17; .51 é terra livre
 
-def montar(label, receber, pagar, por_produto, valor_janela, codigo):
-    """Devolve o registro de mês pronto para o dre-sync.
 
-    valor_janela(t) -> caixa do título no mês; codigo(pc) -> (code, nome).
+def galho_do_produto(nome, mapa_conta):
+    conta = mapa_conta.get(nome, "")
+    for pref, galho in GALHOS.items():
+        if conta == pref or conta.startswith(pref + "."):
+            return galho
+    return "1.1.1"
+
+
+def codigos_estaveis(por_produto, registro_codigos, mapa_conta):
+    """Código fixo por produto, guardado entre execuções.
+
+    Sem isto o código seguiria a ordem de valor do mês e "1.1.1.51" seria
+    Placa ACM em julho e outra coisa em agosto — a mesma conta com dois nomes.
     """
-    folhas, nomes = {}, dict(NOMES_BASE)
+    reg = dict(registro_codigos or {})
+    usados = {g: set() for g in set(list(GALHOS.values()) + ["1.1.1"])}
+    for nome, code in reg.items():
+        g = code.rsplit(".", 1)[0]
+        usados.setdefault(g, set()).add(int(code.rsplit(".", 1)[1]))
+    for nome in sorted(por_produto):
+        if nome in reg:
+            continue
+        g = galho_do_produto(nome, mapa_conta)
+        n = PRIMEIRO_CODIGO
+        while n in usados.setdefault(g, set()):
+            n += 1
+        usados[g].add(n)
+        reg[nome] = f"{g}.{n}"
+    return reg
+
+
+def montar(label, receber, pagar, por_produto, valor_janela, codigo,
+           registro_codigos=None, mapa_conta=None, nomes_conhecidos=None):
+    """Devolve (registro do mês, códigos de produto atualizados).
+
+    nomes_conhecidos: code -> nome, tirado dos meses que já estão no servidor.
+    Sem isso uma conta-pai que o mês não usa diretamente (1.1.1.1 Acrílicos,
+    quando só o neto 1.1.1.1.9 teve lançamento) sairia com o código no lugar
+    do nome, e a árvore do painel mostraria "1.1.1.1" na tela.
+    """
+    folhas = {}
+    nomes = dict(nomes_conhecidos or {})
+    nomes.update(NOMES_BASE)
 
     for t in pagar:
         c, nome = codigo(t.get("plano_contas"))
@@ -79,12 +127,14 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo):
         nomes.setdefault(c, nome)
         folhas[c] = round(folhas.get(c, 0.0) + valor_janela(t), 2)
 
-    # Receita de venda: um filho de 1.7 por produto, na ordem do maior valor.
-    for i, (prod, v) in enumerate(sorted(por_produto.items(), key=lambda x: -x[1]), 1):
-        c = f"1.7.{i}"
+    # Receita de venda: cada produto vira filho do seu galho — Produtos e
+    # Serviços dentro de Comunicação Visual, Portas/Painéis e PDV nos deles.
+    reg = codigos_estaveis(por_produto, registro_codigos, mapa_conta or {})
+    for prod, v in por_produto.items():
+        c = reg[prod]
         nomes[c] = prod
-        folhas[c] = round(v, 2)
+        folhas[c] = round(folhas.get(c, 0.0) + v, 2)
 
-    return {"id": re.sub(r"[^\w]+", "_", label.strip()), "label": label,
-            "company": "Impresilk", "basis": "Competência de Caixa",
-            "origem": "erp", "cells": _acumular(folhas, nomes)}
+    return ({"id": re.sub(r"[^\w]+", "_", label.strip()), "label": label,
+             "company": "Impresilk", "basis": "Competência de Caixa",
+             "origem": "erp", "cells": _acumular(folhas, nomes)}, reg)
