@@ -825,3 +825,9 @@ body.locked { overflow: hidden; }
 .det-spark { margin: 6px 0 10px; }
 .cur-row { background: rgba(59, 130, 246, .07); }
 .cur-row .t-name { font-weight: 600; }
+
+/* .modal-box é flex-column: sem isto o navegador ESPREME as tabelas do detalhe
+   para caber na altura, e a de 17 linhas aparecia mostrando só 2. Quem rola é
+   a caixa inteira (.det-box), não cada tabela. */
+.det-box > * { flex: 0 0 auto; }
+.det-box .table-scroll { overflow-y: visible; max-height: none; }
