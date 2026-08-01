@@ -169,11 +169,25 @@ def buscar_os(recebimentos, orcamento_s=1500):
 
 def main():
     hoje = datetime.date.today()
-    if len(sys.argv) > 1:                                  # "2026-07"
-        ano, mes = (int(x) for x in sys.argv[1].split("-")[:2])
-        ini = datetime.date(ano, mes, 1)
+    arg_mes = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
+    if arg_mes:                                            # "2026-07"
+        ano, mes = (int(x) for x in arg_mes.split("-")[:2])
+        alvos = [datetime.date(ano, mes, 1)]
     else:
-        ini = hoje.replace(day=1)
+        corrente = hoje.replace(day=1)
+        alvos = [corrente]
+        # Até o dia 7, consolida TAMBÉM o mês anterior. Pagamento datado do fim
+        # do mês entra no ERP com dias de atraso (a Cemig de 27/07 só apareceu
+        # depois) — sem esta releitura, o mês fecharia para sempre com o que
+        # existia na manhã do dia 1º. O anterior roda primeiro, para a prévia
+        # (cfg.previaERP) terminar apontando para o mês corrente.
+        if hoje.day <= 7:
+            alvos.insert(0, (corrente - datetime.timedelta(days=1)).replace(day=1))
+    for ini in alvos:
+        processar(ini)
+
+
+def processar(ini):
     fim = (ini + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
     label = f"{PT[ini.month - 1]}/{ini.year}"
     si, sf = ini.isoformat(), fim.isoformat()
@@ -285,6 +299,12 @@ def main():
 
     if "--dry" in sys.argv:
         print("(--dry: não gravou nada no servidor)")
+    elif not (receber or pagar):
+        # Mês sem lançamento não grava NADA — nem registro, nem prévia.
+        # O registro vazio já zerou o painel uma vez (01/08, cron do dia 1º);
+        # a prévia vazia sobrescreveria a do mês anterior na Conferência,
+        # apagando totais e pendências que ainda interessam.
+        print(f"NÃO gravei {label}: nenhum lançamento no período ainda.")
     else:
         cfg_atual["previaERP"] = previa
         cfg_atual["produtosCodigo"] = cod_produtos
@@ -295,13 +315,7 @@ def main():
         # ser sobrescritos por uma leitura automática. Só grava mês novo ou mês
         # que este mesmo robô gerou antes (origem "erp").
         antigo = next((r for r in meses_servidor if r.get("id") == registro["id"]), None)
-        if not (receber or pagar):
-            # Mês sem lançamento NÃO vira registro. Aconteceu em 01/08/2026: o
-            # cron das 6h leu o mês corrente (agosto, zero pagamentos de
-            # madrugada) e gravou um mês VAZIO — o painel abre no último mês e
-            # o Leonardo veria o DRE inteiro zerado.
-            print(f"NÃO gravei {label}: nenhum lançamento no período ainda.")
-        elif antigo and antigo.get("origem") != "erp" and "--forcar" not in sys.argv:
+        if antigo and antigo.get("origem") != "erp" and "--forcar" not in sys.argv:
             print(f"NÃO gravei {label}: já existe e veio da planilha "
                   f"(atualizado em {antigo.get('atualizadoEm')}). "
                   f"Use --forcar para substituir.")

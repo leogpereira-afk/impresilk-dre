@@ -640,7 +640,16 @@ function boot(D) {
         <div class="value ${valColor}">${valTxt}</div>
         <div class="delta ${dClass}">${arrow} ${dTxt} <span class="vs">vs ${MONTHS[cmp]}</span></div>
       </div>`;
-    }).join('');
+    }).join('')
+    /* Mês em andamento: com a alimentação automática, o mês corrente aparece
+       no painel com poucos dias de movimento. Sem este aviso, "Ago caiu 90%
+       vs Jul" seria só um mês de 3 dias contra um mês inteiro. */
+    + (monthSortKey(MONTHS[cur]) === monthSortKey(
+        ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][new Date().getMonth()]
+        + '/' + new Date().getFullYear())
+      ? `<p class="hint" style="grid-column:1/-1;margin:2px 0 0">⏳ <b>${MONTHS[cur]} está em andamento</b> —
+         o robô lê o ERP ao longo do dia e os números crescem conforme os pagamentos entram.
+         Comparação com ${MONTHS[cmp]} só vale no fim do mês.</p>` : '');
   }
 
   // (o antigo card 'Insights do Período' virou a aba 💡 Insights; seus dois
@@ -2134,10 +2143,17 @@ function boot(D) {
       caindo em conta diferente no Mubisys.</p>`
       : `<p class="hint" style="margin-top:8px">Esta quebra é por <b>produto do ERP</b>, não pela conta do DRE —
       as duas listas não são a mesma coisa. A árvore oficial de receita continua vindo da planilha.</p>`}`
-      : semQuebra > 0 ? `<p class="hint" style="margin-top:10px">⚠️ <b>${fmt(semQuebra)}</b> da receita
-      (${pct(p.totais.receita ? semQuebra / p.totais.receita : 0)}) vem <b>sem quebra por produto</b>: no Mubisys a
-      venda é classificada pela <b>Ordem de Serviço</b>, não pelo título financeiro. O total acima está certo —
-      o que falta é dizer <i>de qual produto</i> veio cada real.</p>` : ''}
+      : semQuebra > 0 ? (
+        // O título de venda não tem plano de contas — isso é NORMAL no Mubisys
+        // (a venda é classificada pela OS). Enquanto o rateio das OS cobre
+        // tudo, o card confirma; o alerta só aparece se sobrar valor sem OS.
+        (dOS.valorSemOS || 0) < 1
+          ? `<p class="hint" style="margin-top:10px">✅ <b>${fmt(semQuebra)}</b> da receita não têm plano de
+          contas no título — normal no Mubisys, a venda é classificada pela <b>Ordem de Serviço</b>. A quebra
+          por produto acima já cobre <b>100%</b> desse valor, rateando cada recebimento entre os itens da OS.</p>`
+          : `<p class="hint" style="margin-top:10px">⚠️ <b>${fmt(dOS.valorSemOS)}</b> da receita não casaram com
+          nenhuma Ordem de Serviço — esse pedaço está no total, mas sem dizer de qual produto veio. O resto está
+          rateado produto a produto acima.</p>`) : ''}
       <p class="hint" style="margin-top:10px">
       ${mesEhErp ? `<b>O mês oficial é montado direto do ERP pelo robô</b> (a planilha foi aposentada).
              Esta leitura confere os totais da última rodada; se divergirem, o robô ainda não rodou hoje —
