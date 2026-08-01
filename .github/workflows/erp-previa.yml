@@ -27,6 +27,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Cache das Ordens de Serviço. Uma OS entregue não muda mais, então só as
+      # OS novas do dia são buscadas — sem isto o robô refaz ~250 chamadas por
+      # execução e o Mubisys responde devagar (segundos por OS).
+      - name: Cache das Ordens de Serviço
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: os-cache-${{ github.run_id }}
+          restore-keys: os-cache-
+
       - name: Ler o mês corrente do ERP e gravar a prévia
         env:
           TZ: America/Sao_Paulo

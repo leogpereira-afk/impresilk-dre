@@ -11,6 +11,10 @@ Regras que este script respeita (aprendidas na marra, não mexer sem medir):
   * Dia/semana sem lançamento devolve HTTP 404: é vazio, NÃO é erro.
   * Só entra no total quem tem compoe_dre = "Sim".
   * Título pode ter vários pagamentos: soma só os que caem dentro da janela.
+  * NÃO filtrar por empresa. O ERP tem duas (Impresilk e Universo) e o caixa é
+    um só — a planilha oficial já vem consolidada. Medido em jun/26: somando as
+    duas, receita e despesa batem com a planilha em 0,4%; filtrando só a
+    Impresilk, sobra Universo de fora e a conferência acusa rombo falso.
 """
 import json
 import re
@@ -20,6 +24,9 @@ import datetime
 import urllib.request
 import urllib.error
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import erp_os                                             # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
 cfg_js = (RAIZ / "config.js").read_text(encoding="utf-8")
@@ -79,6 +86,28 @@ def codigo(pc):
     return (m.group(1).rstrip("."), (m.group(2) or "").strip()) if m else ("", "")
 
 
+def por_dia(titulos, ini, fim):
+    """Quanto entrou/saiu em cada dia do mês.
+
+    Serve para comparar com uma planilha exportada no meio do mês: sem isto o
+    painel compara mês inteiro do ERP contra planilha parcial e acusa um rombo
+    que não existe (jul/26 aparecia +21% de receita só por causa disso).
+    """
+    dias = {}
+    for t in titulos:
+        pgs = t.get("pagamentos") or []
+        if pgs:
+            for p in pgs:
+                d = str(p.get("data_pagamento") or p.get("data_credito") or "")[:10]
+                if ini <= d <= fim:
+                    dias[d] = round(dias.get(d, 0.0) + float(p.get("valor") or 0), 2)
+        else:
+            d = str(t.get("data_pagamento") or "")[:10]
+            if ini <= d <= fim:
+                dias[d] = round(dias.get(d, 0.0) + valor_na_janela(t, ini, fim), 2)
+    return dict(sorted(dias.items()))
+
+
 def coletar(recurso, ini, fim):
     """Devolve os títulos únicos do período (dedup por id — fatias podem repetir)."""
     vistos = {}
@@ -92,6 +121,49 @@ def coletar(recurso, ini, fim):
             vistos[t.get("id")] = t
         time.sleep(1.2)                                   # não afogar o ERP
     return list(vistos.values())
+
+
+CACHE_OS = RAIZ / ".cache" / "os.json"
+
+
+def buscar_os(recebimentos, orcamento_s=1500):
+    """Baixa as OS citadas pelos recebimentos, com cache em disco.
+
+    Uma OS entregue não muda mais, então o cache poupa quase tudo: no dia a dia
+    só entram as OS novas do mês. O orçamento de tempo evita que um ERP lento
+    trave o robô — o que não deu tempo fica registrado no diagnóstico em vez de
+    virar número incompleto com cara de completo.
+    """
+    cache = {}
+    if CACHE_OS.exists():
+        try:
+            cache = json.loads(CACHE_OS.read_text())
+        except Exception:
+            cache = {}
+    querer = []
+    for t in recebimentos:
+        querer.extend(erp_os.numeros_de_os(t.get("despesa")))
+    falta = [n for n in sorted(set(querer)) if n not in cache]
+    print(f"OS citadas: {len(set(querer))} · em cache: {len(set(querer)) - len(falta)} · a buscar: {len(falta)}")
+
+    inicio = time.time()
+    buscadas = 0
+    for n in falta:
+        if time.time() - inicio > orcamento_s:
+            print(f"  orçamento de tempo estourou com {len(falta) - buscadas} OS pendentes")
+            break
+        try:
+            r = call("dre-financas", {"action": "raw", "recurso": f"ordem-servico/numero/{n}"},
+                     timeout=60, tentativas=2)
+            cache[n] = r.get("resposta") if r.get("ok") else {"_erro": r.get("http")}
+        except Exception as e:
+            cache[n] = {"_erro": str(e)[:80]}
+        buscadas += 1
+        time.sleep(0.8)
+
+    CACHE_OS.parent.mkdir(parents=True, exist_ok=True)
+    CACHE_OS.write_text(json.dumps(cache, ensure_ascii=False))
+    return cache
 
 
 def main():
@@ -127,6 +199,26 @@ def main():
     rec_class = round(sum(valor_na_janela(t, si, sf) for t in receber if codigo(t.get("plano_contas"))[0]), 2)
     desp_total = round(sum(valor_na_janela(t, si, sf) for t in pagar), 2)
 
+    # Fatura de cartão vem com plano de contas "2-Despesas" — o código existe,
+    # mas é o topo da árvore: o ERP não abre o que foi comprado dentro dela.
+    # Em jun/26 eram R$ 17.154,88 (duas faturas) e respondiam por quase toda a
+    # divergência contra a planilha, que traz a fatura já rateada.
+    fatura = [t for t in pagar if codigo(t.get("plano_contas"))[0] in ("2", "")]
+    fatura_v = round(sum(valor_na_janela(t, si, sf) for t in fatura), 2)
+
+    # Quebra por produto: o total da receita já está certo, mas só a OS diz de
+    # QUE produto veio cada real. O rateio devolve exatamente o mesmo total.
+    operacionais = [t for t in receber if t.get("tipo") == "Receita operacional"]
+    cache_os = buscar_os(operacionais)
+    por_produto, diag_os = erp_os.ratear(operacionais, cache_os,
+                                         lambda t: valor_na_janela(t, si, sf))
+
+    empresas = {}
+    for nome, L in (("receita", receber), ("despesa", pagar)):
+        for t in L:
+            e = empresas.setdefault(str(t.get("empresa") or "?"), {"receita": 0.0, "despesa": 0.0})
+            e[nome] = round(e[nome] + valor_na_janela(t, si, sf), 2)
+
     previa = {
         "label": label,
         "geradoEm": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -134,24 +226,42 @@ def main():
         "totais": {"receita": rec_total, "despesa": desp_total},
         "receitaClassificada": rec_class,
         "porCodigo": por_codigo,
+        "porDia": {"receita": por_dia(receber, si, sf), "despesa": por_dia(pagar, si, sf)},
+        "receitaPorProduto": por_produto,
+        "diagOS": diag_os,
+        "empresas": empresas,
+        "faturaCartao": {
+            "valor": fatura_v,
+            "titulos": [{"origem": t.get("origem"), "descricao": t.get("descricao"),
+                         "valor": round(valor_na_janela(t, si, sf), 2)} for t in fatura],
+        },
         "diag": {
             "titulosReceita": len(receber),
             "titulosDespesa": len(pagar),
             "despesaSemCodigo": round(sem_codigo_desp, 2),
+            "despesaSemQuebra": fatura_v,
             "receitaSemCodigo": round(rec_total - rec_class, 2),
             "contas": len(por_codigo),
         },
     }
 
-    atual = (call("dre-sync", {"action": "getCfg"}, 60) or {}).get("cfg") or {}
-    atual["previaERP"] = previa
-    call("dre-sync", {"action": "setCfg", "cfg": atual}, 90)
+    if "--dry" in sys.argv:
+        print("(--dry: não gravou nada no servidor)")
+    else:
+        atual = (call("dre-sync", {"action": "getCfg"}, 60) or {}).get("cfg") or {}
+        atual["previaERP"] = previa
+        call("dre-sync", {"action": "setCfg", "cfg": atual}, 90)
 
     d = previa["diag"]
     print(f"receita R$ {rec_total:,.2f} ({d['titulosReceita']} títulos · "
-          f"R$ {d['receitaSemCodigo']:,.2f} sem quebra por produto)")
+          f"R$ {d['receitaSemCodigo']:,.2f} sem plano de contas no título)")
     print(f"despesa R$ {desp_total:,.2f} ({d['titulosDespesa']} títulos · "
-          f"{d['contas']} contas)")
+          f"{d['contas']} contas · R$ {fatura_v:,.2f} em fatura de cartão sem quebra)")
+    print(f"produtos: {len(por_produto)} · rateado R$ {diag_os['valorRateado']:,.2f} "
+          f"de {diag_os['rateados']}/{diag_os['titulos']} títulos operacionais"
+          + (f" · R$ {diag_os['valorSemOS']:,.2f} sem OS" if diag_os["valorSemOS"] else ""))
+    for nome, v in list(por_produto.items())[:8]:
+        print(f"   {v:>12,.2f}  {nome}")
 
 
 if __name__ == "__main__":

@@ -1740,11 +1740,45 @@ function boot(D) {
     const of = mi >= 0 ? { receita: val(get('1'), mi), despesa: val(get('2'), mi) } : null;
     const d = p.diag || {};
     const semQuebra = d.receitaSemCodigo || 0;
-    const linha = (rot, erp, ofc, obs) => {
-      const dif = ofc == null ? null : erp - ofc;
+
+    /* Até que dia a planilha enxerga.
+       A planilha é um .xlsx exportado num dia qualquer; o ERP é lido hoje.
+       Comparar mês inteiro contra planilha parcial inventa rombo: jul/26
+       acusava +21% de receita só porque o export foi feito no dia 23.
+       Aqui procuramos o dia em que o acumulado do ERP mais se aproxima do
+       total da planilha — é o dia em que ela foi tirada. */
+    const alinhar = (serie, alvo) => {
+      if (!serie || alvo == null) return null;
+      const dias = Object.keys(serie).sort();
+      let acc = 0, melhor = null;
+      for (const dia of dias) {
+        acc += serie[dia] || 0;
+        const err = Math.abs(acc - alvo);
+        if (!melhor || err < melhor.err) melhor = { dia, acc, err };
+      }
+      return melhor;
+    };
+    const aliR = alinhar(p.porDia?.receita, of?.receita);
+    const aliD = alinhar(p.porDia?.despesa, of?.despesa);
+    // só vale a pena mostrar o corte se as duas linhas apontarem o mesmo dia e
+    // ele não for o fim do mês — aí sim a planilha está mesmo defasada
+    const ultimoDia = Object.keys(p.porDia?.receita || {}).sort().pop();
+    const corte = (aliR && aliD && aliR.dia === aliD.dia && aliR.dia !== ultimoDia) ? aliR.dia : null;
+    const ptbr = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) : '';
+    const diasAtras = corte && ultimoDia
+      ? Math.round((new Date(ultimoDia) - new Date(corte)) / 86400000) : 0;
+
+    const prodLinhas = Object.entries(p.receitaPorProduto || {})
+      .filter(([, v]) => Math.abs(v) >= 0.005).sort((a, b) => b[1] - a[1]);
+    const totProd = prodLinhas.reduce((s, [, v]) => s + v, 0);
+    const dOS = p.diagOS || {};
+
+    const linha = (rot, erp, ofc, ateCorte, obs) => {
+      const dif = ofc == null ? null : (corte ? ateCorte : erp) - ofc;
       return `<tr>
         <td class="t-name">${rot}${obs ? `<span class="es-obs">${obs}</span>` : ''}</td>
         <td class="mono">${fmt(erp)}</td>
+        ${corte ? `<td class="mono">${fmt(ateCorte)}</td>` : ''}
         <td class="mono">${ofc == null ? '—' : fmt(ofc)}</td>
         <td class="${dif == null ? 'av' : Math.abs(dif) < 1 ? 'v-pos' : 'v-neg'}">${dif == null ? '—' : (dif >= 0 ? '+' : '') + fmt(dif)}</td></tr>`;
     };
@@ -1754,20 +1788,48 @@ function boot(D) {
       ${d.titulosReceita || 0} recebimentos e ${d.titulosDespesa || 0} pagamentos ·
       ${d.contas || 0} contas de despesa</p>
       <div class="table-scroll"><table class="dre">
-        <thead><tr><th class="t-name">Total do mês</th><th>ERP (hoje)</th><th>Oficial (planilha)</th><th>Diferença</th></tr></thead>
+        <thead><tr><th class="t-name">Total do mês</th><th>ERP (mês inteiro)</th>${corte ? `<th>ERP até ${ptbr(corte)}</th>` : ''}<th>Oficial (planilha)</th><th>Diferença</th></tr></thead>
         <tbody>
-          ${linha('Receitas', p.totais.receita, of?.receita)}
-          ${linha('Despesas', p.totais.despesa, of?.despesa)}
+          ${linha('Receitas', p.totais.receita, of?.receita, aliR?.acc)}
+          ${linha('Despesas', p.totais.despesa, of?.despesa, aliD?.acc)}
         </tbody>
       </table></div>
-      ${semQuebra > 0 ? `<p class="hint" style="margin-top:12px">⚠️ <b>${fmt(semQuebra)}</b> da receita
+      ${corte ? `<p class="hint" style="margin-top:12px">📅 A planilha oficial deste mês bate com o ERP até
+      <b>${ptbr(corte)}</b> — ou seja, foi exportada nessa data e está <b>${diasAtras} dia(s) defasada</b>.
+      A coluna do meio compara o que dá para comparar; a diferença ao lado é o que sobra depois de igualar a
+      data. Para conferir o mês inteiro, exporte o .xlsx de novo e suba na aba Upload.</p>` : ''}
+      ${p.empresas && Object.keys(p.empresas).length > 1 ? `<p class="hint" style="margin-top:10px">
+      🏢 Somando as <b>${Object.keys(p.empresas).length} empresas</b> do ERP —
+      ${Object.entries(p.empresas).map(([n, v]) => `<b>${escAttr(n)}</b> (${fmt(v.receita)} de receita)`).join(' e ')}.
+      O caixa é um só e a planilha oficial já vem consolidada.</p>` : ''}
+      ${(d.despesaSemQuebra || 0) > 0 ? `<p class="hint" style="margin-top:10px">💳 <b>${fmt(d.despesaSemQuebra)}</b>
+      de despesa entrou como <b>fatura de cartão</b>, sem dizer o que foi comprado dentro dela — o ERP joga na conta
+      genérica <i>2 · Despesas</i>. O valor está no total, mas não aparece em nenhuma conta de custo. Na planilha
+      essa fatura já vem rateada, e é daí que vem quase toda a diferença que sobra.</p>` : ''}
+      ${prodLinhas.length ? `
+      <h3 class="banco-group-title" style="margin-top:18px">Receita por produto (lida das Ordens de Serviço)</h3>
+      <p class="hint" style="margin-bottom:8px">No Mubisys o título de venda diz <i>quanto</i> entrou; só a
+      <b>Ordem de Serviço</b> diz <i>de qual produto</i>. Aqui cada real recebido no mês é distribuído entre os
+      itens da OS que o originou — por isso a soma bate com a receita, não é estimativa.
+      ${dOS.rateados != null ? `<b>${dOS.rateados} de ${dOS.titulos}</b> recebimentos casaram com uma OS.` : ''}
+      ${dOS.valorSemOS ? `Sobraram <b>${fmt(dOS.valorSemOS)}</b> sem OS identificada.` : ''}</p>
+      <div class="table-scroll"><table class="dre">
+        <thead><tr><th class="t-name">Produto</th><th>Receita no mês</th><th>% das vendas</th></tr></thead>
+        <tbody>${prodLinhas.map(([nome, v]) => `<tr>
+          <td class="t-name">${escAttr(nome)}</td>
+          <td class="mono">${fmt(v)}</td>
+          <td class="mono">${pct(totProd ? v / totProd : 0)}</td></tr>`).join('')}</tbody>
+      </table></div>
+      <p class="hint" style="margin-top:8px">Esta quebra é por <b>produto do ERP</b>, não pela conta do DRE —
+      as duas listas não são a mesma coisa e o de-para ainda não foi confirmado. Serve para enxergar o mix de
+      venda do mês; a árvore oficial de receita continua vindo da planilha.</p>`
+      : semQuebra > 0 ? `<p class="hint" style="margin-top:10px">⚠️ <b>${fmt(semQuebra)}</b> da receita
       (${pct(p.totais.receita ? semQuebra / p.totais.receita : 0)}) vem <b>sem quebra por produto</b>: no Mubisys a
       venda é classificada pela <b>Ordem de Serviço</b>, não pelo título financeiro. O total acima está certo —
       o que falta é dizer <i>de qual produto</i> veio cada real.</p>` : ''}
       <p class="hint" style="margin-top:10px">
-      ${of ? `Diferença contra a planilha é esperada enquanto o mês corre: o ERP já tem lançamentos posteriores
-             à data em que você exportou. <b>A planilha continua sendo a fonte oficial</b> — esta leitura serve
-             para acompanhar o mês em andamento sem esperar o fechamento.`
+      ${of ? `<b>A planilha continua sendo a fonte oficial</b> — esta leitura serve para acompanhar o mês em
+             andamento sem esperar o fechamento.`
            : `Este mês ainda não foi subido pela planilha, então não há com o que comparar.`}</p>`;
   }
 
