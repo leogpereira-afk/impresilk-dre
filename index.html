@@ -10,7 +10,10 @@
 <title>Impresilk · DRE Caixa</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles.css" />
+<!-- ?v= junto com o CACHE do sw.js: sem isso o cache HTTP do navegador
+     serve CSS/JS velhos mesmo depois do deploy, e a tela fica desencontrada
+     do codigo. Subir os dois JUNTOS a cada mudanca. -->
+<link rel="stylesheet" href="styles.css?v=46" />
 </head>
 <body>
 <div id="authOverlay" class="auth-overlay" hidden>
@@ -518,9 +521,9 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="config.js"></script>
-<script src="data.js"></script>
-<script src="app.js"></script>
+<script src="config.js?v=46"></script>
+<script src="data.js?v=46"></script>
+<script src="app.js?v=46"></script>
 <!-- Registra o Service Worker (abre offline). Falha silenciosa se indisponível. -->
 <script>
   if ('serviceWorker' in navigator) {

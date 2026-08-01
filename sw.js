@@ -5,16 +5,22 @@
 //   aparelhos a baixarem a versão nova (evita ficar preso em arquivos antigos).
 const CACHE = 'app-shell-v46';
 
+// O MESMO número precisa estar no ?v= dos <link>/<script> do index.html. O
+// Service Worker só manda no que passa por ele; o cache HTTP do navegador é
+// outra camada, e sem o ?v= ele continua servindo CSS/JS velhos depois do
+// deploy — foi assim que a tela ficou desencontrada do código na v46.
+const V = CACHE.split('-v')[1];
+
 // Arquivos estáticos pré-cacheados na instalação (o "app shell"). São o mínimo
 // para o app abrir offline. CDNs (Chart.js, fonts) não entram aqui: serão
 // cacheados sob demanda pelo fetch network-first abaixo.
 const SHELL = [
   './',
   './index.html',
-  './app.js',
-  './styles.css',
-  './data.js',
-  './config.js',
+  `./app.js?v=${V}`,
+  `./styles.css?v=${V}`,
+  `./data.js?v=${V}`,
+  `./config.js?v=${V}`,
   './logo.png',
 ];
 
