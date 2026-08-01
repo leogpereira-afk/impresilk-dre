@@ -677,6 +677,10 @@ function boot(D) {
         (childrenOf.get('1.1.1') || []).forEach(p => sources.push({ name: p.name, v: val(p, cur) }));
         const serv = get('1.1.2');
         if (serv) sources.push({ name: 'Serviços', v: val(serv, cur) });
+      } else if (s.code === '1.7') {
+        // Mês vindo do ERP: a venda é quebrada por produto da Ordem de Serviço,
+        // não pela árvore 1.1.1.x. Abre os filhos igual se faz com 1.1.
+        (childrenOf.get('1.7') || []).forEach(p => sources.push({ name: p.name, v: val(p, cur) }));
       } else {
         sources.push({ name: s.name.replace(/^Receitas?\s+/i, ''), v: val(s, cur) });
       }
@@ -800,7 +804,8 @@ function boot(D) {
     // PDV não tinham nenhuma tela de análise.
     const receitaCentros = [
       ...(childrenOf.get('1.1') || []),
-      ...(childrenOf.get('1') || []).filter(x => x.code !== '1.1' && !FIN_REV_CODES.includes(x.code)),
+      ...(childrenOf.get('1.7') || []),          // meses do ERP: venda por produto
+      ...(childrenOf.get('1') || []).filter(x => !['1.1', '1.7'].includes(x.code) && !FIN_REV_CODES.includes(x.code)),
     ].filter(x => x && x.values.some(v => v !== 0));
     const centros = [...receitaCentros, ...expSections];
     if (!activeCenter || !get(activeCenter)) activeCenter = centros.length ? centros[0].code : null;

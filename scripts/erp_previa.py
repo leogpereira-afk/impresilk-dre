@@ -27,6 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import erp_os                                             # noqa: E402
+import erp_mes                                            # noqa: E402
 
 RAIZ = Path(__file__).resolve().parent.parent
 cfg_js = (RAIZ / "config.js").read_text(encoding="utf-8")
@@ -258,12 +259,35 @@ def main():
         },
     }
 
+    # O mês oficial, montado direto do ERP — é isto que aposenta o .xlsx.
+    registro = erp_mes.montar(label, receber, pagar, por_produto,
+                              lambda t: valor_na_janela(t, si, sf), codigo)
+
     if "--dry" in sys.argv:
         print("(--dry: não gravou nada no servidor)")
     else:
         atual = (call("dre-sync", {"action": "getCfg"}, 60) or {}).get("cfg") or {}
         atual["previaERP"] = previa
         call("dre-sync", {"action": "setCfg", "cfg": atual}, 90)
+
+        # TRAVA: nunca reescrever mês que veio da planilha. Os 8 meses do
+        # histórico (Dez/25→Jul/26) foram conferidos conta a conta e não podem
+        # ser sobrescritos por uma leitura automática. Só grava mês novo ou mês
+        # que este mesmo robô gerou antes (origem "erp").
+        lista = call("dre-sync", {"action": "list"}, 90) or {}
+        antigo = next((r for r in (lista.get("itens") or [])
+                       if r.get("id") == registro["id"]), None)
+        if antigo and antigo.get("origem") != "erp" and "--forcar" not in sys.argv:
+            print(f"NÃO gravei {label}: já existe e veio da planilha "
+                  f"(atualizado em {antigo.get('atualizadoEm')}). "
+                  f"Use --forcar para substituir.")
+        else:
+            registro["atualizadoEm"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            r = call("dre-sync", {"action": "upsert", "registro": registro}, 90)
+            if r.get("conflito"):
+                print(f"NÃO gravei {label}: o servidor tem versão mais nova.")
+            else:
+                print(f"mês {label} gravado do ERP ({len(registro['cells'])} contas)")
 
     d = previa["diag"]
     print(f"receita R$ {rec_total:,.2f} ({d['titulosReceita']} títulos · "
