@@ -278,6 +278,11 @@ def main():
         label, receber, pagar, por_produto, lambda t: valor_na_janela(t, si, sf),
         codigo, cfg_atual.get("produtosCodigo"), erp_os.MAPA_CONTA, nomes_contas)
 
+    # As pendências de classificação (Pró Vida, receita não-operacional em
+    # conta de produto, Nordeste sem descrição…) viajam na prévia: é o que a
+    # aba Conferência já lê, sem precisar de chamada nova.
+    previa["pendencias"] = registro.get("pendencias") or []
+
     if "--dry" in sys.argv:
         print("(--dry: não gravou nada no servidor)")
     else:

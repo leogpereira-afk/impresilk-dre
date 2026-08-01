@@ -62,6 +62,64 @@ GALHOS = {"1.1.2": "1.1.2", "1.2": "1.2", "1.5": "1.5", "1.6": "1.6"}
 PRIMEIRO_CODIGO = 51        # o plano de contas real vai até .17; .51 é terra livre
 
 
+def ajustar_conta(c, nome, texto):
+    """Correções de conta que a planilha fazia à mão e o ERP não faz.
+
+    Devolve (codigo, nome, pendencia|None). Cada regra nasceu de um caso real:
+
+    * NORDESTE SEM SPLIT — a parcela do Banco do Nordeste vem inteira em
+      2.13.7.1, mas são TRÊS coisas (medido lançamento a lançamento: 53%
+      máquinas, 6% veículo, 41% capital de giro). Sem o split, os R$ 23 mil/mês
+      caem em "Custos da Operação": máquina financiada é investimento e capital
+      de giro é dívida. A planilha fazia essa quebra nas subcontas .1/.2/.3 —
+      aqui ela sai da DESCRIÇÃO do lançamento, que é padronizada no banco.
+    * EMPRÉSTIMO TERCEIROS MUDOU DE CÓDIGO — a planilha usava 2.14.3.5
+      (2.14.3.3 era Credinosso); os títulos do ERP agora dizem 2.14.3.3.
+      Mapeia para o código histórico para a série dos 8 meses ser uma só.
+      (Mesma armadilha do Nordeste, que já mudou de 2.14.3.4 para 2.13.7.1.)
+    """
+    t = str(texto or "").upper()
+    if c == "2.13.7.1":
+        if "CAPITAL DE GIRO" in t or "GIRO" in t:
+            return "2.13.7.1.3", "Capital de Giro", None
+        if "SAVEIRO" in t or "VEICUL" in t:
+            return "2.13.7.1.2", "Financiamento de Veículo", None
+        if t.strip():
+            return "2.13.7.1.1", "Financiamento de Máquinas", None
+        # sem descrição não dá para saber o que é — fica no pai e vira pendência
+        return c, nome, {"tipo": "nordeste-sem-descricao", "conta": c,
+                         "texto": "Parcela do Nordeste sem descrição — não dá para separar máquina/veículo/giro."}
+    if c == "2.14.3.3" and "terceir" in str(nome or "").lower():
+        return "2.14.3.5", "Empréstimo Terceiros", None
+    return c, nome, None
+
+
+def pendencias_de_classificacao(pagar, receber, valor_janela):
+    """O que está lançado em conta suspeita DENTRO do Mubisys.
+
+    O robô não corrige por conta própria (número fiel ao ERP) — ele lista, e a
+    aba Conferência mostra para alguém arrumar na origem. Regras já validadas
+    com o Leonardo; cada uma tem um caso concreto por trás.
+    """
+    out = []
+    for t in pagar:
+        d = (str(t.get("descricao") or "") + " " + str(t.get("origem") or "")).upper()
+        pc = str(t.get("plano_contas") or "")
+        if ("PRO VIDA" in d or "PROVIDA" in d) and pc.startswith("2.1.13"):
+            out.append({"tipo": "pro-vida", "conta": "2.1.13", "valor": round(valor_janela(t), 2),
+                        "texto": "Pró Vida é plano de saúde, está em Incentivo de Produtividade (2.1.13)."})
+    for t in receber:
+        if t.get("tipo") == "Receita operacional":
+            continue
+        pc = str(t.get("plano_contas") or "")
+        if pc.startswith("1.1"):
+            out.append({"tipo": "nao-operacional-em-produto",
+                        "conta": pc.split("-")[0], "valor": round(valor_janela(t), 2),
+                        "texto": f"Receita NÃO operacional caiu em conta de produto ({pc.split('-', 1)[-1][:30]}) — "
+                                 f"{str(t.get('origem'))[:30]}: {(str(t.get('descricao') or t.get('despesa') or ''))[:60]}"})
+    return out
+
+
 def galho_do_produto(nome, mapa_conta):
     conta = mapa_conta.get(nome, "")
     for pref, galho in GALHOS.items():
@@ -106,6 +164,7 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
     nomes = dict(nomes_conhecidos or {})
     nomes.update(NOMES_BASE)
 
+    pendencias = pendencias_de_classificacao(pagar, receber, valor_janela)
     for t in pagar:
         c, nome = codigo(t.get("plano_contas"))
         if not c:
@@ -115,6 +174,10 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
         # total, senão some da leitura de custo sem ninguém perceber.
         if c == "2":
             c, nome = "2.99", "Fatura de cartão (sem detalhamento)"
+        c, nome, pend = ajustar_conta(c, nome, t.get("descricao"))
+        if pend:
+            pend["valor"] = round(valor_janela(t), 2)
+            pendencias.append(pend)
         nomes.setdefault(c, nome)
         folhas[c] = round(folhas.get(c, 0.0) + valor_janela(t), 2)
 
@@ -137,4 +200,5 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
 
     return ({"id": re.sub(r"[^\w]+", "_", label.strip()), "label": label,
              "company": "Impresilk", "basis": "Competência de Caixa",
-             "origem": "erp", "cells": _acumular(folhas, nomes)}, reg)
+             "origem": "erp", "cells": _acumular(folhas, nomes),
+             "pendencias": pendencias}, reg)
