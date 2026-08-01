@@ -213,6 +213,17 @@ def main():
     por_produto, diag_os = erp_os.ratear(operacionais, cache_os,
                                          lambda t: valor_na_janela(t, si, sf))
 
+    # Mesma receita lida por conta do DRE. Junta o rateio da OS com os títulos
+    # que já vêm com plano de contas (receita não operacional), para poder pôr
+    # lado a lado com a planilha e achar produto cadastrado na conta errada.
+    contas_os, produtos_sem_conta = erp_os.por_conta(por_produto)
+    for t in receber:
+        if t.get("tipo") == "Receita operacional":
+            continue
+        c, _ = codigo(t.get("plano_contas"))
+        if c:
+            contas_os[c] = round(contas_os.get(c, 0.0) + valor_na_janela(t, si, sf), 2)
+
     empresas = {}
     for nome, L in (("receita", receber), ("despesa", pagar)):
         for t in L:
@@ -228,6 +239,8 @@ def main():
         "porCodigo": por_codigo,
         "porDia": {"receita": por_dia(receber, si, sf), "despesa": por_dia(pagar, si, sf)},
         "receitaPorProduto": por_produto,
+        "receitaPorConta": contas_os,
+        "produtosSemConta": produtos_sem_conta,
         "diagOS": diag_os,
         "empresas": empresas,
         "faturaCartao": {

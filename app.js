@@ -1772,6 +1772,29 @@ function boot(D) {
       .filter(([, v]) => Math.abs(v) >= 0.005).sort((a, b) => b[1] - a[1]);
     const totProd = prodLinhas.reduce((s, [, v]) => s + v, 0);
     const dOS = p.diagOS || {};
+    const semConta = Object.entries(p.produtosSemConta || {}).sort((a, b) => b[1] - a[1]);
+
+    /* As duas leituras da MESMA receita, conta a conta. Comparamos nos grupos
+       (1.1.1.x, 1.1.2, 1.2…) porque é o nível em que os dois lados existem: a
+       OS conhece o produto, a planilha desce até o modelo. Somamos por subárvore
+       dos dois lados para não comparar coisas de profundidade diferente. */
+    const NIVEIS = ['1.1.1.1', '1.1.1.2', '1.1.1.3', '1.1.1.4', '1.1.1.5', '1.1.1.6',
+      '1.1.1.7', '1.1.1.8', '1.1.1.9', '1.1.1.10', '1.1.1.11', '1.1.1.12', '1.1.1.13',
+      '1.1.1.14', '1.1.1.15', '1.1.1.16', '1.1.1.17', '1.1.2', '1.2', '1.3', '1.4', '1.5', '1.6'];
+    const porConta = p.receitaPorConta || {};
+    // Só compara se os dois lados cobrirem o mesmo período: o ERP é do mês
+    // inteiro, então uma planilha exportada no meio do mês faria toda conta
+    // parecer inflada. Com `corte` no ar, a tabela some e explica por quê.
+    const contaLinhas = (mi < 0 || corte || !Object.keys(porConta).length) ? [] : NIVEIS.map(code => {
+      const no = get(code);
+      if (!no) return null;
+      const os = Object.entries(porConta)
+        .filter(([c]) => c === code || c.startsWith(code + '.'))
+        .reduce((s, [, v]) => s + v, 0);
+      const pl = val(no, mi);
+      return (Math.abs(os) < 0.005 && Math.abs(pl) < 0.005) ? null
+        : { code, nome: no.name, os: Math.round(os * 100) / 100, pl };
+    }).filter(Boolean).sort((a, b) => Math.abs(b.os - b.pl) - Math.abs(a.os - a.pl));
 
     const linha = (rot, erp, ofc, ateCorte, obs) => {
       const dif = ofc == null ? null : (corte ? ateCorte : erp) - ofc;
@@ -1820,9 +1843,29 @@ function boot(D) {
           <td class="mono">${fmt(v)}</td>
           <td class="mono">${pct(totProd ? v / totProd : 0)}</td></tr>`).join('')}</tbody>
       </table></div>
-      <p class="hint" style="margin-top:8px">Esta quebra é por <b>produto do ERP</b>, não pela conta do DRE —
-      as duas listas não são a mesma coisa e o de-para ainda não foi confirmado. Serve para enxergar o mix de
-      venda do mês; a árvore oficial de receita continua vindo da planilha.</p>`
+      ${contaLinhas.length ? `
+      <h3 class="banco-group-title" style="margin-top:18px">A mesma receita, nas contas do DRE</h3>
+      <p class="hint" style="margin-bottom:8px">À esquerda, o que as Ordens de Serviço dizem que foi vendido.
+      À direita, o que a planilha registrou. <b>O total é o mesmo</b> — o que muda é em que conta cada real caiu.
+      Onde as duas discordam, ou o produto está cadastrado na conta errada dentro do Mubisys, ou o de-para que eu
+      uso está errado. Vale conferir uma OS do mês para saber qual dos dois.</p>
+      <div class="table-scroll"><table class="dre">
+        <thead><tr><th class="t-name">Conta</th><th>Pelas Ordens de Serviço</th><th>Pela planilha</th><th>Diferença</th></tr></thead>
+        <tbody>${contaLinhas.map(l => `<tr>
+          <td class="t-name"><b>${l.code}</b> ${escAttr(l.nome)}</td>
+          <td class="mono">${fmt(l.os)}</td>
+          <td class="mono">${fmt(l.pl)}</td>
+          <td class="${Math.abs(l.os - l.pl) < 1 ? 'v-pos' : 'v-neg'}">${(l.os - l.pl >= 0 ? '+' : '') + fmt(l.os - l.pl)}</td></tr>`).join('')}</tbody>
+      </table></div>
+      ${semConta.length ? `<p class="hint" style="margin-top:8px">Sem conta no meu de-para:
+      ${semConta.map(([n, v]) => `<b>${escAttr(n)}</b> (${fmt(v)})`).join(' · ')}. Me diga a conta certa
+      e eu incluo.</p>` : ''}`
+      : corte ? `<p class="hint" style="margin-top:8px">Dá para comparar esta receita conta a conta com a
+      planilha, mas só quando os dois lados cobrirem o mesmo período — a sua para em ${ptbr(corte)}.
+      <b>Suba o .xlsx do mês fechado e a comparação aparece aqui</b>, apontando produto por produto o que está
+      caindo em conta diferente no Mubisys.</p>`
+      : `<p class="hint" style="margin-top:8px">Esta quebra é por <b>produto do ERP</b>, não pela conta do DRE —
+      as duas listas não são a mesma coisa. A árvore oficial de receita continua vindo da planilha.</p>`}`
       : semQuebra > 0 ? `<p class="hint" style="margin-top:10px">⚠️ <b>${fmt(semQuebra)}</b> da receita
       (${pct(p.totais.receita ? semQuebra / p.totais.receita : 0)}) vem <b>sem quebra por produto</b>: no Mubisys a
       venda é classificada pela <b>Ordem de Serviço</b>, não pelo título financeiro. O total acima está certo —

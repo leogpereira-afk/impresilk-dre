@@ -32,6 +32,87 @@ com itens, e a soma do rateio bate com o total recebido até o centavo.
 import re
 
 
+# ---------------------------------------------------------------------------
+# De-para produto da OS -> conta do DRE.
+#
+# NÃO é a classificação oficial: a árvore de receita continua vindo da planilha.
+# Isto existe para pôr as duas leituras lado a lado e achar produto cadastrado
+# na conta errada dentro do Mubisys.
+#
+# Confirmado pelo Leonardo: Brindes vai INTEIRO para 1.1.1.15 (sem quebrar em
+# Copos/Garrafas/Kits); fita LED, fonte, neon e módulo LED vão para 1.1.1.9;
+# Placa Luminosa vai para 1.1.1.13.
+#
+# Confirmado medindo contra a planilha nos dois meses: "Placa Frontlight" cai
+# em LONAS, não em Placas — existe conta 1.1.1.13.6 Frontlight dentro de
+# Placas, mas pôr o produto lá afasta o resultado em ~R$ 28 mil por mês.
+# MDF, Outdoor, Totem, Portas/Painéis e PDV batem no centavo nos dois meses.
+# ---------------------------------------------------------------------------
+MAPA_CONTA = {
+    "Acrilico Cristal*": "1.1.1.1", "Acrilico Leitoso*": "1.1.1.1",
+    "Acrilicos Especiais": "1.1.1.1", "Letra Acrílica": "1.1.1.1",
+
+    "Adesivo Leitoso Brilho*": "1.1.1.2", "Adesivo Leitoso Fosco*": "1.1.1.2",
+    "Adesivo Transparente": "1.1.1.2", "Adesivo Leitoso Brilho Impresso UV": "1.1.1.2",
+    "Adesivo Colorido": "1.1.1.2", "Adesivos Especiais": "1.1.1.2",
+    "Adesivo Transparente Impresso UV": "1.1.1.2",
+    "Adesivo Leitoso Fosco Impresso UV": "1.1.1.2",
+    "FITA CREPE AUTOMOTIVA AMARELA 48MMX40M": "1.1.1.2",
+
+    "Lona Front Brilho*": "1.1.1.3", "Lona Front Fosca*": "1.1.1.3",
+    "Lona Backlight*": "1.1.1.3", "Lona Texturizada": "1.1.1.3",
+    "Placa Frontlight": "1.1.1.3",
+
+    "Letras Caixa*": "1.1.1.4", "Letra Caixa Chapa Galvanizada": "1.1.1.4",
+    "Letras Diversas": "1.1.1.4",
+
+    "Placa Pvc Impressão UV*": "1.1.1.5",
+    "Totem": "1.1.1.6",
+    "MDF": "1.1.1.7",
+    "Outdoor": "1.1.1.8",
+
+    "Iluminação": "1.1.1.9", "Fit Led Neon 12V": "1.1.1.9",
+    "Fonte 12V 5A": "1.1.1.9", "NEON": "1.1.1.9",
+    "MÓDULO LED BRANCO QUENTE (3000K)": "1.1.1.9",
+
+    "Pergolado": "1.1.1.10", "Toldo": "1.1.1.10",
+    "Poliondas": "1.1.1.14",
+    "Brindes": "1.1.1.15",
+    "Impressão 3D": "1.1.1.17",
+
+    "Placa ACM": "1.1.1.13", "Placa ACM Kynnar": "1.1.1.13",
+    "Placa Complementos": "1.1.1.13", "Placa Chapa Galvanizada": "1.1.1.13",
+    "Placa Chapa Inox": "1.1.1.13", "Placa Luminosa*": "1.1.1.13",
+    "Placa de Patrimônio": "1.1.1.13", "Estruturas Metalicas*": "1.1.1.13",
+    "Molduras": "1.1.1.13",
+
+    "Servicos": "1.1.2", "Impressão": "1.1.2",
+
+    "Painel de ACM": "1.2", "Porta ACM Kynnar": "1.2",
+    "Porta ACM Complementos": "1.2", "Porta ACM Poliéster": "1.2", "Alumínio": "1.2",
+
+    "Material Político 2024": "1.5",
+    "PDV": "1.6",
+}
+
+
+def por_conta(por_produto):
+    """Agrupa a receita por produto nas contas do DRE.
+
+    Devolve (contas, semConta). O que não está no de-para sai à parte em vez de
+    ser empurrado para uma conta qualquer — produto novo aparece como pendência,
+    não como número errado escondido dentro de um total.
+    """
+    contas, sem = {}, {}
+    for nome, v in por_produto.items():
+        c = MAPA_CONTA.get(nome)
+        if c:
+            contas[c] = round(contas.get(c, 0.0) + v, 2)
+        else:
+            sem[nome] = round(sem.get(nome, 0.0) + v, 2)
+    return contas, sem
+
+
 def numeros_de_os(despesa):
     """'21805-21870' -> ['21805','21870'] · texto livre -> []"""
     s = str(despesa or "").strip()
