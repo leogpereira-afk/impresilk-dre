@@ -268,7 +268,10 @@ def main():
     nomes_contas = {}
     for r in meses_servidor:
         for c in (r.get("cells") or []):
-            if c.get("name") and c.get("code"):
+            # Descarta nome igual ao código: é o preenchimento de emergência de
+            # um mês que este robô gerou antes de saber o nome. Sem esta linha o
+            # erro se propaga — a primeira leitura ruim vira a definitiva.
+            if c.get("name") and c.get("code") and c["name"] != c["code"]:
                 nomes_contas.setdefault(c["code"], c["name"])
 
     registro, cod_produtos = erp_mes.montar(
