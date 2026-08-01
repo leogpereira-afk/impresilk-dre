@@ -1,16 +1,21 @@
-name: Prévia do ERP (Mubisys)
+name: DRE do ERP (Mubisys)
 
-# Puxa sozinho o mês corrente do Mubisys e grava a PRÉVIA (cfg.previaERP).
-# NÃO escreve nos meses oficiais: esses continuam vindo do export .xlsx.
+# Lê o mês corrente do Mubisys e grava o MÊS OFICIAL do painel (a planilha
+# .xlsx foi aposentada em 01/08/2026) + a prévia com diagnóstico
+# (cfg.previaERP: totais por dia, por empresa, pendências de classificação).
+#
+# Proteções que vivem no scripts/erp_previa.py — não remover sem ler lá:
+#   * mês sem lançamento NÃO vira registro (o dia 1º de madrugada gravava um
+#     mês vazio e o painel abria zerado);
+#   * mês com origem "planilha" nunca é reescrito sem --forcar;
+#   * a parcela do Banco do Nordeste é separada pela descrição em
+#     máquinas/veículo/capital de giro — sem isso R$ 23 mil/mês caem em
+#     "Custos da Operação".
 #
 # Por que não usa a ação importarMes do servidor: ela só soma títulos que têm
 # plano de contas, e receita OPERACIONAL nunca tem (no Mubisys a venda é
-# classificada pela Ordem de Serviço, não pelo título). O importarMes reportava
-# R$ 205 mil de receita quando o mês tinha R$ 460 mil. Aqui somamos por fora:
-#   - despesa: 100% classificada por conta (o ERP entrega o plano de contas)
-#   - receita: total correto, com a parte classificada destacada à parte
-# Assim os TOTAIS ficam certos e fica explícito o quanto da receita ainda não
-# tem quebra por produto (isso só sai depois de ler a OS).
+# classificada pela Ordem de Serviço, não pelo título). A receita por produto
+# sai do rateio do valor recebido entre os itens da OS.
 
 on:
   schedule:
@@ -37,7 +42,7 @@ jobs:
           key: os-cache-${{ github.run_id }}
           restore-keys: os-cache-
 
-      - name: Ler o mês corrente do ERP e gravar a prévia
+      - name: Ler o mês corrente do ERP e gravar o mês oficial + prévia
         env:
           TZ: America/Sao_Paulo
         run: python3 scripts/erp_previa.py

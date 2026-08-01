@@ -94,7 +94,13 @@ function upsertMonth(D, monthLabel, parsed) {
     const na = { code: p.code, name: p.name, level: p.level, parent: p.parent, values };
     accounts.push(na); byCode.set(p.code, na);
   });
-  return { company: D.company, basis: D.basis, months, accounts, _replaced: D.months.includes(monthLabel) };
+  // origens acompanha months, posição a posição. Sem esta linha qualquer
+  // upload apagava a marcação "erp" de Jul/2026 e desligava TODAS as guardas
+  // de comparação planilha×ERP (achado da auditoria de 01/08).
+  const origens = (D.origens || D.months.map(() => 'planilha')).slice();
+  while (origens.length < N) origens.push('planilha');
+  origens[mi] = 'planilha';   // upload de .xlsx é, por definição, planilha
+  return { company: D.company, basis: D.basis, months, accounts, origens, _replaced: D.months.includes(monthLabel) };
 }
 
 /* acha um mês já existente que representa o MESMO período, mesmo com outra
@@ -166,6 +172,10 @@ function monthRecord(D, i, ts) {
   return {
     id: safeId(label), label, atualizadoEm: ts,
     company: D.company, basis: D.basis,
+    // origem viaja no registro — o robô grava "erp" e o painel PRECISA
+    // devolver o mesmo valor ao sincronizar, senão o primeiro sync rebaixa
+    // Jul/2026 para "planilha" e as guardas de comparação morrem em silêncio.
+    origem: (D.origens || [])[i] || 'planilha',
     cells: D.accounts.map(a => ({ code: a.code, name: a.name, level: a.level, parent: a.parent, value: a.values[i] || 0 })),
   };
 }
@@ -222,7 +232,7 @@ function adoptServerMonth(record) {
 }
 // garante o shape esperado (label/cells) num registro vindo do servidor
 function normalizeRecord(r) {
-  return { id: r.id, label: r.label || r.id, atualizadoEm: r.atualizadoEm, company: r.company, basis: r.basis, cells: r.cells || [] };
+  return { id: r.id, label: r.label || r.id, atualizadoEm: r.atualizadoEm, company: r.company, basis: r.basis, origem: r.origem || 'planilha', cells: r.cells || [] };
 }
 // quebra o dataset local atual em registros por mês (usando os timestamps locais)
 function datasetRecords(D) {
@@ -1171,16 +1181,26 @@ function boot(D) {
     // Quando os dois meses quebram a receita de formas diferentes, a folha do
     // outro mês não existe deste lado: entra só o que tem movimento no mês
     // atual, e a variação sai zerada em vez de fingir uma queda de 100%.
-    const podeComparar = comparavel(s.code + '.x', cur, cmp);
+    /* Comparabilidade decidida POR FOLHA, não pelo centro (achado 01/08: a
+       flag única zerava a variação de folhas que EXISTEM nos dois meses —
+       1.4.2 Pessoal caiu R$ 101 mil e aparecia "R$ 0" verde — e pintava a
+       coluna do mês comparado com os valores do mês ATUAL). Uma folha tem par
+       quando as origens são iguais, quando não é receita, ou quando o MESMO
+       código tem movimento nos dois meses. Folha sem par: mostra o valor real
+       do outro mês (zero) e "—" na variação — nunca um número inventado. */
+    const estruturaIgual = mesmaEstrutura(cur, cmp);
+    const temPar = k => comparavel(k.code, cur, cmp) || (k.values[cur] !== 0 && k.values[cmp] !== 0);
     const items = leavesUnder(s.code)
-      .filter(k => podeComparar ? (k.values[cur] !== 0 || k.values[cmp] !== 0) : k.values[cur] !== 0)
+      .filter(k => (estruturaIgual || !isRev) ? (k.values[cur] !== 0 || k.values[cmp] !== 0) : k.values[cur] !== 0)
       .map(k => {
-        const v = k.values[cur], vp = podeComparar ? k.values[cmp] : v;
-        const abs = v - vp;
-        const rel = podeComparar ? (vp ? abs / vp : (v ? 1 : null)) : null;
-        return { name: k.name, code: k.code, v, vp, abs, rel, vals: k.values, semCmp: !podeComparar };
+        const par = temPar(k);
+        const v = k.values[cur], vp = k.values[cmp];
+        const abs = par ? v - vp : null;
+        const rel = par ? (vp ? (v - vp) / vp : (v ? 1 : null)) : null;
+        return { name: k.name, code: k.code, v, vp, abs, rel, vals: k.values, semCmp: !par };
       });
-    items.sort((a, b) => Math.abs(b.abs) - Math.abs(a.abs));
+    // sem par ordena pelo tamanho no mês atual — variação nula não é "zero"
+    items.sort((a, b) => Math.abs(b.abs ?? b.v) - Math.abs(a.abs ?? a.v));
 
     const totCur = s.values[cur], totPrev = s.values[cmp];
     const totAbs = totCur - totPrev, totRel = totPrev ? totAbs / totPrev : null;
@@ -1201,12 +1221,13 @@ function boot(D) {
     const top = items.slice(0, 12);
 
     // ---- tabela item a item ----
+    // sem par: valor real do outro mês e "—" nas variações (nunca 0 verde)
     const rows = items.map(it => `
       <tr>
         <td class="t-name">${it.name}</td>
-        <td class="mono">${fmt(it.vp)}</td>
+        <td class="mono">${it.semCmp ? '<span class="av" title="Este mês quebra a receita de outra forma — sem par direto.">—</span>' : fmt(it.vp)}</td>
         <td class="mono">${fmt(it.v)}</td>
-        <td class="mono ${goodCls(it.abs)}">${arrow(it.abs)} ${fmt(Math.abs(it.abs))}</td>
+        <td class="mono ${it.abs == null ? 'av' : goodCls(it.abs)}">${it.abs == null ? '—' : arrow(it.abs) + ' ' + fmt(Math.abs(it.abs))}</td>
         <td class="${it.rel == null ? 'av' : goodCls(it.abs)}">${it.rel == null ? '—' : signedPct(it.rel)}</td>
         <td class="av">${pct(totCur ? it.v / totCur : 0)}</td>
         <td class="spark-cell">${sparkline(it.vals, { w: 90, h: 22 })}</td>
@@ -1232,12 +1253,16 @@ function boot(D) {
     // barras horizontais de variação (verde=bom, vermelho=ruim conforme receita/despesa)
     destroyChart('bigCenter');
     const okColor = cssVar('--pos') || '#34d399', badColor = cssVar('--neg') || '#f87171';
+    // quando as variações não são calculáveis (estruturas diferentes), o
+    // gráfico mostra o VALOR do mês atual — doze barras zeradas não dizem nada
+    const temVariacao = top.some(it => it.abs != null);
     _charts.bigCenter = new Chart(document.getElementById('bigCenterChart'), {
       type: 'bar',
       data: { labels: top.map(it => it.name), datasets: [{
-        label: `Variação ${MONTHS[cmp]} → ${MONTHS[cur]}`,
-        data: top.map(it => it.abs),
-        backgroundColor: top.map(it => (isRev ? it.abs >= 0 : it.abs <= 0) ? okColor : badColor),
+        label: temVariacao ? `Variação ${MONTHS[cmp]} → ${MONTHS[cur]}` : `Valor em ${MONTHS[cur]}`,
+        data: top.map(it => temVariacao ? (it.abs ?? 0) : it.v),
+        backgroundColor: top.map(it => !temVariacao ? okColor
+          : (isRev ? (it.abs ?? 0) >= 0 : (it.abs ?? 0) <= 0) ? okColor : badColor),
         borderRadius: 4
       }] },
       options: {
@@ -1313,7 +1338,7 @@ function boot(D) {
   const DETALHES = {
     entrou: () => ({ t: 'Entrou no banco', f: i => revAt(i), contas: filhosDe('1'),
       exp: 'Tudo que entrou na conta no mês, sem exclusão nenhuma — bate com o extrato. Inclui empréstimo captado, que não é venda.' }),
-    saiu: () => ({ t: 'Saiu do banco', f: i => expAt(i), contas: filhosDe('2'),
+    saiu: () => ({ t: 'Saiu do banco', f: i => expAt(i), contas: filhosDe('2'), desp: true,
       exp: 'Tudo que saiu da conta no mês. Inclui retirada de sócio, devolução de empréstimo e compra de máquina — que não são custo da operação.' }),
     caixa: () => ({ t: 'Variação de Caixa', f: i => resAt(i), contas: ['1', '2'],
       exp: 'O que entrou menos o que saiu. É a variação do saldo no mês, não o lucro.' }),
@@ -1322,7 +1347,7 @@ function boot(D) {
     vendas: () => ({ t: 'Vendas', f: i => salesAt(i),
       contas: filhosDe('1').filter(c => !FIN_REV_CODES.includes(c)),
       exp: 'Receita de verdade: tudo que entrou MENOS rendimentos (1.3) e empréstimos captados (1.4). Dinheiro emprestado não é venda.' }),
-    custos: () => ({ t: 'Custos da Operação', f: i => despOperAt(i),
+    custos: () => ({ t: 'Custos da Operação', f: i => despOperAt(i), desp: true,
       contas: filhosDe('2').filter(c => !detNoOper.includes(c)),
       exp: 'O que saiu MENOS devolução de empréstimo, retirada de sócio e compra de máquina. Só o que a operação consumiu.' }),
     resultadoOper: () => ({ t: 'Resultado da Operação', f: i => resOperAt(i),
@@ -1331,12 +1356,22 @@ function boot(D) {
       exp: 'Resultado da operação dividido pelas vendas. Quanto sobra de cada R$ 100 vendidos.' }),
     blocoOper: () => ({ t: '1 · Operação', f: i => resOperAt(i),
       exp: 'Primeiro dos 4 blocos: vendas menos custos operacionais. Operação − Sócios − Investimentos + Financiamento = variação de caixa.' }),
-    blocoSocios: () => ({ t: '2 · Sócios', f: i => -ownerAt(i), contas: filhosDe('2.14'),
+    // 2.14.3 fica FORA da lista: a fórmula (ownerAt = 2.14 − 2.14.3) o exclui,
+    // e listá-lo fazia a tabela somar 50% acima do número grande em Dez/25.
+    blocoSocios: () => ({ t: '2 · Sócios', f: i => -ownerAt(i), desp: true,
+      contas: filhosDe('2.14').filter(c => c !== '2.14.3'),
       exp: 'Retiradas dos sócios e arrendamento (2.14), fora a devolução de empréstimo bancário que mora no mesmo galho.' }),
     blocoInvest: () => ({ t: '3 · Investimentos', f: i => -investAt(i), contas: ['2.16', ...ATIVO_FIN_CODES],
       exp: 'Máquinas e veículos, à vista ou financiados. Vira patrimônio — sai do caixa mas não é gasto.' }),
-    blocoFinanc: () => ({ t: '4 · Financiamento', f: i => financAt(i), contas: [...FIN_REV_CODES, ...LOAN_OUT_CODES],
-      exp: 'Empréstimo entrando menos empréstimo saindo. Não é resultado: é dinheiro emprestado indo e voltando.' }),
+    // Contas COM SINAL, espelhando financAt exatamente — a lista plana somava
+    // R$ 280 mil "de onde vem" para um bloco de R$ 24 mil (2.13.6 é subtraído
+    // na fórmula mas aparecia como parcela positiva).
+    blocoFinanc: () => ({ t: '4 · Financiamento', f: i => financAt(i), contas: [
+      { c: '1.3', s: +1 }, { c: '1.4', s: +1 },
+      { c: '2.13.6', s: -1 }, { c: '2.14.3', s: -1 }, { c: '2.14.3.4', s: +1 },
+      { c: '2.13.7.1.3', s: -1 },
+    ],
+      exp: 'Empréstimo entrando (+) menos empréstimo saindo (−). Não é resultado: é dinheiro emprestado indo e voltando. As linhas somam exatamente o número grande.' }),
     cemig: () => ({ t: '⚡ Energia (Cemig)', f: i => val(get('2.5.3'), i), contas: filhosDe('2.5.3'), desp: true,
       exp: 'Conta 2.5.3 do plano. Segue a data de PAGAMENTO: uma conta paga no dia 1º do mês seguinte cai no mês seguinte.' }),
     copasa: () => ({ t: '💧 Água (Copasa)', f: i => val(get('2.5.1'), i), contas: filhosDe('2.5.1'), desp: true,
@@ -1353,8 +1388,12 @@ function boot(D) {
     const dif = d.pct ? v - vp : (vp ? (v - vp) / Math.abs(vp) : null);
     const st = trendStats(serie);
     const bom = d.desp ? (v <= vp) : (v >= vp);
-    const linhas = (d.contas || []).map(c => get(c)).filter(Boolean)
-      .map(a => ({ a, v: val(a, cur), ah: ahEntre(a, a.code, cur, cmp) }))
+    // conta pode vir como string ('2.14') ou com sinal ({c:'2.13.6', s:-1}) —
+    // o sinal faz a tabela somar exatamente o número grande do card
+    const linhas = (d.contas || [])
+      .map(e => (typeof e === 'string' ? { c: e, s: +1 } : e))
+      .map(e => ({ e, a: get(e.c) })).filter(x => x.a)
+      .map(({ e, a }) => ({ a, s: e.s, v: e.s * val(a, cur), ah: ahEntre(a, a.code, cur, cmp) }))
       .filter(x => x.v || x.ah != null)
       .sort((x, y) => Math.abs(y.v) - Math.abs(x.v));
     const somaLinhas = linhas.reduce((s, x) => s + Math.abs(x.v), 0);
@@ -1529,6 +1568,10 @@ function boot(D) {
     if (i !== cmp) {
       ACCS.forEach(a => {
         if ((childrenOf.get(a.code) || []).length) return;
+        // folha de receita sem par entre planilha×ERP não entra: "ACM Poliéster
+        // −R$ 64 mil" e "Placa ACM +R$ 35 mil" eram troca de estrutura, não
+        // movimento de venda (achado 01/08)
+        if (!comparavel(a.code, i, cmp)) return;
         const va = val(a, i), vb = val(a, cmp), d = va - vb;
         if (Math.abs(d) > vendas * 0.005) movs.push({ nome: a.name, code: a.code, va, vb, d, rev: String(a.code).startsWith('1') });
       });
@@ -1578,6 +1621,7 @@ function boot(D) {
               <td class="${naoOper ? 'av' : bomM ? 'v-pos' : 'v-neg'}">${m.d >= 0 ? '+' : ''}${fmt(m.d)}</td></tr>`;
           }).join('')}</tbody>
         </table></div>
+        ${!mesmaEstrutura(i, cmp) ? AVISO_ESTRUTURA(i, cmp) : ''}
       </section>` : ''}`;
   }
 
@@ -1676,9 +1720,24 @@ function boot(D) {
     const mA = A.vd ? A.op / A.vd : 0;
     const efVolume = (B.vd - A.vd) * mA;
     const efMargem = dOp - efVolume;
-    const linhas = (childrenOf.get('2') || []).map(s => ({
-      nome: s.name.replace(/^Despesas?\s+/i, ''), a: val(s, a), b: val(s, b)
-    })).filter(x => x.a || x.b).map(x => ({ ...x, d: x.b - x.a })).sort((x, y) => Math.abs(y.d) - Math.abs(x.d));
+    /* A manchete fala do resultado da OPERAÇÃO — a tabela precisa falar da
+       mesma coisa. Antes ela listava childrenOf('2') cru e a "maior causa" era
+       Bancárias +R$ 92 mil… que era devolução de empréstimo (2.13.6), fora da
+       operação por definição. Agora: 2.14/2.16 saem, 2.13 entra LÍQUIDO de
+       dívida (tarifas e juros de verdade), e o que é sócio/máquina/dívida vai
+       para um bloco próprio no fim, com rótulo honesto. */
+    const bancoOper = k => val(get('2.13'), k) - val(get('2.13.6'), k) - val(get('2.13.7'), k);
+    const linhas = (childrenOf.get('2') || [])
+      .filter(s => !['2.14', '2.16'].includes(s.code))
+      .map(s => s.code === '2.13'
+        ? { nome: 'Bancárias (tarifas e juros)', a: bancoOper(a), b: bancoOper(b) }
+        : { nome: s.name.replace(/^Despesas?\s+/i, ''), a: val(s, a), b: val(s, b) })
+      .filter(x => x.a || x.b).map(x => ({ ...x, d: x.b - x.a })).sort((x, y) => Math.abs(y.d) - Math.abs(x.d));
+    const foraOper = [
+      { nome: 'Retiradas + arrendamento (sócios)', a: ownerAt(a), b: ownerAt(b) },
+      { nome: 'Máquinas e veículos (investimento)', a: investAt(a), b: investAt(b) },
+      { nome: 'Devolução de empréstimo (dívida)', a: loanOutAt(a), b: loanOutAt(b) },
+    ].map(x => ({ ...x, d: x.b - x.a })).filter(x => x.a || x.b);
 
     return `
       <section class="card">
@@ -1710,8 +1769,8 @@ function boot(D) {
       </section>
 
       <section class="card">
-        <div class="card-head"><h2>🧾 Onde a diferença aconteceu</h2>
-          <span class="hint">por centro de custo, ordenado pelo tamanho da mudança</span></div>
+        <div class="card-head"><h2>🧾 Onde a diferença aconteceu — na operação</h2>
+          <span class="hint">custos da operação, ordenados pelo tamanho da mudança</span></div>
         <div class="table-scroll"><table class="dre">
           <thead><tr><th class="t-name">Centro</th><th>${MONTHS[a]}</th><th>${MONTHS[b]}</th><th>Variação</th><th>% das vendas A → B</th></tr></thead>
           <tbody>${linhas.slice(0, 12).map(l => `<tr>
@@ -1719,14 +1778,30 @@ function boot(D) {
             <td class="${l.d <= 0 ? 'v-pos' : 'v-neg'}">${l.d >= 0 ? '+' : ''}${fmt(l.d)}</td>
             <td>${A.vd ? pct(l.a / A.vd) : '—'} → ${B.vd ? pct(l.b / B.vd) : '—'}</td></tr>`).join('')}</tbody>
         </table></div>
+        ${foraOper.length ? `<h3 class="banco-group-title" style="margin-top:14px">Fora da operação (sócios · máquinas · dívida)</h3>
+        <div class="table-scroll"><table class="dre">
+          <thead><tr><th class="t-name">Bloco</th><th>${MONTHS[a]}</th><th>${MONTHS[b]}</th><th>Variação</th></tr></thead>
+          <tbody>${foraOper.map(l => `<tr>
+            <td class="t-name">${l.nome}</td><td>${fmt(l.a)}</td><td>${fmt(l.b)}</td>
+            <td class="av">${l.d >= 0 ? '+' : ''}${fmt(l.d)}</td></tr>`).join('')}</tbody>
+        </table></div>
+        <p class="hint" style="margin-top:6px">Estes três não entram no resultado da operação — retirada é
+        remuneração dos donos, máquina vira patrimônio e devolução de dívida é o empréstimo voltando.
+        A variação deles fica <b>neutra</b> (sem verde/vermelho) de propósito.</p>` : ''}
       </section>`;
   }
 
   let insCompA = 0, insCompB = 0;
+  // Re-sincroniza A/B com os seletores GLOBAIS só quando ELES mudarem — a
+  // versão anterior comparava com a escolha do usuário e a desfazia a cada
+  // render: o dropdown "voltava sozinho" e Comparar só mostrava o par padrão.
+  let insLastCur = -1, insLastCmp = -1;
   function renderInsightsTab() {
     const host = document.getElementById('insConteudo');
     if (!host) return;
-    if (insCompB !== cur || insCompA !== cmp) { insCompA = cmp; insCompB = cur; }
+    if (insLastCur !== cur || insLastCmp !== cmp) {
+      insCompA = cmp; insCompB = cur; insLastCur = cur; insLastCmp = cmp;
+    }
     host.innerHTML = insModo === 'ano' ? insAno() : insModo === 'comp' ? insComp() : insMes();
     document.querySelectorAll('#insModos button').forEach(b =>
       b.classList.toggle('active', b.dataset.modo === insModo));
@@ -3087,7 +3162,11 @@ function wireMonthUpload() {
 
   document.getElementById('monthConfirm').onclick = () => {
     if (!_pendingMonth) return;
-    const label = labelInput.value.trim();
+    // `let`, não `const`: quando o período já existe com outra grafia, o rótulo
+    // é trocado pelo existente logo abaixo. Com const isso lançava TypeError e
+    // NENHUMA atualização de mês existente funcionava — o modal até avisava
+    // "os dados serão atualizados", e o confirmar sempre falhava (achado 01/08).
+    let label = labelInput.value.trim();
     if (!label) { toast('Informe o período (mês/ano)', 'err'); labelInput.focus(); return; }
     try {
       const D = getCurrentData();
