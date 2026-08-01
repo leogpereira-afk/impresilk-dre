@@ -295,7 +295,13 @@ def main():
         # ser sobrescritos por uma leitura automática. Só grava mês novo ou mês
         # que este mesmo robô gerou antes (origem "erp").
         antigo = next((r for r in meses_servidor if r.get("id") == registro["id"]), None)
-        if antigo and antigo.get("origem") != "erp" and "--forcar" not in sys.argv:
+        if not (receber or pagar):
+            # Mês sem lançamento NÃO vira registro. Aconteceu em 01/08/2026: o
+            # cron das 6h leu o mês corrente (agosto, zero pagamentos de
+            # madrugada) e gravou um mês VAZIO — o painel abre no último mês e
+            # o Leonardo veria o DRE inteiro zerado.
+            print(f"NÃO gravei {label}: nenhum lançamento no período ainda.")
+        elif antigo and antigo.get("origem") != "erp" and "--forcar" not in sys.argv:
             print(f"NÃO gravei {label}: já existe e veio da planilha "
                   f"(atualizado em {antigo.get('atualizadoEm')}). "
                   f"Use --forcar para substituir.")

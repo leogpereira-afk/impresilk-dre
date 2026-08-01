@@ -560,6 +560,10 @@ function boot(D) {
   const signedPct = v => (v == null || !isFinite(v)) ? '—' : (v >= 0 ? '+' : '') + pct(v);
 
   let cur = MONTHS.length - 1;
+  // Se o último mês estiver vazio (ex.: o robô criou o mês corrente no dia 1º
+  // antes de existir lançamento), abre no último mês COM movimento — senão o
+  // painel abriria com tudo zerado.
+  while (cur > 0 && !val(REC, cur) && !val(DESP, cur)) cur--;
   let cmp = MONTHS.length >= 2 ? MONTHS.length - 2 : 0;
   let chartMode = 'bars';
 
@@ -1906,6 +1910,9 @@ function boot(D) {
     const of = mi >= 0 ? { receita: val(get('1'), mi), despesa: val(get('2'), mi) } : null;
     const d = p.diag || {};
     const semQuebra = d.receitaSemCodigo || 0;
+    // Se o mês oficial já veio do ERP (planilha aposentada), o detector de
+    // corte e a comparação "OS × planilha" viram ERP×ERP — não medem nada.
+    const mesEhErp = ((D.origens || [])[mi] || 'planilha') === 'erp';
 
     /* Até que dia a planilha enxerga.
        A planilha é um .xlsx exportado num dia qualquer; o ERP é lido hoje.
@@ -1929,7 +1936,7 @@ function boot(D) {
     // só vale a pena mostrar o corte se as duas linhas apontarem o mesmo dia e
     // ele não for o fim do mês — aí sim a planilha está mesmo defasada
     const ultimoDia = Object.keys(p.porDia?.receita || {}).sort().pop();
-    const corte = (aliR && aliD && aliR.dia === aliD.dia && aliR.dia !== ultimoDia) ? aliR.dia : null;
+    const corte = (!mesEhErp && aliR && aliD && aliR.dia === aliD.dia && aliR.dia !== ultimoDia) ? aliR.dia : null;
     const ptbr = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) : '';
     const diasAtras = corte && ultimoDia
       ? Math.round((new Date(ultimoDia) - new Date(corte)) / 86400000) : 0;
@@ -1951,7 +1958,7 @@ function boot(D) {
     // Só compara se os dois lados cobrirem o mesmo período: o ERP é do mês
     // inteiro, então uma planilha exportada no meio do mês faria toda conta
     // parecer inflada. Com `corte` no ar, a tabela some e explica por quê.
-    const contaLinhas = (mi < 0 || corte || !Object.keys(porConta).length) ? [] : NIVEIS.map(code => {
+    const contaLinhas = (mi < 0 || corte || mesEhErp || !Object.keys(porConta).length) ? [] : NIVEIS.map(code => {
       const no = get(code);
       if (!no) return null;
       const os = Object.entries(porConta)
@@ -1977,12 +1984,32 @@ function boot(D) {
       ${d.titulosReceita || 0} recebimentos e ${d.titulosDespesa || 0} pagamentos ·
       ${d.contas || 0} contas de despesa</p>
       <div class="table-scroll"><table class="dre">
-        <thead><tr><th class="t-name">Total do mês</th><th>ERP (mês inteiro)</th>${corte ? `<th>ERP até ${ptbr(corte)}</th>` : ''}<th>Oficial (planilha)</th><th>Diferença</th></tr></thead>
+        <thead><tr><th class="t-name">Total do mês</th><th>ERP (mês inteiro)</th>${corte ? `<th>ERP até ${ptbr(corte)}</th>` : ''}<th>${mesEhErp ? 'Oficial (gravado pelo robô)' : 'Oficial (planilha)'}</th><th>Diferença</th></tr></thead>
         <tbody>
           ${linha('Receitas', p.totais.receita, of?.receita, aliR?.acc)}
           ${linha('Despesas', p.totais.despesa, of?.despesa, aliD?.acc)}
         </tbody>
       </table></div>
+      ${(p.pendencias || []).length ? (() => {
+        const grupos = {};
+        p.pendencias.forEach(x => {
+          const g = grupos[x.tipo] = grupos[x.tipo] || { n: 0, v: 0, itens: [] };
+          g.n++; g.v += x.valor || 0; g.itens.push(x);
+        });
+        const TITULOS = {
+          'pro-vida': '🩺 Pró Vida em Incentivo de Produtividade',
+          'nao-operacional-em-produto': '❓ Receita não-operacional caindo em conta de produto',
+          'nordeste-sem-descricao': '🏦 Parcela do Nordeste sem descrição',
+        };
+        return `<h3 class="banco-group-title" style="margin-top:18px">🚧 Para arrumar no Mubisys</h3>
+        <p class="hint" style="margin-bottom:8px">Lançamentos que estão em conta suspeita <b>dentro do ERP</b>.
+        O painel não corrige por conta própria — o número mostrado é fiel ao Mubisys; a correção é lá na origem.</p>
+        ${Object.entries(grupos).map(([tipo, g]) => `
+          <p class="hint" style="margin-top:8px"><b>${TITULOS[tipo] || tipo}</b> — ${g.n} lançamento(s), <b>${fmt(g.v)}</b></p>
+          <ul class="hint" style="margin:4px 0 0 18px">${g.itens.slice(0, 6).map(x =>
+            `<li>${fmt(x.valor || 0)} — ${escAttr(x.texto || '')}</li>`).join('')}
+            ${g.itens.length > 6 ? `<li>… e mais ${g.itens.length - 6}</li>` : ''}</ul>`).join('')}`;
+      })() : ''}
       ${corte ? `<p class="hint" style="margin-top:12px">📅 A planilha oficial deste mês bate com o ERP até
       <b>${ptbr(corte)}</b> — ou seja, foi exportada nessa data e está <b>${diasAtras} dia(s) defasada</b>.
       A coluna do meio compara o que dá para comparar; a diferença ao lado é o que sobra depois de igualar a
@@ -2037,9 +2064,12 @@ function boot(D) {
       venda é classificada pela <b>Ordem de Serviço</b>, não pelo título financeiro. O total acima está certo —
       o que falta é dizer <i>de qual produto</i> veio cada real.</p>` : ''}
       <p class="hint" style="margin-top:10px">
-      ${of ? `<b>A planilha continua sendo a fonte oficial</b> — esta leitura serve para acompanhar o mês em
-             andamento sem esperar o fechamento.`
-           : `Este mês ainda não foi subido pela planilha, então não há com o que comparar.`}</p>`;
+      ${mesEhErp ? `<b>O mês oficial é montado direto do ERP pelo robô</b> (a planilha foi aposentada).
+             Esta leitura confere os totais da última rodada; se divergirem, o robô ainda não rodou hoje —
+             dá para disparar no GitHub (Actions → “Prévia do ERP”).`
+        : of ? `<b>Este mês veio da planilha</b> — a leitura do ERP serve para acompanhar o andamento
+             e conferir o fechamento.`
+           : `Este mês ainda não existe no painel, então não há com o que comparar.`}</p>`;
   }
 
 

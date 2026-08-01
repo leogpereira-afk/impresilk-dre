@@ -63,16 +63,28 @@ for i, m in enumerate(MESES):
             ruins.append(f"{code} pai={a['values'][i]:,.2f} filhos={soma:,.2f}")
     check(f"{m}", not ruins, "; ".join(ruins[:3]))
 
-print("\n2) OS 4 BLOCOS FECHAM (Operação − Sócios − Investimentos + Financiamento = caixa)")
+print("\n2) ALOCAÇÃO DOS 4 BLOCOS — as contas-fonte existem onde as fórmulas esperam")
+# CUIDADO: "op − sócios − invest + financ = caixa" é identidade ALGÉBRICA —
+# fecha para qualquer alocação, certa ou errada, então não serve de teste.
+# O que pega erro de verdade é conferir se as contas que as fórmulas do painel
+# leem (2.13.7.1.1/.2/.3, 2.14.3…) estão preenchidas nos meses em que o pai
+# tem valor. Foi assim que Jul/26 ficou com R$ 23 mil do Nordeste em "Custos
+# da Operação": a parcela veio inteira no pai 2.13.7.1 e os filhos zerados.
 for i, m in enumerate(MESES):
-    finIn = val("1.3", i) + val("1.4", i)
-    loanOut = sub("2.13.6", i) + (sub("2.14.3", i) - val("2.14.3.4", i)) + val("2.13.7.1.3", i)
-    owner = sub("2.14", i) - sub("2.14.3", i)
-    inv = sub("2.16", i) + val("2.13.7.1.1", i) + val("2.13.7.1.2", i)
-    op = (val("1", i) - finIn) - (val("2", i) - loanOut - owner - inv)
-    caixa = val("1", i) - val("2", i)
-    d = abs((op - owner - inv + (finIn - loanOut)) - caixa)
-    check(f"{m}", d < 1, f"difere {d:,.2f}")
+    problemas = []
+    pai_bnb = val("2.13.7.1", i)
+    filhos_bnb = val("2.13.7.1.1", i) + val("2.13.7.1.2", i) + val("2.13.7.1.3", i)
+    if pai_bnb > 1 and abs(pai_bnb - filhos_bnb) > 1:
+        problemas.append(f"Nordeste sem split: pai 2.13.7.1={pai_bnb:,.2f} filhos={filhos_bnb:,.2f} "
+                         f"(diferença cai em Custos da Operação)")
+    # fatura de cartão: 2.99 só existe em mês ERP; em mês de planilha é rateada
+    if ORIGEM[i] == "planilha" and val("2.99", i):
+        problemas.append(f"2.99 (fatura de cartão) em mês de planilha: {val('2.99', i):,.2f}")
+    # Empréstimo Terceiros deve estar no código histórico 2.14.3.5
+    if val("2.14.3.3", i) and ORIGEM[i] == "erp":
+        problemas.append(f"2.14.3.3 com valor em mês ERP ({val('2.14.3.3', i):,.2f}) — "
+                         f"deveria ter sido mapeado para 2.14.3.5")
+    check(f"{m}", not problemas, "; ".join(problemas))
 
 print("\n3) CEMIG (2.5.3) e COPASA (2.5.1) — o que o Leonardo pediu atenção")
 print(f"     {'mês':<11}{'origem':<10}{'⚡ Cemig':>12}{'💧 Copasa':>12}{'total':>12}")
