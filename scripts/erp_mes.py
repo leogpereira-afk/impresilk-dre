@@ -112,12 +112,32 @@ def pendencias_de_classificacao(pagar, receber, valor_janela):
         #  O Leonardo confirmou em 01/08/2026 que É incentivo de produtividade
         #  para os funcionários — 2.1.13 está CERTO, regra removida.)
         # AMIL do Pedro Henrique é do grupo do Sr. Pedro (confirmado pelo
-        # Leonardo em 01/08/2026) — o lugar é 2.14.1.1 (arrendamento), não o
+        # Leonardo em 01/08/2026) — o lugar é 2.14.1.4 (conta que o Leonardo criou), não o
         # plano de saúde das retiradas do Leonardo.
         if "PEDRO HENRIQUE" in d and pc.startswith("2.14.2.4"):
             out.append({"tipo": "amil-pedro-henrique", "conta": "2.14.2.4",
                         "valor": round(valor_janela(t), 2),
-                        "texto": "AMIL Pedro Henrique é do Sr. Pedro — mover de 2.14.2.4 (Leonardo) para 2.14.1.1."})
+                        "texto": "AMIL Pedro Henrique é do Sr. Pedro — mover de 2.14.2.4 (Leonardo) para 2.14.1.4 Amil Pedro Henrique."})
+    # 2.16 MUDOU DE SIGNIFICADO em 01/08/2026: era "Investimentos" (e é assim
+    # que os 8 meses de histórico usam — R$ 29 mil em dez/25, R$ 38 mil em
+    # mar/26) e o Leonardo renomeou para "Empréstimos Bancários", pendurando
+    # Credinor, Nordeste e Empréstimo Terceiros embaixo. A fórmula do painel
+    # ainda lê `2.16` inteiro como investimento; enquanto os dois significados
+    # convivem, todo título de 2.16 com CARA DE EMPRÉSTIMO vira pendência em
+    # vez de virar patrimônio em silêncio.
+    LOAN_WORDS = ("TERCEIRO", "CAPITAL DE GIRO", "PRONAMPE", "EMPRESTIMO",
+                  "EMPRÉSTIMO", "CREDINOR", "NORDESTE")
+    for t in pagar:
+        pc = str(t.get("plano_contas") or "")
+        c = pc.split("-")[0].strip()
+        nome = pc.split("-", 1)[-1].upper() if "-" in pc else ""
+        if c.startswith("2.16") and any(w in nome for w in LOAN_WORDS):
+            out.append({"tipo": "dois-significados-216", "conta": c,
+                        "valor": round(valor_janela(t), 2),
+                        "texto": f"'{pc[:44]}' está em 2.16, que o painel conta como INVESTIMENTO "
+                                 f"(é assim nos 8 meses de histórico). Pelo nome é empréstimo. "
+                                 f"Reaponte o lançamento ou me avise para trocar a fórmula."})
+
     # (Receita "não operacional" em conta de produto: já foi listado aqui como
     #  suspeita — 12 títulos, R$ 51.799 em jul/26. O Leonardo conferiu um a um
     #  em 01/08/2026 e confirmou que a CONTA está certa: são relançamentos de
