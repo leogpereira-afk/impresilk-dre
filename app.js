@@ -2091,7 +2091,6 @@ function boot(D) {
         });
         const TITULOS = {
           'amil-pedro-henrique': '🩺 AMIL Pedro Henrique na conta do Leonardo (é do Sr. Pedro → 2.14.1.1)',
-          'nao-operacional-em-produto': '❓ Receita não-operacional caindo em conta de produto',
           'nordeste-sem-descricao': '🏦 Parcela do Nordeste sem descrição',
         };
         return `<h3 class="banco-group-title" style="margin-top:18px">🚧 Para arrumar no Mubisys</h3>

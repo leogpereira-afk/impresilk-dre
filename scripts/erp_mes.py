@@ -118,15 +118,12 @@ def pendencias_de_classificacao(pagar, receber, valor_janela):
             out.append({"tipo": "amil-pedro-henrique", "conta": "2.14.2.4",
                         "valor": round(valor_janela(t), 2),
                         "texto": "AMIL Pedro Henrique é do Sr. Pedro — mover de 2.14.2.4 (Leonardo) para 2.14.1.1."})
-    for t in receber:
-        if t.get("tipo") == "Receita operacional":
-            continue
-        pc = str(t.get("plano_contas") or "")
-        if pc.startswith("1.1"):
-            out.append({"tipo": "nao-operacional-em-produto",
-                        "conta": pc.split("-")[0], "valor": round(valor_janela(t), 2),
-                        "texto": f"Receita NÃO operacional caiu em conta de produto ({pc.split('-', 1)[-1][:30]}) — "
-                                 f"{str(t.get('origem'))[:30]}: {(str(t.get('descricao') or t.get('despesa') or ''))[:60]}"})
+    # (Receita "não operacional" em conta de produto: já foi listado aqui como
+    #  suspeita — 12 títulos, R$ 51.799 em jul/26. O Leonardo conferiu um a um
+    #  em 01/08/2026 e confirmou que a CONTA está certa: são relançamentos de
+    #  venda real, com NF ou OS de referência, marcados como não operacionais
+    #  porque o título original já tinha sido baixado. A regra foi removida —
+    #  o tipo do título não diz nada sobre a conta estar certa ou errada.)
     return out
 
 
