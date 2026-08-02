@@ -536,7 +536,7 @@ function boot(D) {
    *  Onde a receita ainda é comparável: nos totais de galho, que existem
    *  nas duas formas. Abaixo disso, o painel mostra "—" e explica.       */
   const ORIGENS = D.origens || MONTHS.map(() => 'planilha');
-  const RECEITA_COMPARAVEL = new Set(['1', '1.1', '1.1.1', '1.1.2', '1.2', '1.3', '1.4', '1.5', '1.6']);
+  const RECEITA_COMPARAVEL = new Set(['1', '1.1', '1.1.1', '1.1.2', '1.2', '1.3', '1.4', '1.5', '1.6', '1.7']);
   const mesmaEstrutura = (i, j) => ORIGENS[i] === ORIGENS[j];
   const comparavel = (code, i, j) =>
     mesmaEstrutura(i, j) || !String(code).startsWith('1') || RECEITA_COMPARAVEL.has(String(code));
@@ -1288,7 +1288,10 @@ function boot(D) {
 
   // ===== ANÁLISE FUNDAMENTALISTA (estilo Buffett / Owner Earnings) =====
   // Classificação econômica das contas
-  const FIN_REV_CODES = ['1.3', '1.4'];                // rendimentos + empréstimos captados
+  // 1.7 "Entradas a Identificar" (criada 01/08/2026): Pix ainda sem dono NÃO é
+  // venda — fica fora de salesAt até alguém identificar, junto com rendimento
+  // e empréstimo. Antes esses valores caíam em conta de produto (Leitoso 3mm).
+  const FIN_REV_CODES = ['1.3', '1.4', '1.7'];         // rendimentos + empréstimos + a identificar
   const VAR_COST_CODES = ['2.6', '2.10', '2.11', '2.12']; // custos variáveis ligados à produção/obra
   // 2.14.3 (Empréstimos Bancários) mora dentro de 2.14, mas é DEVOLUÇÃO DE DÍVIDA,
   // não retirada de sócio. Sem descontar, o bloco "Sócios" inflava 46% (R$ 340 mil
@@ -1316,7 +1319,11 @@ function boot(D) {
   const giroAt = i => val(get(GIRO_CODE), i);
   const bankDebtAt = i => val(get(BANK_DEBT_CODE), i);            // 2.14.3 (histórico antigo)
   const bankRevolvAt = i => bankDebtAt(i) - val(get('2.14.3.4'), i);
-  const LOAN_OUT_CODES = ['2.13.6'];                 // antecipação/devolução de empréstimo
+  // 2.17 "Devolução de Empréstimo de Sócio" e 2.18 "Transferência entre
+  // Empresas" (criadas pelo Leonardo em 01/08/2026): saída que não é custo da
+  // operação. Sem elas aqui, o valor cairia em "Custos da Operação" — o mesmo
+  // bug do Nordeste sem split. O ERP já usa: Empréstimo Terceiros virou 2.17.3.
+  const LOAN_OUT_CODES = ['2.13.6', '2.17', '2.18']; // antecipação/devolução/transferência
   const loanOutAt = i => LOAN_OUT_CODES.reduce((s, c) => s + val(get(c), i), 0) + bankRevolvAt(i) + giroAt(i);
   const investAt = i => val(get('2.16'), i) + machineFinAt(i);    // ativos: à vista + financiados
   const ownerAt = i => val(get('2.14'), i) - bankDebtAt(i);   // retiradas + arrendamento
@@ -1342,7 +1349,7 @@ function boot(D) {
    *  abre a conta: a fórmula em palavras, quais contas somam nele e a
    *  série de todos os meses. Um registro por chave; o card só declara
    *  data-det="chave".                                                  */
-  const detNoOper = ['2.13', '2.14', '2.16'];
+  const detNoOper = ['2.13', '2.14', '2.16', '2.17', '2.18'];
   const filhosDe = c => (childrenOf.get(c) || []).map(x => x.code);
   const DETALHES = {
     entrou: () => ({ t: 'Entrou no banco', f: i => revAt(i), contas: filhosDe('1'),
@@ -1376,8 +1383,9 @@ function boot(D) {
     // R$ 280 mil "de onde vem" para um bloco de R$ 24 mil (2.13.6 é subtraído
     // na fórmula mas aparecia como parcela positiva).
     blocoFinanc: () => ({ t: '4 · Financiamento', f: i => financAt(i), contas: [
-      { c: '1.3', s: +1 }, { c: '1.4', s: +1 },
-      { c: '2.13.6', s: -1 }, { c: '2.14.3', s: -1 }, { c: '2.14.3.4', s: +1 },
+      { c: '1.3', s: +1 }, { c: '1.4', s: +1 }, { c: '1.7', s: +1 },
+      { c: '2.13.6', s: -1 }, { c: '2.17', s: -1 }, { c: '2.18', s: -1 },
+      { c: '2.14.3', s: -1 }, { c: '2.14.3.4', s: +1 },
       { c: '2.13.7.1.3', s: -1 },
     ],
       exp: 'Empréstimo entrando (+) menos empréstimo saindo (−). Não é resultado: é dinheiro emprestado indo e voltando. As linhas somam exatamente o número grande.' }),
@@ -1500,7 +1508,7 @@ function boot(D) {
       // venda — dizer que subiu é "favorável" induziria o dono a achar bom se
       // endividar. E 2.13/2.14/2.16 (dívida, sócios, máquinas) não afetam o
       // resultado da operação: eram reportados como se tivessem "comido" o lucro.
-      const NAO_OPER = ['1.3', '1.4', '2.13', '2.14', '2.16'];
+      const NAO_OPER = ['1.3', '1.4', '1.7', '2.13', '2.14', '2.16', '2.17', '2.18'];
       const secs = [...(childrenOf.get('1') || []), ...(childrenOf.get('2') || [])];
       secs.forEach(sec => {
         if (NAO_OPER.includes(sec.code)) return;
@@ -1916,6 +1924,7 @@ function boot(D) {
   // Migrações já reconhecidas: o painel trata os dois códigos como a mesma coisa.
   const CONTAS_UNIFICADAS = [
     { de: '2.14.3.4', para: '2.13.7.1', o_que: 'Financiamento Banco do Nordeste (histórico migrado para a conta atual)', desde: 'Jun/2026' },
+    { de: '2.14.3.5', para: '2.17.3', o_que: 'Empréstimo Terceiros — o Leonardo criou a família 2.17 (Devolução de Empréstimo) em 01/08/2026 e o ERP passou a lançar lá', desde: 'Jul/2026' },
   ];
 
   function renderEstrutura() {
@@ -2081,7 +2090,7 @@ function boot(D) {
           g.n++; g.v += x.valor || 0; g.itens.push(x);
         });
         const TITULOS = {
-          'pro-vida': '🩺 Pró Vida em Incentivo de Produtividade',
+          'amil-pedro-henrique': '🩺 AMIL Pedro Henrique na conta do Leonardo (é do Sr. Pedro → 2.14.1.1)',
           'nao-operacional-em-produto': '❓ Receita não-operacional caindo em conta de produto',
           'nordeste-sem-descricao': '🏦 Parcela do Nordeste sem descrição',
         };

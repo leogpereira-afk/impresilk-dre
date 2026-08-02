@@ -89,8 +89,11 @@ def ajustar_conta(c, nome, texto):
         # sem descrição não dá para saber o que é — fica no pai e vira pendência
         return c, nome, {"tipo": "nordeste-sem-descricao", "conta": c,
                          "texto": "Parcela do Nordeste sem descrição — não dá para separar máquina/veículo/giro."}
-    if c == "2.14.3.3" and "terceir" in str(nome or "").lower():
-        return "2.14.3.5", "Empréstimo Terceiros", None
+    # (Empréstimo Terceiros: houve uma regra aqui mapeando 2.14.3.3 → 2.14.3.5.
+    #  Removida em 01/08/2026: o Leonardo criou a família 2.17 "Devolução de
+    #  Empréstimo" no Mubisys e o título passou a vir como 2.17.3 — código novo
+    #  e legítimo, aceito como está. A ponte do histórico vive em
+    #  CONTAS_UNIFICADAS no app.js.)
     return c, nome, None
 
 
@@ -105,9 +108,16 @@ def pendencias_de_classificacao(pagar, receber, valor_janela):
     for t in pagar:
         d = (str(t.get("descricao") or "") + " " + str(t.get("origem") or "")).upper()
         pc = str(t.get("plano_contas") or "")
-        if ("PRO VIDA" in d or "PROVIDA" in d) and pc.startswith("2.1.13"):
-            out.append({"tipo": "pro-vida", "conta": "2.1.13", "valor": round(valor_janela(t), 2),
-                        "texto": "Pró Vida é plano de saúde, está em Incentivo de Produtividade (2.1.13)."})
+        # (Pró Vida: já foi listado aqui como "plano de saúde na conta errada".
+        #  O Leonardo confirmou em 01/08/2026 que É incentivo de produtividade
+        #  para os funcionários — 2.1.13 está CERTO, regra removida.)
+        # AMIL do Pedro Henrique é do grupo do Sr. Pedro (confirmado pelo
+        # Leonardo em 01/08/2026) — o lugar é 2.14.1.1 (arrendamento), não o
+        # plano de saúde das retiradas do Leonardo.
+        if "PEDRO HENRIQUE" in d and pc.startswith("2.14.2.4"):
+            out.append({"tipo": "amil-pedro-henrique", "conta": "2.14.2.4",
+                        "valor": round(valor_janela(t), 2),
+                        "texto": "AMIL Pedro Henrique é do Sr. Pedro — mover de 2.14.2.4 (Leonardo) para 2.14.1.1."})
     for t in receber:
         if t.get("tipo") == "Receita operacional":
             continue
