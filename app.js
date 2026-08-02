@@ -1578,7 +1578,8 @@ function boot(D) {
          (${signedPct(desvio)}). ${acima
            ? 'Vale abrir a fatura: medidor, bandeira tarifária ou consumo que mudou de patamar.'
            : 'Bem abaixo do normal — confira se todas as contas do mês já entraram no sistema.'}`,
-        Math.abs(atual - base) * 4);   // ×4: conta pequena, mas fugir do padrão é sinal — não pode sumir no ranking
+        Math.abs(atual - base) * 4);
+      out[out.length - 1].fixo = true;   // anomalia SEMPRE aparece — medido: mesmo ×4 no peso, R$ 1.200 de desvio some atrás de variações de dezenas de milhares
     });
 
     // 5) concentração de faturamento — risco de depender de um produto só.
@@ -1631,7 +1632,10 @@ function boot(D) {
     const ruim = op <= 0 || resAt(i) < 0 || (margem - mediaM) <= -0.10;
     const bom = !ruim && op > 0 && (cob == null || cob >= 1), medio = !ruim && op > 0;
     const sinais = sinaisDoMes(i);
+    // top 3 por dinheiro + anomalias fixas (conta de consumo fora do padrão):
+    // são tipos diferentes de sinal — magnitude não é o critério de anomalia
     const top = sinais.slice(0, 3);
+    sinais.slice(3).filter(s => s.fixo).forEach(s => top.push(s));
 
     // movimentações que mais mudaram (contas-folha)
     const movs = [];
