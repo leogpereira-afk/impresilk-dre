@@ -13,7 +13,7 @@
 <!-- ?v= junto com o CACHE do sw.js: sem isso o cache HTTP do navegador
      serve CSS/JS velhos mesmo depois do deploy, e a tela fica desencontrada
      do codigo. Subir os dois JUNTOS a cada mudanca. -->
-<link rel="stylesheet" href="styles.css?v=51" />
+<link rel="stylesheet" href="styles.css?v=52" />
 </head>
 <body>
 <div id="authOverlay" class="auth-overlay" hidden>
@@ -318,6 +318,8 @@
         <h2>💡 Utilidades · Energia × Água</h2>
         <span class="hint">Comparativo mês a mês — Cemig (energia) e Copasa (água)</span>
       </div>
+      <!-- vigia de desvio: banner quando energia/água fogem ±35% da média -->
+      <div id="utilitiesAlert"></div>
       <div id="utilitiesKpis" class="center-kpis"></div>
       <div class="util-grid">
         <div class="chart-wrap"><canvas id="utilitiesChart"></canvas></div>
@@ -521,9 +523,9 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="config.js?v=51"></script>
-<script src="data.js?v=51"></script>
-<script src="app.js?v=51"></script>
+<script src="config.js?v=52"></script>
+<script src="data.js?v=52"></script>
+<script src="app.js?v=52"></script>
 <!-- Registra o Service Worker (abre offline). Falha silenciosa se indisponível. -->
 <script>
   if ('serviceWorker' in navigator) {

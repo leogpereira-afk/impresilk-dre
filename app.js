@@ -909,17 +909,48 @@ function boot(D) {
     const dCls = ah => ah == null ? 'flat' : ah <= 0 ? 'up' : 'down';
     const dArr = ah => ah == null ? '■' : ah <= 0 ? '▼' : '▲';
 
-    kpisEl.innerHTML = `
+    /* Vigia de desvio (pedido do Leonardo em 01/08, quando a Cemig saltou de
+       R$ 982 para R$ 2.131): compara o mês atual com a MÉDIA DOS ANTERIORES —
+       não com a média geral, que já contém o salto e o disfarça. Estourou
+       ±35%, o card ganha um banner que não dá para não ver. */
+    const mediaAnterior = vals => {
+      const outros = vals.filter((_, i) => i !== cur && vals[i] > 0);
+      return outros.length ? outros.reduce((s, v) => s + v, 0) / outros.length : 0;
+    };
+    const vigia = (nome, emoji, curV, base, contaTxt) => {
+      if (!base || !curV) return '';
+      const desvio = (curV - base) / base;
+      if (Math.abs(desvio) < 0.35) return '';
+      const acima = desvio > 0;
+      return `<div class="util-alert ${acima ? 'alta' : 'baixa'}">
+        <span class="ua-ic">${emoji}</span>
+        <div><b>${nome} ${acima ? '' : 'bem '}${signedPct(desvio).replace('+', '')} ${acima ? 'ACIMA' : 'abaixo'} da média</b> —
+        ${fmt(curV)} em ${MONTHS[cur]} contra ${fmt(base)} de média dos meses anteriores.
+        ${acima ? `Vale conferir a fatura${contaTxt ? ` (${contaTxt})` : ''}: medidor, bandeira tarifária ou consumo mesmo.`
+                : 'Confira se todas as contas do mês já entraram no sistema.'}</div>
+      </div>`;
+    };
+    const alertas = vigia('Energia (Cemig)', '⚡', eCur, mediaAnterior(eVals), 'o medidor principal saltou de R$ 505 para R$ 1.522 entre jun e jul')
+                  + vigia('Água (Copasa)', '💧', wCur, mediaAnterior(wVals), '');
+    const alertBox = document.getElementById('utilitiesAlert');
+    if (alertBox) alertBox.innerHTML = alertas;
+
+    kpisEl.innerHTML = (alertBox ? '' : alertas) + `
       <div class="ck clicavel" data-det="cemig" role="button" tabindex="0" title="Clique para ver mês a mês"><span class="ck-l">⚡ Energia · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur)}</span><span class="delta ${dCls(eAh)}">${dArr(eAh)} ${eAh == null ? '—' : signedPct(eAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
       <div class="ck clicavel" data-det="copasa" role="button" tabindex="0" title="Clique para ver mês a mês"><span class="ck-l">💧 Água · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(wCur)}</span><span class="delta ${dCls(wAh)}">${dArr(wAh)} ${wAh == null ? '—' : signedPct(wAh)} <span class="vs">vs ${MONTHS[cmp]}</span></span></div>
       <div class="ck"><span class="ck-l">Total Utilidades · ${MONTHS[cur]}</span><span class="ck-v">${fmt2(eCur + wCur)}</span><span class="ck-s">energia + água no mês</span></div>
       <div class="ck"><span class="ck-l">Média Energia ${MONTHS.length}m</span><span class="ck-v">${fmt(eAvg)}</span><span class="ck-s">gasto médio mensal</span></div>
       <div class="ck"><span class="ck-l">Média Água ${MONTHS.length}m</span><span class="ck-v">${fmt(wAvg)}</span><span class="ck-s">gasto médio mensal</span></div>`;
 
+    // célula pinta quando o mês desvia ±35% da média dos DEMAIS meses — assim
+    // o salto da Cemig aparece na própria tabela, não só no banner
+    const eBase = mediaAnterior(eVals), wBase = mediaAnterior(wVals);
+    const marca = (v, base) => (v && base && Math.abs(v - base) / base >= 0.35)
+      ? (v > base ? 'util-out alta' : 'util-out baixa') : '';
     tbody.innerHTML = MONTHS.map((m, i) => `<tr>
       <td class="t-name">${m}${i === cur ? ' <span class="u-now">atual</span>' : ''}</td>
-      <td class="mono ${i === cur ? 'cur-col' : ''}">${eVals[i] ? fmt(eVals[i]) : '·'}</td>
-      <td class="mono ${i === cur ? 'cur-col' : ''}">${wVals[i] ? fmt(wVals[i]) : '·'}</td>
+      <td class="mono ${i === cur ? 'cur-col' : ''} ${marca(eVals[i], eBase)}">${eVals[i] ? fmt(eVals[i]) : '·'}</td>
+      <td class="mono ${i === cur ? 'cur-col' : ''} ${marca(wVals[i], wBase)}">${wVals[i] ? fmt(wVals[i]) : '·'}</td>
       <td class="mono">${tVals[i] ? fmt(tVals[i]) : '·'}</td>
     </tr>`).join('');
 
@@ -1528,6 +1559,28 @@ function boot(D) {
         `Entraram <b>${fmt(inn)}</b> de empréstimo/rendimento e saíram <b>${fmt(outv)}</b> de devolução — saldo de <b>${fmt(fin)}</b>. ${inn > vendas * 0.15 ? `A captação equivale a <b>${pct(inn / vendas)}</b> das vendas: parte do que parece receita é <b>dinheiro emprestado</b>.` : outv > inn ? 'Você pagou mais dívida do que pegou — dívida caindo.' : 'Movimento pequeno em relação às vendas.'}`,
         Math.max(inn, outv));
     }
+    // 4b) contas de consumo fora do padrão (pedido do Leonardo em 01/08,
+    // quando a Cemig saltou de R$ 982 para R$ 2.131 num mês). Compara com a
+    // média dos MESES ANTERIORES — a média geral já contém o salto e disfarça.
+    // O peso entra em reais de desvio, competindo de igual com os outros sinais.
+    [['2.5.3', '⚡ Energia (Cemig)'], ['2.5.1', '💧 Água (Copasa)']].forEach(([code, rot]) => {
+      const conta = get(code);
+      if (!conta) return;
+      const atual = val(conta, i);
+      const outros = MONTHS.map((_, k) => val(conta, k)).filter((v, k) => k !== i && v > 0);
+      if (!outros.length || !atual) return;
+      const base = outros.reduce((s, v) => s + v, 0) / outros.length;
+      const desvio = (atual - base) / base;
+      if (Math.abs(desvio) < 0.35) return;
+      const acima = desvio > 0;
+      push(`${rot} fora do padrão`, acima ? 'bad' : 'warn',
+        `${rot} veio <b>${fmt(atual)}</b> em ${MONTHS[i]} — a média dos outros meses é <b>${fmt(base)}</b>
+         (${signedPct(desvio)}). ${acima
+           ? 'Vale abrir a fatura: medidor, bandeira tarifária ou consumo que mudou de patamar.'
+           : 'Bem abaixo do normal — confira se todas as contas do mês já entraram no sistema.'}`,
+        Math.abs(atual - base) * 4);   // ×4: conta pequena, mas fugir do padrão é sinal — não pode sumir no ranking
+    });
+
     // 5) concentração de faturamento — risco de depender de um produto só.
     // Voltou do card "Insights do Período": era o único alerta de risco de
     // dependência e não tinha substituto na aba nova.
@@ -2811,7 +2864,7 @@ function renderDiretrizes() { /* fundido no Manual */ }
 /* ==================================================================== */
 const DIRETRIZES = [
   { g: 'Como esta DRE funciona', t: 'Regime de caixa', d: 'Esta DRE segue a <b>competência de caixa</b>: cada valor entra no mês em que o dinheiro <b>efetivamente entrou ou saiu</b> da conta — a data do pagamento/recebimento manda, não a data da venda ou da nota. Por isso o resultado pode oscilar conforme <i>quando</i> as contas foram pagas.' },
-  { g: 'Como esta DRE funciona', t: 'De onde vêm os números', d: 'O painel espelha o export <b>“Plano de Contas” (.xlsx)</b> do sistema. Ele não inventa nem corrige nada: <b>classificação errada no sistema aparece errada aqui</b>. Encontrou algo no lugar errado? A correção é feita <i>na origem</i> (reclassificar o lançamento no sistema) e depois subir o export de novo — o painel atualiza sem duplicar.' },
+  { g: 'Como esta DRE funciona', t: 'De onde vêm os números', d: 'Um robô lê o <b>Mubisys direto</b> (3× ao dia: 6h, 12h e 18h) e monta o mês sozinho — a planilha .xlsx foi aposentada em Ago/2026, mas o upload manual continua existindo como opção. O painel não inventa nem corrige nada: <b>classificação errada no sistema aparece errada aqui</b> (e o card “Para arrumar no Mubisys”, na aba Conferência, aponta as suspeitas). Encontrou algo no lugar errado? Corrija <i>na origem</i> — na leitura seguinte o painel atualiza sem duplicar.' },
   { g: 'Como esta DRE funciona', t: 'Estrutura de códigos', d: 'Contas <b>1.x</b> = Receitas (1.1 vendas, 1.3/1.4 rendimentos e empréstimos captados). Contas <b>2.x</b> = Despesas, uma por centro de custo (2.1 Funcionários, 2.12 Materiais, 2.13 Bancárias, 2.14 Societárias…). Os níveis aninham: <i>2.14.2.2</i> está dentro de <i>2.14.2</i>, que está dentro de <i>2.14</i>.' },
 
   { g: 'Regras da casa · onde classificar', t: 'Retiradas de sócios', d: 'Toda retirada de sócio vai em <b>Despesas Societárias → 2.14.2 Retiradas</b>. <b>Nunca</b> em Despesas Funcionários (2.1) — retirada não é folha de pagamento, é destino do lucro.' },
