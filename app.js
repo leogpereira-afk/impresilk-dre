@@ -2374,11 +2374,15 @@ function boot(D) {
     signals.push({ type: runway >= 3 ? 'good' : runway >= 1 ? 'warn' : 'bad', title: 'Fôlego de caixa (reserva)',
       html: `O caixa acumulado nos ${MONTHS.length} meses (<b>${fmt(accReserve)}</b>) equivale a <b>${runway.toFixed(1)} meses</b> de estrutura fixa (média de <b>${fmt(avgFixed)}</b>/mês). ${runway >= 3 ? 'Reserva <b>confortável</b> — fôlego para meses fracos e oportunidades.' : runway >= 1 ? 'Reserva <b>apertada</b> — convém engordar o colchão antes de distribuir mais.' : 'Reserva <b>insuficiente</b> — risco de aperto num mês fraco.'}` });
 
-    // peso do custo financeiro: juros e tarifas bancárias (2.13) sobre a receita
-    const finCost = val(get('2.13'), i);
-    const finPct = revAt(i) ? finCost / revAt(i) : 0;
+    // peso do custo financeiro: juros e tarifas de VERDADE — 2.13 sem a
+    // devolução de empréstimo (2.13.6) e sem a parcela do Nordeste (2.13.7).
+    // Com o 2.13 cheio o sinal dizia "R$ 166.619 de juros" quando o custo
+    // real era R$ 16.456 — o resto era o empréstimo voltando (regra de ouro:
+    // nenhum ranking de custo pode conter dívida).
+    const finCost = val(get('2.13'), i) - val(get('2.13.6'), i) - val(get('2.13.7'), i);
+    const finPct = salesAt(i) ? finCost / salesAt(i) : 0;
     signals.push({ type: finPct > 0.08 ? 'bad' : finPct > 0.04 ? 'warn' : 'good', title: 'Peso do custo financeiro',
-      html: `Juros e tarifas bancárias consumiram <b>${fmt(finCost)}</b> em ${MONTHS[i]} — <b>${pct(finPct)}</b> da receita. ${finPct > 0.08 ? 'Está <b>alto</b>: juros de cartão/empréstimo corroem o resultado — priorize quitar o rotativo.' : finPct > 0.04 ? 'Moderado — vale renegociar tarifas e evitar o rotativo do cartão.' : 'Sob controle.'}` });
+      html: `Juros e tarifas bancárias de verdade consumiram <b>${fmt(finCost)}</b> em ${MONTHS[i]} — <b>${pct(finPct)}</b> das vendas (fora daqui: devolução de empréstimo e parcela do Nordeste, que não são custo). ${finPct > 0.08 ? 'Está <b>alto</b>: juros de cartão/empréstimo corroem o resultado — priorize quitar o rotativo.' : finPct > 0.04 ? 'Moderado — vale renegociar tarifas e evitar o rotativo do cartão.' : 'Sob controle.'}` });
 
     document.getElementById('buffettSignals').innerHTML = signals.map(s => `<div class="insight ${s.type}"><span class="it ${s.type}">${s.title}</span>${s.html}</div>`).join('');
 
