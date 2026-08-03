@@ -62,6 +62,58 @@ GALHOS = {"1.1.2": "1.1.2", "1.2": "1.2", "1.5": "1.5", "1.6": "1.6"}
 PRIMEIRO_CODIGO = 51        # o plano de contas real vai até .17; .51 é terra livre
 
 
+# ---------------------------------------------------------------------------
+# DE-PARA DO PLANO NOVO (renumeração do Leonardo, 02/08/2026)
+#
+# O Mubisys foi renumerado INTEIRO: todo centro de custo trocou de código.
+# Traduzimos para os códigos CANÔNICOS (os que os 7 meses de planilha usam e
+# que as fórmulas do painel leem), porque:
+#   * a série histórica precisa continuar sendo uma só — sem isso, Materiais
+#     "morre" em 2.12 e "nasce" em 2.9, e o painel compara com o nada;
+#   * as fórmulas dos 4 blocos vivem no app.js e no conferencia.py; traduzir
+#     aqui é UM ponto, e é o único lugar onde o nome da conta está junto do
+#     código para conferir se a tradução faz sentido.
+#
+# Medido em jul/26 sem a tradução: R$ 193.799,79 de dívida e retirada caindo
+# em "Custos da Operação", retiradas e investimentos zerados.
+#
+# ORDEM IMPORTA: prefixo mais específico primeiro (2.13.5 antes de 2.13).
+DE_PARA_PLANO_NOVO = [
+    # dívida e financiamento: o galho novo 2.13 junta tudo
+    ("2.13.5", "2.13.6"),        # devolução a sócio (Leonardo/LGP/Impresilk)
+    ("2.13.3", "2.14.3.5"),      # empréstimo terceiros
+    ("2.13.4", "2.16"),          # "investimentos" dentro do galho de dívida
+    ("2.13.2", "2.13.7.1"),      # Banco do Nordeste (o split por descrição roda depois)
+    ("2.13.1", "2.13.7.1"),      # Credinor/outros financiamentos bancários
+    # centros de custo renumerados
+    ("2.11", "2.14"),            # societárias (retiradas + arrendamento)
+    ("2.10", "2.13"),            # bancárias (tarifas e juros)
+    ("2.9",  "2.12"),            # materiais e insumos
+    ("2.8",  "2.2"),             # administrativas / logística
+    ("2.7",  "2.8"),             # terceiros
+    ("2.6",  "2.7"),             # veículos
+    ("2.5",  "2.6"),             # máquinas e equipamentos
+    ("2.4",  "2.5"),             # fixas (água/luz/telefonia/aluguel)
+    ("2.3",  "2.4"),             # impostos
+    ("2.2",  "2.3"),             # limpeza
+    # 2.1 Funcionários não mudou
+]
+
+# Dentro de "fixas" o Leonardo passou a separar por MEDIDOR/ENDEREÇO
+# (2.4.1.x Copasa, 2.4.3.x Cemig). O painel acompanha energia e água pelas
+# contas canônicas 2.5.3 e 2.5.1 — o de-para acima já leva 2.4 → 2.5, e estas
+# duas linhas garantem que os medidores caiam no galho certo.
+DE_PARA_FIXAS = [("2.4.1", "2.5.1"), ("2.4.3", "2.5.3")]
+
+
+def traduzir_plano(c):
+    """Código do plano NOVO -> código canônico. Devolve o próprio se não casar."""
+    for novo, canon in DE_PARA_FIXAS + DE_PARA_PLANO_NOVO:
+        if c == novo or c.startswith(novo + "."):
+            return canon + c[len(novo):]
+    return c
+
+
 def ajustar_conta(c, nome, texto):
     """Correções de conta que a planilha fazia à mão e o ERP não faz.
 
@@ -73,12 +125,11 @@ def ajustar_conta(c, nome, texto):
       caem em "Custos da Operação": máquina financiada é investimento e capital
       de giro é dívida. A planilha fazia essa quebra nas subcontas .1/.2/.3 —
       aqui ela sai da DESCRIÇÃO do lançamento, que é padronizada no banco.
-    * EMPRÉSTIMO TERCEIROS MUDOU DE CÓDIGO — a planilha usava 2.14.3.5
-      (2.14.3.3 era Credinosso); os títulos do ERP agora dizem 2.14.3.3.
-      Mapeia para o código histórico para a série dos 8 meses ser uma só.
-      (Mesma armadilha do Nordeste, que já mudou de 2.14.3.4 para 2.13.7.1.)
+    * PLANO RENUMERADO — ver DE_PARA_PLANO_NOVO acima.
     """
     t = str(texto or "").upper()
+    if c.startswith("2."):
+        c = traduzir_plano(c)
     if c == "2.13.7.1":
         if "CAPITAL DE GIRO" in t or "GIRO" in t:
             return "2.13.7.1.3", "Capital de Giro", None
