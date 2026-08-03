@@ -18,7 +18,12 @@ OUT = Path(__file__).resolve().parent.parent      # raiz do repo
 spec = importlib.util.spec_from_file_location("em", Path(__file__).resolve().parent / "erp_mes.py")
 em = importlib.util.module_from_spec(spec); spec.loader.exec_module(em)
 
-INI, FIM = '2026-07-01', '2026-07-31'
+# Mês a conferir. Aceita "2026-07" na linha de comando.
+#     python3 scripts/checklist_erp.py 2026-07
+import calendar as _cal
+MES = next((a for a in sys.argv[1:] if re.fullmatch(r'\d{4}-\d{2}', a)), '2026-07')
+_ano, _m = map(int, MES.split('-'))
+INI, FIM = f'{MES}-01', f'{MES}-{_cal.monthrange(_ano, _m)[1]:02d}'
 def val(t):
     pgs = t.get('pagamentos') or []
     if pgs:
@@ -26,8 +31,8 @@ def val(t):
                    if INI <= str(p.get('data_pagamento') or p.get('data_credito') or '')[:10] <= FIM)
     return float(t.get('valor_pagamento') or 0) or float(t.get('valor_titulo') or 0)
 
-P = [t for t in json.load(open(OUT/'pagar_2026-07.json')) if str(t.get('compoe_dre','')).lower()=='sim']
-R = [t for t in json.load(open(OUT/'receber_2026-07.json')) if str(t.get('compoe_dre','')).lower()=='sim']
+P = [t for t in json.load(open(OUT/f'pagar_{MES}.json')) if str(t.get('compoe_dre','')).lower()=='sim']
+R = [t for t in json.load(open(OUT/f'receber_{MES}.json')) if str(t.get('compoe_dre','')).lower()=='sim']
 srv = json.load(open(OUT/'servidor.json'))
 PT=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
 def ordk(l):
@@ -36,7 +41,14 @@ def ordk(l):
         if s.startswith(m): return int(s.split('/')[1])*12+i
     return -1
 regs = sorted(srv['itens'], key=lambda r: ordk(r['label']))
-jul = {c['code']: c for c in regs[-1]['cells']}
+# O mês conferido é o do argumento, NÃO o último do servidor. Enquanto era
+# regs[-1] o checklist passou a apontar para Ago/2026 (3 dias de lançamento)
+# assim que o robô criou o mês novo, e acusava "todo centro zerou na virada".
+_alvo = ordk(f"{PT[_m-1]}/{_ano}")
+_i = next((k for k, r in enumerate(regs) if ordk(r['label']) == _alvo), len(regs) - 1)
+jul = {c['code']: c for c in regs[_i]['cells']}
+print(f"conferindo {regs[_i]['label']} (origem {regs[_i].get('origem','?')}) "
+      f"contra {regs[_i-1]['label'] if _i else '—'}\n")
 v = lambda k: jul.get(k, {}).get('value', 0.0)
 
 falhas, avisos = [], []
@@ -112,7 +124,8 @@ for t in ph:
     pc = str(t.get('plano_contas'))
     canon = em.traduzir_plano(pc.split('-')[0])
     ck("AMIL Pedro Henrique no grupo do Sr. Pedro (quem paga)", canon.startswith('2.14.1'),
-       f"está em {pc} → canônico {canon} (é retirada do Leonardo)")
+       f"está em {pc} → canônico {canon} "
+       + ("(Arrendamento — certo)" if canon.startswith('2.14.1') else "(caiu nas retiradas do Leonardo — errado)"))
 
 # Nordeste com descrição
 nord = [t for t in P if em.traduzir_plano(str(t.get('plano_contas','')).split('-')[0]).startswith('2.13.7.1')]
@@ -137,7 +150,7 @@ ck("toda conta da Cemig cai no galho de energia", not fora,
 print(f"     Cemig total R$ {sum(cemig.values()):,.2f} em {len(cemig)} medidores · painel lê 2.5.3 = R$ {v('2.5.3'):,.2f}")
 
 print("\n═══ 5. SÉRIE HISTÓRICA — continuidade por centro ═══")
-jun = {c['code']: c for c in regs[-2]['cells']}
+jun = {c['code']: c for c in regs[_i - 1]['cells']}
 quebras = []
 for code in ['2.1','2.2','2.4','2.5','2.6','2.7','2.8','2.11','2.12','2.13','2.14']:
     a = jun.get(code, {}).get('value', 0); b = jul.get(code, {}).get('value', 0)

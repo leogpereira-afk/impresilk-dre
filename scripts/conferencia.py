@@ -93,10 +93,18 @@ for i, m in enumerate(MESES):
     e, w = val("2.5.3", i), val("2.5.1", i)
     eV.append(e); wV.append(w)
     print(f"     {m:<11}{ORIGEM[i]:<10}{e:>12,.2f}{w:>12,.2f}{e + w:>12,.2f}")
-check("Cemig presente em todos os meses", all(v > 0 for v in eV),
-      f"zerado em: {[MESES[i] for i, v in enumerate(eV) if not v]}")
-check("Copasa presente em todos os meses", all(v > 0 for v in wV),
-      f"zerado em: {[MESES[i] for i, v in enumerate(wV) if not v]}")
+# O mês CORRENTE está pela metade: no dia 3 ainda não venceu conta de luz nem
+# de água, e o teste acusava falha todo começo de mês. Só cobra mês fechado.
+import datetime as _dt
+_hoje = _dt.date.today()
+_corrente = chave(f"{PT[_hoje.month - 1]}/{_hoje.year}")
+FECHADO = [i for i, m in enumerate(MESES) if chave(m) < _corrente]
+if len(FECHADO) < len(MESES):
+    print(f"     (fora da conta: {MESES[-1]} ainda está em andamento)")
+check("Cemig presente em todos os meses fechados", all(eV[i] > 0 for i in FECHADO),
+      f"zerado em: {[MESES[i] for i in FECHADO if not eV[i]]}")
+check("Copasa presente em todos os meses fechados", all(wV[i] > 0 for i in FECHADO),
+      f"zerado em: {[MESES[i] for i in FECHADO if not wV[i]]}")
 
 print("\n4) COMPARAÇÃO MÊS A MÊS — contas que aparecem/somem entre meses vizinhos")
 for i in range(1, len(MESES)):

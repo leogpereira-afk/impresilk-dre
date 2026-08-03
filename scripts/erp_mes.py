@@ -133,7 +133,18 @@ DE_PARA_SUBCONTA = [
     ("2.1.15.1", "2.1.18"),  # Minas Brasil
     ("2.1.18.1", "2.9.1"),   # Medicina Ocupacional
     ("2.1.18.2", "2.9.2"),   # EPI
-    ("2.11.1.4", "2.14.2.4"), # Amil Pedro Henrique
+    # (2.11.1.4 "Amil Pedro Henrique" TINHA um par aqui apontando para 2.14.2.4,
+    #  o plano de saúde DENTRO das retiradas do Leonardo — que é exatamente
+    #  onde ele estava lançado errado. Em 03/08/2026 o Leonardo criou a conta
+    #  no galho do Sr. Pedro; o par virou o contrário do que devia e arrastava
+    #  os R$ 392,48 de volta para as retiradas, ainda por cima somando com o
+    #  plano de saúde do próprio Leonardo (2.11.2.4) na MESMA linha. Sem par,
+    #  a regra geral 2.11→2.14 leva a 2.14.1.4, no Arrendamento. É lá que é.)
+    ("2.13.4.1", "2.16.3"),  # Investimentos — o genérico levava a 2.16.1
+                             # ("Energia Solar 1", série zerada) e a compra de
+                             # máquina recomeçava a série num código novo. A
+                             # série de verdade mora em 2.16.3 (R$ 1.127 em
+                             # jun/26 → R$ 1.124,56 em jul/26).
     ("2.2.7.1", "2.3.1"),    # Material de Limpeza
     ("2.8.1.1", "2.10.1.1"), # Hotel
     ("2.8.1.2", "2.10.1.2"), # Alimentação
@@ -365,6 +376,24 @@ def codigos_estaveis(por_produto, registro_codigos, mapa_conta):
     return reg
 
 
+# Contas que MUDARAM DE NOME sem sair do lugar. Nada no texto liga um nome ao
+# outro ("Plano de Saúde" → "Amil Pedro & Maria"), então sem esta lista o
+# sem_colisao trata como conta NOVA, remaneja para <pai>.51+ e a série
+# histórica se parte em duas — o painel passa a comparar o mês com o vazio.
+# Cada par foi conferido contra a série dos meses anteriores antes de entrar:
+# a ordem dentro do pai é a mesma e a ordem de grandeza bate.
+RENOMES = {
+    "2.14.1.1": ["Amil Pedro & Maria"],  # era "Plano de Saúde" (arrendamento Sr. Pedro/Maria)
+    "2.1.15.5": ["Eventos Pontuais"],    # era "Outros", dentro de Confraternização
+    "2.1.16":   ["Empreita"],            # era "Prestação de Serviços"
+}
+
+
+def _renome_conhecido(c, nome):
+    """O nome novo é um renome já conferido desta conta canônica?"""
+    return any(_texto_igual(a, nome) for a in RENOMES.get(c, ()))
+
+
 def _texto_igual(a, b):
     """A conta é a MESMA, só com outro nome?
 
@@ -431,7 +460,7 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
             if base in remanejadas and remanejadas[base] != base:
                 return remanejadas[base] + c[len(base):]
         antigo = nomes_conhecidos.get(c) if nomes_conhecidos else None
-        if not antigo or not nome or _texto_igual(antigo, nome):
+        if not antigo or not nome or _texto_igual(antigo, nome) or _renome_conhecido(c, nome):
             return c
         p = pai(c) or "2"
         k = _chave(p, nome)
