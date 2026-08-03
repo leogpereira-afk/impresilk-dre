@@ -100,7 +100,12 @@ function upsertMonth(D, monthLabel, parsed) {
   const origens = (D.origens || D.months.map(() => 'planilha')).slice();
   while (origens.length < N) origens.push('planilha');
   origens[mi] = 'planilha';   // upload de .xlsx é, por definição, planilha
-  return { company: D.company, basis: D.basis, months, accounts, origens, _replaced: D.months.includes(monthLabel) };
+  // idem para as pendências: um upload não pode apagar o que o robô achou nos
+  // OUTROS meses. No mês subido elas zeram — o .xlsx não traz título nenhum.
+  const pends = (D.pendencias || D.months.map(() => [])).slice();
+  while (pends.length < N) pends.push([]);
+  pends[mi] = [];
+  return { company: D.company, basis: D.basis, months, accounts, origens, pendencias: pends, _replaced: D.months.includes(monthLabel) };
 }
 
 /* acha um mês já existente que representa o MESMO período, mesmo com outra
@@ -176,6 +181,10 @@ function monthRecord(D, i, ts) {
     // devolver o mesmo valor ao sincronizar, senão o primeiro sync rebaixa
     // Jul/2026 para "planilha" e as guardas de comparação morrem em silêncio.
     origem: (D.origens || [])[i] || 'planilha',
+    // pendências do mês (o que está em conta suspeita DENTRO do Mubisys) viajam
+    // junto pelo mesmo motivo: sem devolvê-las, o primeiro sync do painel
+    // apagava do servidor a lista que o robô tinha acabado de escrever.
+    pendencias: (D.pendencias || [])[i] || [],
     cells: D.accounts.map(a => ({ code: a.code, name: a.name, level: a.level, parent: a.parent, value: a.values[i] || 0 })),
   };
 }
@@ -203,7 +212,8 @@ function monthsToDataset(records) {
   // produto vendido. Comparar folha com folha entre os dois faria a receita
   // inteira "sumir" de um mês e "nascer" no outro.
   return { company: last.company, basis: last.basis, months, accounts,
-           origens: recs.map(r => r.origem || 'planilha') };
+           origens: recs.map(r => r.origem || 'planilha'),
+           pendencias: recs.map(r => r.pendencias || []) };
 }
 
 // indicador visual no botão de sync: ☁️ ok · ⏳ trabalhando · 📴 offline/erro · ⚠️ pendências
@@ -236,7 +246,7 @@ function adoptServerMonth(record) {
 }
 // garante o shape esperado (label/cells) num registro vindo do servidor
 function normalizeRecord(r) {
-  return { id: r.id, label: r.label || r.id, atualizadoEm: r.atualizadoEm, company: r.company, basis: r.basis, origem: r.origem || 'planilha', cells: r.cells || [] };
+  return { id: r.id, label: r.label || r.id, atualizadoEm: r.atualizadoEm, company: r.company, basis: r.basis, origem: r.origem || 'planilha', pendencias: r.pendencias || [], cells: r.cells || [] };
 }
 // quebra o dataset local atual em registros por mês (usando os timestamps locais)
 function datasetRecords(D) {
@@ -2158,6 +2168,15 @@ function boot(D) {
     // corte e a comparação "OS × planilha" viram ERP×ERP — não medem nada.
     const mesEhErp = ((D.origens || [])[mi] || 'planilha') === 'erp';
 
+    // "Para arrumar no Mubisys" segue o MÊS ABERTO no painel, não a prévia.
+    // A prévia é sempre o mês corrente: no dia 1º ela vira, e as pendências
+    // ainda ABERTAS do mês anterior sumiam da tela como se tivessem sido
+    // resolvidas. Cai na prévia só quando o mês aberto não tem lista própria.
+    const pendsMes = (D.pendencias || [])[cur] || [];
+    const pends = pendsMes.length ? pendsMes
+      : (cur === mi ? (p.pendencias || []) : []);
+    const pendsLabel = pendsMes.length ? MONTHS[cur] : p.label;
+
     /* Até que dia a planilha enxerga.
        A planilha é um .xlsx exportado num dia qualquer; o ERP é lido hoje.
        Comparar mês inteiro contra planilha parcial inventa rombo: jul/26
@@ -2234,9 +2253,9 @@ function boot(D) {
           ${linha('Despesas', p.totais.despesa, of?.despesa, aliD?.acc)}
         </tbody>
       </table></div>
-      ${(p.pendencias || []).length ? (() => {
+      ${pends.length ? (() => {
         const grupos = {};
-        p.pendencias.forEach(x => {
+        pends.forEach(x => {
           const g = grupos[x.tipo] = grupos[x.tipo] || { n: 0, v: 0, itens: [] };
           g.n++; g.v += x.valor || 0; g.itens.push(x);
         });
@@ -2249,7 +2268,7 @@ function boot(D) {
           'amil-pedro-henrique': '🩺 AMIL Pedro Henrique na conta do Leonardo (é do Sr. Pedro → 2.14.1.4)',
           'nordeste-sem-descricao': '🏦 Parcela do Nordeste sem descrição',
         };
-        return `<h3 class="banco-group-title" style="margin-top:18px">🚧 Para arrumar no Mubisys</h3>
+        return `<h3 class="banco-group-title" style="margin-top:18px">🚧 Para arrumar no Mubisys · ${pendsLabel}</h3>
         <p class="hint" style="margin-bottom:8px">Lançamentos que estão em conta suspeita <b>dentro do ERP</b>.
         O painel não corrige por conta própria — o número mostrado é fiel ao Mubisys; a correção é lá na origem.</p>
         ${Object.entries(grupos).map(([tipo, g]) => `
