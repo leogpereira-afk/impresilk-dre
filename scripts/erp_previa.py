@@ -325,9 +325,10 @@ def processar(ini):
             if c.get("name") and c.get("code") and c["name"] != c["code"]:
                 nomes_contas.setdefault(c["code"], c["name"])
 
-    registro, cod_produtos = erp_mes.montar(
+    registro, cod_produtos, cod_remanejadas = erp_mes.montar(
         label, receber, pagar, por_produto, lambda t: valor_na_janela(t, si, sf),
-        codigo, cfg_atual.get("produtosCodigo"), erp_os.MAPA_CONTA, nomes_contas)
+        codigo, cfg_atual.get("produtosCodigo"), erp_os.MAPA_CONTA, nomes_contas,
+        cfg_atual.get("contasRemanejadas"))
 
     # As pendências de classificação (Pró Vida, receita não-operacional em
     # conta de produto, Nordeste sem descrição…) viajam na prévia: é o que a
@@ -345,6 +346,9 @@ def processar(ini):
     else:
         cfg_atual["previaERP"] = previa
         cfg_atual["produtosCodigo"] = cod_produtos
+        # a escolha de código das contas remanejadas TEM que sobreviver entre
+        # execuções, senão a conta muda de código a cada leitura do robô
+        cfg_atual["contasRemanejadas"] = cod_remanejadas
         call("dre-sync", {"action": "setCfg", "cfg": cfg_atual}, 90)
 
         # TRAVA: nunca reescrever mês que veio da planilha. Os 8 meses do

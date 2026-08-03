@@ -306,7 +306,8 @@ def _texto_igual(a, b):
 
 
 def montar(label, receber, pagar, por_produto, valor_janela, codigo,
-           registro_codigos=None, mapa_conta=None, nomes_conhecidos=None):
+           registro_codigos=None, mapa_conta=None, nomes_conhecidos=None,
+           registro_remanejadas=None):
     """Devolve (registro do mês, códigos de produto atualizados).
 
     nomes_conhecidos: code -> nome, tirado dos meses que já estão no servidor.
@@ -317,7 +318,13 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
     folhas = {}
     nomes = dict(nomes_conhecidos or {})
     nomes.update(NOMES_BASE)
-    usados_no_pai = {}          # pai -> maior sufixo já dado a conta remanejada
+    # Remanejamentos já decididos, vindos do servidor (cfg.contasRemanejadas):
+    # chave "<pai>|<nome normalizado>" -> código. PRECISA ser persistido, senão
+    # cada leitura escolhe um sufixo diferente (o .51 da rodada anterior já
+    # está em `nomes`, o loop pula para .52) e a série se quebra sozinha 3x por
+    # dia — a conta "muda de código" a cada execução do robô.
+    reman = dict(registro_remanejadas or {})
+    _chave = lambda p, n: f"{p}|{re.sub(r'[^a-z0-9]', '', unicodedata.normalize('NFD', str(n or '').lower()).encode('ascii', 'ignore').decode())}"
 
     def sem_colisao(c, nome):
         """Um código canônico só é reaproveitado se o NOME bater.
@@ -329,24 +336,57 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
         e uma série histórica que compara coisas diferentes.
 
         Quando o nome não bate, a conta ganha um código livre sob o MESMO pai
-        (sufixo a partir de 51, como já é feito com produto). O total do centro
-        continua exato, a série do pai continua comparável, e ninguém vê
-        'Horas Extras R$ 17.185' sendo na verdade honorários + comissão + diária.
+        (sufixo a partir de 51, como já é feito com produto), e a escolha é
+        GRAVADA para valer nas próximas leituras. O total do centro continua
+        exato e a série do pai continua comparável.
+
+        Os DESCENDENTES seguem o pai: se 2.1.11 virou 2.1.52, então 2.1.11.4
+        vira 2.1.52.4. Sem isso o filho ficava pendurado no código velho e o
+        pai antigo somava R$ 8.864,59 exibindo "Horas Extras" — quando a hora
+        extra de julho foi R$ 583,64.
         """
+        # 1) algum ancestral já foi remanejado? o filho vai junto
+        partes = c.split(".")
+        for i in range(len(partes) - 1, 1, -1):
+            base = ".".join(partes[:i])
+            if base in remanejadas and remanejadas[base] != base:
+                return remanejadas[base] + c[len(base):]
         antigo = nomes_conhecidos.get(c) if nomes_conhecidos else None
         if not antigo or not nome or _texto_igual(antigo, nome):
             return c
         p = pai(c) or "2"
-        n = usados_no_pai.get(p, 50)
+        k = _chave(p, nome)
+        if k in reman:
+            return reman[k]                       # decisão já tomada antes
+        usados = {v for v in reman.values()}
+        n = 50
         while True:
             n += 1
             novo = f"{p}.{n}"
-            if novo not in nomes and novo not in folhas:
-                usados_no_pai[p] = n
+            if novo not in nomes and novo not in folhas and novo not in usados:
+                reman[k] = novo
                 return novo
 
     pendencias = pendencias_de_classificacao(pagar, receber, valor_janela)
+
+    # PASSADA PRÉVIA: decide todo remanejamento antes de somar, do código mais
+    # RASO para o mais fundo. Sem isso a ordem dos títulos mandava — quando o
+    # filho (2.1.11.4 Empreita) vinha antes do pai (2.1.11 Honorários), o pai
+    # ainda não estava em `remanejadas` e o filho ficava pendurado no código
+    # velho, sob o rótulo "Horas Extras".
     remanejadas = {}
+    vistos_cod = {}
+    for t in pagar:
+        c0, n0 = codigo(t.get("plano_contas"))
+        if not c0:
+            c0, n0 = "2", "Despesas"
+        if c0 == "2":
+            c0, n0 = "2.99", "Fatura de cartão (sem detalhamento)"
+        c0, n0, _ = ajustar_conta(c0, n0, t.get("descricao"))
+        vistos_cod.setdefault(c0, n0)
+    for c0 in sorted(vistos_cod, key=lambda x: (x.count("."), x)):
+        remanejadas[c0] = sem_colisao(c0, vistos_cod[c0])
+
     for t in pagar:
         c, nome = codigo(t.get("plano_contas"))
         if not c:
@@ -360,9 +400,7 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
         if pend:
             pend["valor"] = round(valor_janela(t), 2)
             pendencias.append(pend)
-        if c not in remanejadas:
-            remanejadas[c] = sem_colisao(c, nome)
-        c = remanejadas[c]
+        c = remanejadas.get(c, c)
         nomes[c] = nome or nomes.get(c, c)
         folhas[c] = round(folhas.get(c, 0.0) + valor_janela(t), 2)
 
@@ -386,4 +424,4 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
     return ({"id": re.sub(r"[^\w]+", "_", label.strip()), "label": label,
              "company": "Impresilk", "basis": "Competência de Caixa",
              "origem": "erp", "cells": _acumular(folhas, nomes),
-             "pendencias": pendencias}, reg)
+             "pendencias": pendencias}, reg, reman)
