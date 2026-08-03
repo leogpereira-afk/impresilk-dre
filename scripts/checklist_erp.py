@@ -82,7 +82,10 @@ print("\n═══ 3. OS 4 BLOCOS — somam a despesa inteira? ═══")
 finRev = v('1.3')+v('1.4')+v('1.7')
 loanOut = v('2.13.6') + (v('2.14.3')-v('2.14.3.4')) + v('2.13.7.1.3') + v('2.17') + v('2.18')
 owner = v('2.14')-v('2.14.3')
-invest = v('2.16')+v('2.13.7.1.1')+v('2.13.7.1.2')
+# 2.14.3.4 é a MESMA parcela do Nordeste nos meses antigos (antes da
+# renumeração). Fica aqui para a fórmula ser idêntica à do app.js; nos meses
+# ERP ela vale zero, porque a conta virou 2.13.7.1.
+invest = v('2.16')+v('2.13.7.1.1')+v('2.13.7.1.2')+v('2.14.3.4')
 custos = v('2')-loanOut-owner-invest
 soma = custos+owner+invest+loanOut
 print(f"     custos {custos:>12,.2f} · sócios {owner:>11,.2f} · invest {invest:>10,.2f} · dívida {loanOut:>12,.2f}")

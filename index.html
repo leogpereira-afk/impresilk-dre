@@ -13,7 +13,7 @@
 <!-- ?v= junto com o CACHE do sw.js: sem isso o cache HTTP do navegador
      serve CSS/JS velhos mesmo depois do deploy, e a tela fica desencontrada
      do codigo. Subir os dois JUNTOS a cada mudanca. -->
-<link rel="stylesheet" href="styles.css?v=59" />
+<link rel="stylesheet" href="styles.css?v=60" />
 </head>
 <body>
 <div id="authOverlay" class="auth-overlay" hidden>
@@ -76,7 +76,6 @@
     <button id="restoreBtn" class="theme-btn" title="Restaurar de um backup (.json)" aria-label="Importar backup">📂</button>
     <input type="file" id="restoreInput" accept=".json,application/json" hidden />
     <button id="syncBtn" class="theme-btn sync-btn" title="Sincronizar com a nuvem" aria-label="Sincronizar">☁️</button>
-    <button id="manualBtn" class="theme-btn" title="Manual: regras de lançamento e dicionário" aria-label="Manual">📘</button>
     <button id="usersBtn" class="theme-btn master-only" title="Usuários e permissões" aria-label="Usuários">👤</button>
     <button id="themeToggle" class="theme-btn" title="Alternar tema claro/escuro" aria-label="Alternar tema">🌙</button>
     <div id="userChip" class="user-chip" hidden>
@@ -110,6 +109,7 @@
   <button data-view="overview">📊 Resultado</button>
   <button data-view="centers">🎯 Centros</button>
   <button data-view="mirror">🔎 Conferência</button>
+  <button data-view="manual">📘 Manual</button>
   <button data-view="ano">📅 Ano</button>
 </nav>
 
@@ -440,9 +440,24 @@
 
   <!-- ===================== GLOSSÁRIO ===================== -->
   <div class="view hidden" id="view-manual">
+    <!-- As duas lentes: o que MUDA entre "Valor real" e "Com financiamentos",
+         com os números do mês selecionado. Montado em app.js (renderManual). -->
+    <section class="card">
+      <div class="card-head"><h2 id="lenteTitulo">🎛️ As duas lentes do painel</h2>
+        <span class="hint">o que entra e o que sai de cada uma, com os números do mês aberto</span></div>
+      <div id="manualLente"></div>
+    </section>
+
+    <!-- O mês selecionado, entrada por entrada e saída por saída -->
+    <section class="card">
+      <div class="card-head"><h2 id="fluxoTitulo">📆 O que entrou e o que saiu</h2>
+        <span class="hint">cada conta do mês, com a marca de quem entra na operação e quem fica fora</span></div>
+      <div id="manualFluxo"></div>
+    </section>
+
     <section class="card">
       <div class="card-head">
-        <h2>📘 Manual · Regras da casa e dicionário</h2>
+        <h2>📗 Regras da casa e dicionário</h2>
         <div class="tree-controls">
           <input type="search" id="glossarySearch" placeholder="Buscar regra ou termo…" />
         </div>
@@ -529,10 +544,10 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="config.js?v=59"></script>
-<script src="auth.js?v=59"></script>
-<script src="data.js?v=59"></script>
-<script src="app.js?v=59"></script>
+<script src="config.js?v=60"></script>
+<script src="auth.js?v=60"></script>
+<script src="data.js?v=60"></script>
+<script src="app.js?v=60"></script>
 <!-- Registra o Service Worker (abre offline). Falha silenciosa se indisponível. -->
 <script>
   if ('serviceWorker' in navigator) {

@@ -288,7 +288,9 @@ button.ghost:hover { color: var(--txt); border-color: var(--accent); }
 
 /* ===================== Tabs (views) ===================== */
 .tabs {
-  position: sticky; top: 74px; z-index: 25;
+  /* 74px da topbar + 53px da barra de período (altura fixa: os chips deslizam
+     em vez de quebrar linha) */
+  position: sticky; top: 127px; z-index: 25;
   display: flex; gap: 6px; flex-wrap: wrap;
   max-width: 1240px; margin: 0 auto; padding: 12px 28px 0;
 }
@@ -608,6 +610,9 @@ body.locked { overflow: hidden; }
   }
   .tabs::-webkit-scrollbar { display: none; }
   .tabs button { flex: none; scroll-snap-align: start; }
+  /* topbar do celular tem duas linhas: se a barra de período também grudar em
+     cima, uma cobre a outra. Aqui ela volta a rolar junto com a página. */
+  .periodo-bar { position: static; }
   /* chips e subtabs também deslizam em vez de quebrar linha */
   .subtabs, .center-chips {
     flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
@@ -751,7 +756,8 @@ body.locked { overflow: hidden; }
 .es-tab { width: 100%; }
 .es-tab td { padding: 8px 15px; font-size: 13px; border-bottom: 1px solid var(--line); }
 .es-tab tr:last-child td { border-bottom: 0; }
-.es-obs { display: block; font-size: 10.5px; color: var(--warn); margin-top: 2px; font-weight: 600; }
+.es-obs { display: block; font-size: 10.5px; color: var(--warn); margin-top: 2px; font-weight: 600; white-space: normal; }
+#manualFluxo .es-tab td.t-name { white-space: normal; }
 .es-fecha {
   display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
   margin-top: 16px; padding: 14px 18px; border-radius: 12px;
@@ -762,7 +768,86 @@ body.locked { overflow: hidden; }
 .es-fecha span { font-size: 13px; color: var(--txt-dim); }
 .es-fecha b { font-size: 18px; font-variant-numeric: tabular-nums; }
 .es-nota { margin-top: 12px; line-height: 1.65; }
+.es-rod {
+  padding: 10px 15px; border-top: 1px solid var(--line); background: var(--card);
+  font-size: 12.5px; color: var(--txt-dim);
+}
+.es-rod b { font-size: 14px; color: var(--txt); font-variant-numeric: tabular-nums; }
 @media (max-width: 860px) { .es-grid { grid-template-columns: 1fr; } }
+
+/* ── MANUAL · as duas lentes ─────────────────────────────────────────── */
+.lente-cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.lente-col {
+  border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px;
+  background: var(--card-2); border-top: 3px solid var(--line);
+}
+.lente-col.lc-op { border-top-color: var(--pos); }
+.lente-col.lc-cx { border-top-color: var(--accent-2); }
+.lc-h { font-size: 15px; font-weight: 800; margin-bottom: 8px; }
+.lc-q { font-size: 12.5px; line-height: 1.6; color: var(--txt-dim); margin: 0 0 14px; }
+.lc-k {
+  display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 4px 10px;
+  padding: 9px 0; border-top: 1px solid var(--line);
+}
+.lc-kl { font-size: 12.5px; color: var(--txt-dim); }
+.lc-kv { font-size: 16px; font-variant-numeric: tabular-nums; }
+.lc-kv.neg { color: var(--neg); }
+.lc-ks { grid-column: 1 / -1; font-size: 10.5px; color: var(--txt-dim); opacity: .75; }
+.lc-n { margin: 14px 0 0; font-size: 12px; color: var(--txt-dim); }
+
+/* etiqueta de bloco (operação / sócios / investimento / dívida) */
+.man-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px;
+  border: 1px solid currentColor; opacity: .9; vertical-align: middle;
+}
+.man-tag.op  { color: var(--pos); }
+.man-tag.soc { color: #a78bfa; }
+.man-tag.inv { color: var(--accent-2); }
+.man-tag.div { color: var(--warn); }
+
+/* escada: extrato → (−) linhas tiradas → número da lente operação */
+.esc { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--card-2); margin-bottom: 6px; }
+.esc-top, .esc-base {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 12px 16px; font-size: 13px; font-weight: 700;
+}
+.esc-top { background: var(--card); border-bottom: 1px solid var(--line); color: var(--txt-dim); }
+.esc-base { border-top: 2px solid var(--line); }
+.esc.in .esc-base { border-top-color: var(--pos); }
+.esc.out .esc-base { border-top-color: var(--neg); }
+.esc-top b, .esc-base b { font-size: 17px; font-variant-numeric: tabular-nums; color: var(--txt); }
+.esc-base b.neg { color: var(--neg); }
+.esc-tab { width: 100%; table-layout: fixed; }
+/* tbody td herda white-space: nowrap; sem isto a explicação vira uma linha
+   única e joga o valor para fora da tela */
+.esc-tab td { padding: 9px 16px; font-size: 13px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.esc-tab td.t-name { white-space: normal; }
+.esc-tab td:last-child { width: 130px; white-space: nowrap; }
+.esc-tab tr:last-child td { border-bottom: 0; }
+.esc-menos { color: var(--neg); font-weight: 800; margin-right: 4px; }
+.esc-cod { display: block; font-size: 10.5px; color: var(--txt-dim); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.esc-tab .es-obs { color: var(--txt-dim); font-weight: 500; }
+.esc-ck { padding: 9px 16px; font-size: 11.5px; font-weight: 700; border-top: 1px solid var(--line); }
+.esc-ck.ok { color: var(--pos); }
+.esc-ck.bad { color: var(--neg); background: rgba(248,113,113,.08); }
+
+/* ponte: operação − sócios − investimentos + financiamento = caixa */
+.ponte { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.ponte .pt {
+  flex: 1 1 130px; display: flex; flex-direction: column; gap: 4px;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card-2);
+}
+.ponte .pt span { font-size: 11px; color: var(--txt-dim); text-transform: uppercase; letter-spacing: .4px; }
+.ponte .pt b { font-size: 16px; font-variant-numeric: tabular-nums; }
+.ponte .pt.fim { border-color: var(--accent-2); background: var(--card); }
+.ponte .pop { align-self: center; font-size: 18px; font-weight: 800; color: var(--txt-dim); }
+.ponte.bad .pt.fim { border-color: var(--neg); }
+@media (max-width: 860px) {
+  .lente-cmp { grid-template-columns: 1fr; }
+  .ponte .pt { flex: 1 1 100%; }
+  .ponte .pop { display: none; }
+}
 
 /* sub-abas de RECEITA dentro de Centros (verde, para separar de despesa) */
 .subtabs button.is-rev { border-color: var(--pos); color: var(--pos); }
@@ -853,16 +938,26 @@ td.util-out.baixa { color: var(--brand, #2563eb); font-weight: 700; }
 /* ===================== BARRA DE PERÍODO (ano + chips de mês) =====================
    Substitui os dois dropdowns. Mostra o ano inteiro de uma vez: que meses
    existem, qual está aberto (sel) e qual é a comparação (cmp). */
+/* Gruda LOGO ABAIXO da topbar (74px), nunca em cima dela: as duas em top:0
+   com o mesmo z-index faziam a barra de chips cobrir metade dos botões. */
 .periodo-bar {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 12px; flex-wrap: nowrap;
   padding: 10px 20px; background: var(--card); border-bottom: 1px solid var(--line);
-  position: sticky; top: 0; z-index: 30;
+  position: sticky; top: 74px; z-index: 26;
 }
 .ano-sel {
   font-weight: 700; font-size: .95rem; padding: 6px 10px; border-radius: 10px;
   border: 1px solid var(--line); background: var(--bg); color: inherit; cursor: pointer;
 }
-.mes-chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
+/* uma linha só, deslizando na horizontal: com quebra de linha a barra mudava
+   de altura e as abas (sticky logo abaixo) caíam em cima dela */
+.mes-chips {
+  display: flex; gap: 6px; flex-wrap: nowrap; flex: 1; min-width: 0;
+  overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.mes-chips::-webkit-scrollbar { display: none; }
+.mes-chip { flex: none; }
 .mes-chip {
   border: 1px solid var(--line); background: var(--bg); color: inherit;
   border-radius: 999px; padding: 6px 14px; font-size: .86rem; font-weight: 600;
@@ -888,7 +983,9 @@ td.util-out.baixa { color: var(--brand, #2563eb); font-weight: 700; }
 @media (max-width: 720px) {
   .periodo-bar { padding: 8px 12px; gap: 8px; }
   .mes-chip { padding: 5px 10px; font-size: .8rem; }
-  .cmp-ctrl { width: 100%; }
+  /* no celular o rótulo some: só a seta do "vs", para os chips ficarem com o
+     espaço todo. Sem isto o seletor de comparação come metade da barra. */
+  .cmp-ctrl span { display: none; }
 }
 
 /* aba Ano: linha do mês é clicável e leva o painel inteiro para ele */

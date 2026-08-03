@@ -1428,7 +1428,13 @@ function boot(D) {
   // Somar tudo como investimento inflava o ativo em ~R$ 9,6 mil/mês.
   const ATIVO_FIN_CODES = ['2.13.7.1.1', '2.13.7.1.2'];   // financiamento que vira patrimônio
   const GIRO_CODE = '2.13.7.1.3';                          // financiamento que é só dívida
-  const machineFinAt = i => ATIVO_FIN_CODES.reduce((s, c) => s + val(get(c), i), 0);
+  // A MESMA parcela nos meses ANTIGOS mora em 2.14.3.4 (antes da renumeração).
+  // bankRevolvAt já a tirava da dívida rotativa, mas ninguém a colocava no
+  // investimento: sobrava dentro de "Custos da Operação" e comia ~R$ 23 mil por
+  // mês do resultado em Dez/25→Mai/26 (R$ 164 mil no acumulado). O card
+  // "Máquinas e veículo financiados (Nordeste)" mostrava R$ 0 nesses meses.
+  const machineOldAt = i => val(get('2.14.3.4'), i);
+  const machineFinAt = i => ATIVO_FIN_CODES.reduce((s, c) => s + val(get(c), i), 0) + machineOldAt(i);
   const giroAt = i => val(get(GIRO_CODE), i);
   const bankDebtAt = i => val(get(BANK_DEBT_CODE), i);            // 2.14.3 (histórico antigo)
   const bankRevolvAt = i => bankDebtAt(i) - val(get('2.14.3.4'), i);
@@ -1490,7 +1496,7 @@ function boot(D) {
     blocoSocios: () => ({ t: '2 · Sócios', f: i => -ownerAt(i), desp: true,
       contas: filhosDe('2.14').filter(c => c !== '2.14.3'),
       exp: 'Retiradas dos sócios e arrendamento (2.14), fora a devolução de empréstimo bancário que mora no mesmo galho.' }),
-    blocoInvest: () => ({ t: '3 · Investimentos', f: i => -investAt(i), contas: ['2.16', ...ATIVO_FIN_CODES],
+    blocoInvest: () => ({ t: '3 · Investimentos', f: i => -investAt(i), contas: ['2.16', ...ATIVO_FIN_CODES, '2.14.3.4'],
       exp: 'Máquinas e veículos, à vista ou financiados. Vira patrimônio — sai do caixa mas não é gasto.' }),
     // Contas COM SINAL, espelhando financAt exatamente — a lista plana somava
     // R$ 280 mil "de onde vem" para um bloco de R$ 24 mil (2.13.6 é subtraído
@@ -2575,13 +2581,17 @@ function boot(D) {
 
     const linha = i => {
       const v = salesAt(i), o = resOperAt(i), m = v ? o / v : 0;
+      // Mês recém-começado (ex.: dia 3 do mês) tem venda quase zero e a margem
+      // vira ruído — "−3.588,6%" não diz nada. Some com a % e marca o mês como
+      // em andamento em vez de fingir um número.
+      const parcial = Math.abs(m) > 3;
       return `<tr class="ano-linha${i === cur ? ' cur-row' : ''}" data-i="${i}">
-        <td class="t-name">${MONTHS[i]}${i === cur ? ' <span class="u-now">aberto</span>' : ''}</td>
+        <td class="t-name">${MONTHS[i]}${i === cur ? ' <span class="u-now">aberto</span>' : ''}${parcial ? ' <span class="es-obs" style="display:inline;margin-left:6px">mês em andamento</span>' : ''}</td>
         <td class="mono">${fmt(revAt(i))}</td>
         <td class="mono">${fmt(v)}</td>
         <td class="mono">${fmt(despOperAt(i))}</td>
         <td class="mono ${o >= 0 ? 'pos' : 'neg'}">${fmt(o)}</td>
-        <td class="${m >= 0.15 ? 'pos' : m >= 0.05 ? '' : 'neg'}">${pct(m)}</td>
+        <td class="${parcial ? 'av' : m >= 0.15 ? 'pos' : m >= 0.05 ? '' : 'neg'}">${parcial ? '—' : pct(m)}</td>
         <td class="mono">${fmt(ownerAt(i))}</td>
         <td class="mono">${fmt(investAt(i))}</td>
         <td class="mono ${resAt(i) >= 0 ? 'pos' : 'neg'}">${fmt(resAt(i))}</td>
@@ -2616,8 +2626,222 @@ function boot(D) {
     });
   }
 
+  /* ------------------------------------------------------------------ *
+   *  MANUAL — as duas lentes explicadas com os números do mês aberto
+   *  ------------------------------------------------------------------
+   *  O seletor 🎯 Valor real × 💵 Com financiamentos troca os 4 KPIs do
+   *  topo, mas até aqui ninguém dizia QUAIS contas mudam de lado. Este
+   *  bloco mostra a escada inteira: quanto entrou no banco, o que é
+   *  tirado para virar "Vendas", quanto saiu, o que é tirado para virar
+   *  "Custos da Operação", e a ponte entre os dois resultados.
+   *
+   *  A soma das linhas tiradas é EXATAMENTE loanOutAt + ownerAt +
+   *  investAt — se a escada não fechar no centavo, o painel avisa em vez
+   *  de fingir que fechou.                                              */
+
+  // Parcela de cada galho de despesa que NÃO entra em "Custos da Operação".
+  const foraDaOperAt = (c, i) => {
+    switch (c) {
+      // 2.13 Bancárias é mista: juros e tarifas são custo de verdade; o resto
+      // (antecipação, máquina financiada, capital de giro) é dívida/ativo.
+      case '2.13': return val(get('2.13.6'), i) + (machineFinAt(i) - machineOldAt(i)) + giroAt(i);
+      case '2.14': return val(get('2.14'), i);   // sócios + dívida bancária + Nordeste
+      case '2.16': return val(get('2.16'), i);
+      case '2.17': return val(get('2.17'), i);
+      case '2.18': return val(get('2.18'), i);
+      default: return 0;
+    }
+  };
+  const TAG = { op: ['op', 'operação'], soc: ['soc', 'sócios'], inv: ['inv', 'investimento'],
+                div: ['div', 'dívida'], fin: ['div', 'não é venda'] };
+  const tag = k => `<span class="man-tag ${TAG[k][0]}">${TAG[k][1]}</span>`;
+
+  function renderManual() {
+    const hostL = document.getElementById('manualLente');
+    const hostF = document.getElementById('manualFluxo');
+    if (!hostL || !hostF) return;
+    const i = cur, m = MONTHS[i];
+    const tit = document.getElementById('lenteTitulo');
+    if (tit) tit.textContent = `🎛️ As duas lentes do painel · ${m}`;
+    const tf = document.getElementById('fluxoTitulo');
+    if (tf) tf.textContent = `📆 ${m} · o que entrou e o que saiu`;
+
+    /* ---------- 1) as duas lentes lado a lado ---------- */
+    const kpi = (rot, v, sub, pctv) =>
+      `<div class="lc-k"><span class="lc-kl">${rot}</span>
+        <b class="lc-kv ${v < 0 ? 'neg' : ''}">${pctv ? pct(v) : fmt2(v)}</b>
+        <span class="lc-ks">${sub}</span></div>`;
+    const opMargem = salesAt(i) ? resOperAt(i) / salesAt(i) : 0;
+
+    const colunas = `
+      <div class="lente-cmp">
+        <div class="lente-col lc-op">
+          <div class="lc-h">🎯 Valor real (operação)</div>
+          <p class="lc-q">Responde: <b>o negócio, sozinho, deu lucro?</b> Só conta o dinheiro que a
+            empresa <i>gerou</i> — empréstimo que entrou não é venda, empréstimo que voltou não é
+            despesa, retirada de sócio não é custo e máquina comprada é patrimônio, não gasto.</p>
+          ${kpi('Vendas', salesAt(i), 'só receita de verdade')}
+          ${kpi('Custos da Operação', despOperAt(i), 'só o que a operação consumiu')}
+          ${kpi('Resultado da Operação', resOperAt(i), 'o lucro limpo do mês')}
+          ${kpi('Margem da Operação', opMargem, 'sobra de cada R$ 100 vendidos', true)}
+          <p class="lc-n">Use para <b>decidir</b>: preço, corte de custo, contratação.</p>
+        </div>
+        <div class="lente-col lc-cx">
+          <div class="lc-h">💵 Com financiamentos (caixa)</div>
+          <p class="lc-q">Responde: <b>quanto dinheiro passou pela conta?</b> Não tira nada:
+            é o extrato bancário do mês, com empréstimo captado, devolução de dívida, retirada
+            de sócio e compra de máquina tudo dentro.</p>
+          ${kpi('Entrou no banco', revAt(i), 'todo crédito do mês')}
+          ${kpi('Saiu do banco', expAt(i), 'todo débito do mês')}
+          ${kpi('Variação de Caixa', resAt(i), 'quanto o saldo mudou')}
+          ${kpi('Margem de Caixa', marginAt(i), 'sobra de cada R$ 100 que passaram', true)}
+          <p class="lc-n">Use para <b>conferir</b>: esta lente tem que bater com o extrato.</p>
+        </div>
+      </div>`;
+
+    /* ---------- 2) escada das ENTRADAS ---------- */
+    const linEnt = [
+      { c: '1.3', por: 'juro que o banco pagou sobre o saldo — não é cliente pagando' },
+      { c: '1.4', por: 'dinheiro emprestado: entra hoje e volta depois, com juros' },
+      { c: '1.7', por: 'Pix sem dono identificado — só vira venda quando alguém disser de quem é' },
+    ].map(x => ({ ...x, a: get(x.c), v: val(get(x.c), i) }));
+    const totEntFora = linEnt.reduce((s, x) => s + x.v, 0);
+    const fechaEnt = Math.abs(revAt(i) - totEntFora - salesAt(i)) < 0.02;
+
+    /* ---------- 3) escada das SAÍDAS ---------- */
+    const linSai = [
+      { r: 'Retiradas dos sócios e arrendamento', c: '2.14 menos 2.14.3', k: 'soc',
+        v: ownerAt(i), por: 'é o dono levando o lucro para casa, não é a operação gastando' },
+      { r: 'Máquinas e equipamentos à vista', c: '2.16', k: 'inv',
+        v: val(get('2.16'), i), por: 'sai do caixa mas vira patrimônio — a máquina continua sendo sua' },
+      { r: 'Máquinas e veículo financiados (Nordeste)', c: '2.13.7.1.1 · .2 · 2.14.3.4', k: 'inv',
+        v: machineFinAt(i), por: 'a mesma coisa, só que parcelada pelo banco' },
+      { r: 'Antecipação de recebíveis', c: '2.13.6', k: 'div',
+        v: val(get('2.13.6'), i), por: 'custo de receber antes — dívida, não consumo da operação' },
+      { r: 'Capital de giro (Nordeste)', c: '2.13.7.1.3', k: 'div',
+        v: giroAt(i), por: 'a parte da parcela que é dívida pura, sem máquina do outro lado' },
+      { r: 'Empréstimos bancários', c: '2.14.3 menos 2.14.3.4', k: 'div',
+        v: bankRevolvAt(i), por: 'principal do empréstimo voltando para o banco' },
+      { r: 'Devolução de empréstimo de sócio', c: '2.17', k: 'div',
+        v: val(get('2.17'), i), por: 'o sócio emprestou para a empresa e está recebendo de volta' },
+      { r: 'Transferência entre empresas', c: '2.18', k: 'div',
+        v: val(get('2.18'), i), por: 'dinheiro trocando de bolso dentro do grupo — não sumiu' },
+    ];
+    const totSaiFora = linSai.reduce((s, x) => s + x.v, 0);
+    const fechaSai = Math.abs(expAt(i) - totSaiFora - despOperAt(i)) < 0.02;
+
+    const escada = (titulo, cls, topoRot, topo, itens, baseRot, base, fecha) => `
+      <div class="esc ${cls}">
+        <div class="esc-top"><span>${topoRot}</span><b>${fmt2(topo)}</b></div>
+        <div class="table-scroll"><table class="dre esc-tab"><tbody>
+          ${itens.filter(x => Math.abs(x.v) > 0.004).map(x => `<tr>
+            <td class="t-name"><span class="esc-menos">−</span> ${x.r}
+              ${x.k ? tag(x.k) : ''}
+              <span class="esc-cod">${x.c}</span>
+              <span class="es-obs">${x.por}</span></td>
+            <td class="mono neg">${fmt2(-x.v)}</td></tr>`).join('')
+          || `<tr><td class="t-name">Nada a tirar neste mês — as duas lentes dão o mesmo número.</td><td class="mono">—</td></tr>`}
+        </tbody></table></div>
+        <div class="esc-base"><span>${baseRot}</span><b class="${base < 0 ? 'neg' : ''}">${fmt2(base)}</b></div>
+        <div class="esc-ck ${fecha ? 'ok' : 'bad'}">${fecha
+          ? '✓ a escada fecha no centavo'
+          : '⚠ a escada NÃO fecha — há conta fora das duas listas, avise o Leonardo'}</div>
+      </div>`;
+
+    const op = resOperAt(i), soc = ownerAt(i), inv = investAt(i), fin = financAt(i), cx = resAt(i);
+    const ponte = Math.abs(op - soc - inv + fin - cx) < 0.02;
+
+    hostL.innerHTML = colunas + `
+      <h3 class="banco-group-title">Do extrato até as Vendas — o que a lente 🎯 tira das ENTRADAS</h3>
+      ${escada('Entradas', 'in', 'Entrou no banco (lente 💵)', revAt(i), linEnt.map(x => ({
+        r: x.a ? x.a.name : x.c, c: x.c, k: 'fin', v: x.v, por: x.por,
+      })), 'Vendas (lente 🎯)', salesAt(i), fechaEnt)}
+
+      <h3 class="banco-group-title">Do extrato até os Custos — o que a lente 🎯 tira das SAÍDAS</h3>
+      ${escada('Saídas', 'out', 'Saiu do banco (lente 💵)', expAt(i), linSai, 'Custos da Operação (lente 🎯)', despOperAt(i), fechaSai)}
+
+      <h3 class="banco-group-title">A ponte entre os dois resultados</h3>
+      <div class="ponte ${ponte ? '' : 'bad'}">
+        <div class="pt"><span>1 · Operação</span><b class="${op < 0 ? 'neg' : 'pos'}">${fmt2(op)}</b></div>
+        <div class="pop">−</div>
+        <div class="pt"><span>2 · Sócios</span><b>${fmt2(soc)}</b></div>
+        <div class="pop">−</div>
+        <div class="pt"><span>3 · Investimentos</span><b>${fmt2(inv)}</b></div>
+        <div class="pop">+</div>
+        <div class="pt"><span>4 · Financiamento</span><b class="${fin < 0 ? 'neg' : 'pos'}">${fmt2(fin)}</b></div>
+        <div class="pop">=</div>
+        <div class="pt fim"><span>Variação de Caixa</span><b class="${cx < 0 ? 'neg' : 'pos'}">${fmt2(cx)}</b></div>
+      </div>
+      <p class="hint">${ponte ? '' : '<b class="neg">⚠ a conta não fechou neste mês.</b> '}
+        Em <b>${m}</b> o negócio ${op >= 0 ? 'gerou' : 'consumiu'} <b>${fmt2(Math.abs(op))}</b>,
+        mas o saldo do banco ${cx >= 0 ? 'subiu' : 'caiu'} <b>${fmt2(Math.abs(cx))}</b>.
+        A diferença de <b>${fmt2(Math.abs(op - cx))}</b> não é erro: é retirada, máquina e dívida
+        entrando e saindo — cada uma no seu bloco acima.</p>`;
+
+    /* ---------- 4) o mês, conta por conta, entradas e saídas separadas ---------- */
+    const entradas = (childrenOf.get('1') || []).map(a => ({
+      nome: a.name, cod: a.code, v: val(a, i),
+      k: FIN_REV_CODES.includes(a.code) ? 'fin' : 'op',
+      obs: FIN_REV_CODES.includes(a.code) ? 'não é venda — fica fora da lente 🎯' : '',
+    })).filter(x => Math.abs(x.v) > 0.004);
+    const restoIn = round2(revAt(i) - entradas.reduce((s, x) => s + x.v, 0));
+    if (Math.abs(restoIn) > 0.5) entradas.push({ nome: 'Sem categoria', cod: '1', v: restoIn, k: 'op',
+      obs: 'lançado direto na conta 1, sem centro — vale classificar no Mubisys' });
+
+    // etiqueta de cada galho de despesa: 2.13 é misto (juro é custo, o resto
+    // não), 2.14/2.16/2.17/2.18 saem inteiros da operação, o resto é custo puro.
+    const K_SAIDA = { '2.14': 'soc', '2.16': 'inv', '2.17': 'div', '2.18': 'div' };
+    const saidas = (childrenOf.get('2') || []).map(a => {
+      const tot = val(a, i), fora = foraDaOperAt(a.code, i), dentro = round2(tot - fora);
+      const misto = Math.abs(fora) > 0.004 && Math.abs(dentro) > 0.004;
+      const tags = Math.abs(fora) < 0.005 ? tag('op')
+        : misto ? tag('op') + tag(a.code === '2.13' ? 'div' : (K_SAIDA[a.code] || 'div'))
+        : tag(K_SAIDA[a.code] || 'div');
+      const nota = misto
+        ? `misto: <b>${fmt2(dentro)}</b> são custo da operação e <b>${fmt2(fora)}</b> ficam fora (dívida/máquina)`
+        : (Math.abs(fora) > 0.004 ? 'sai inteiro da lente 🎯 — não é custo da operação' : '');
+      return { nome: a.name, cod: a.code, v: tot, fora, dentro, tags, nota };
+    }).filter(x => Math.abs(x.v) > 0.004);
+    const restoOut = round2(expAt(i) - saidas.reduce((s, x) => s + x.v, 0));
+    if (Math.abs(restoOut) > 0.5) saidas.push({ nome: 'Sem categoria', cod: '2', v: restoOut, fora: 0, dentro: restoOut,
+      tags: tag('op'), nota: 'lançado direto na conta 2 (ex.: fatura de cartão sem rateio) — vale abrir no Mubisys' });
+
+    const totIn = entradas.reduce((s, x) => s + x.v, 0);
+    const totOut = saidas.reduce((s, x) => s + x.v, 0);
+
+    hostF.innerHTML = `
+      <div class="es-grid">
+        <div class="es-bloco">
+          <div class="es-head in"><span>⬅ ENTROU em ${m}</span><b>${fmt2(totIn)}</b></div>
+          <table class="dre es-tab"><tbody>
+            ${entradas.sort((a, b) => b.v - a.v).map(x => `<tr>
+              <td class="t-name"><b>${x.cod}</b> ${escAttr(x.nome)} ${tag(x.k)}
+                ${x.obs ? `<span class="es-obs">${x.obs}</span>` : ''}</td>
+              <td class="mono">${fmt2(x.v)}</td>
+              <td class="av">${totIn ? pct(x.v / totIn) : '—'}</td></tr>`).join('')}
+          </tbody></table>
+          <div class="es-rod">Vendas (lente 🎯): <b>${fmt2(salesAt(i))}</b></div>
+        </div>
+        <div class="es-bloco">
+          <div class="es-head out"><span>SAIU em ${m} ➡</span><b>${fmt2(totOut)}</b></div>
+          <table class="dre es-tab"><tbody>
+            ${saidas.sort((a, b) => b.v - a.v).map(x => `<tr>
+              <td class="t-name"><b>${x.cod}</b> ${escAttr(x.nome)} ${x.tags}
+                ${x.nota ? `<span class="es-obs">${x.nota}</span>` : ''}</td>
+              <td class="mono">${fmt2(x.v)}</td>
+              <td class="av">${totOut ? pct(x.v / totOut) : '—'}</td></tr>`).join('')}
+          </tbody></table>
+          <div class="es-rod">Custos da Operação (lente 🎯): <b>${fmt2(despOperAt(i))}</b></div>
+        </div>
+      </div>
+      <div class="es-fecha ${cx >= 0 ? 'pos' : 'neg'}">
+        <span>Entrou ${fmt2(totIn)} · Saiu ${fmt2(totOut)}</span>
+        <b class="${cx >= 0 ? 'pos' : 'neg'}">${cx >= 0 ? 'sobrou' : 'faltou'} ${fmt2(Math.abs(cx))}</b>
+      </div>`;
+  }
+
   function renderAll() {
-    sincronizaPeriodo(); renderAno();
+    sincronizaPeriodo(); renderAno(); renderManual();
     renderKPIs(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
     renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai(); renderConcil(); renderEstrutura(); renderPrevia();
     if (typeof wireResGrupos === 'function') wireResGrupos();
@@ -3082,6 +3306,9 @@ const GATEABLE_VIEWS = [
   { id: 'centers',  label: '🎯 Centros' },
   { id: 'mirror',   label: '🔎 Conferência' },
   { id: 'manual',   label: '📘 Manual' },
+  // sem esta linha o botão 📅 Ano nasce escondido: applyPermissions esconde
+  // toda aba que não estiver na lista, e switchView recusa abrir.
+  { id: 'ano',      label: '📅 Ano' },
 ];
 const ALL_VIEW_IDS = GATEABLE_VIEWS.map(v => v.id);
 
@@ -3138,9 +3365,8 @@ function applyPermissions(user) {
     const ok = v === 'users' ? false : _allowed.has(v);
     b.style.display = ok ? '' : 'none';
   });
-  // Manual e Usuários saíram da barra de abas e viraram ícones no topo
-  const mb = document.getElementById('manualBtn');
-  if (mb) mb.style.display = _allowed.has('manual') ? '' : 'none';
+  // O Manual voltou para a barra de abas (ao lado da Conferência); o ícone 📘
+  // do topo saiu para não haver duas portas para a mesma tela.
   const ub = document.getElementById('usersBtn');
   if (ub) ub.style.display = isMaster ? '' : 'none';
   const activeBtn = document.querySelector('#viewTabs button.active');
@@ -3592,8 +3818,6 @@ function initApp() {
   }
 
   // botão "Sincronizar agora" (pull manual) + reconexão automática
-  const manualBtn = document.getElementById('manualBtn');
-  if (manualBtn) manualBtn.onclick = () => switchView('manual');
   const usersBtn = document.getElementById('usersBtn');
   if (usersBtn) usersBtn.onclick = () => switchView('users');
   const syncBtn = document.getElementById('syncBtn');
