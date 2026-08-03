@@ -89,14 +89,23 @@ DE_PARA_PLANO_NOVO = [
     ("2.11", "2.14"),            # societárias (retiradas + arrendamento)
     ("2.10", "2.13"),            # bancárias (tarifas e juros)
     ("2.9",  "2.12"),            # materiais e insumos
-    ("2.8",  "2.2"),             # administrativas / logística
-    ("2.7",  "2.8"),             # terceiros
+    # 2.8 novo = logística e serviços externos: Frete 4.549, Gráfica Rápida
+    # 3.100, Freelancer 1.714, viagem (hotel/alimentação/pedágio) 2.257,
+    # Andaimes, Material de Construção. O centro velho mais próximo é
+    # "Terceirização de Serviços" — é onde o Freelancer sempre morou.
+    ("2.8",  "2.11"),
+    ("2.7",  "2.8"),             # terceiros (consultoria, contabilidade)
     ("2.6",  "2.7"),             # veículos
     ("2.5",  "2.6"),             # máquinas e equipamentos
     ("2.4",  "2.5"),             # fixas (água/luz/telefonia/aluguel)
     ("2.3",  "2.4"),             # impostos
-    ("2.2",  "2.3"),             # limpeza
-    # 2.1 Funcionários não mudou
+    # 2.2 novo = administrativas + limpeza juntas (Material de Escritório, CDL,
+    # ACI, Material de Limpeza, Limpeza Escritório). Fica em 2.2
+    # Administrativas, que é o rótulo que descreve o conjunto; o galho velho
+    # 2.3 Limpeza para de receber a partir de Jul/26 — a fusão foi de propósito.
+    # 2.1 Funcionários não mudou (e agora abriga Segurança do Trabalho em
+    # 2.1.18 e Empreita em 2.1.11.4, que antes eram centros próprios — o
+    # Leonardo moveu de propósito, então NÃO forçamos volta para 2.9/2.10).
 ]
 
 # Dentro de "fixas" o Leonardo passou a separar por MEDIDOR/ENDEREÇO
