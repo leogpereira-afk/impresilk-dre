@@ -87,25 +87,30 @@
       </span>
       <button id="logoutBtn" class="uc-logout" title="Sair">⎋</button>
     </div>
-    <!-- Período fica na ponta direita: é o controle mais usado do painel -->
-    <div class="ctrl-periodo">
-    <label class="ctrl">
-      <span>Período</span>
-      <select id="monthSelect"></select>
-    </label>
-    <label class="ctrl">
-      <span>Comparar com</span>
-      <select id="compareSelect"></select>
-    </label>
-    </div>
+    <!-- Os selects viraram a barra de chips abaixo; ficam aqui escondidos
+         porque o resto do app lê/escreve o valor deles. -->
+    <select id="monthSelect" hidden></select>
+    <select id="compareSelect" hidden></select>
   </div>
 </header>
+
+<!-- Barra de período: ano + 12 meses em chips. Abre sempre no ano vigente.
+     Clique = mês analisado. Clique no "vs" = mês de comparação. -->
+<div class="periodo-bar" id="periodoBar">
+  <select id="anoSelect" class="ano-sel" aria-label="Ano"></select>
+  <div class="mes-chips" id="mesChips"></div>
+  <label class="cmp-ctrl">
+    <span>comparar com</span>
+    <select id="compareChip"></select>
+  </label>
+</div>
 
 <nav class="tabs" id="viewTabs">
   <button data-view="insights" class="active">💡 Insights</button>
   <button data-view="overview">📊 Resultado</button>
   <button data-view="centers">🎯 Centros</button>
   <button data-view="mirror">🔎 Conferência</button>
+  <button data-view="ano">📅 Ano</button>
 </nav>
 
 <div id="dropOverlay" class="drop-overlay">
@@ -407,6 +412,16 @@
   
 
   <!-- ===================== DIRETRIZES DA DRE ===================== -->
+  <!-- ===================== ANO (acumulado + mês a mês) ===================== -->
+  <div class="view hidden" id="view-ano">
+    <section class="card">
+      <div class="card-head"><h2 id="anoTitulo">📅 Ano</h2>
+        <span class="hint">acumulado do ano e o resumo de cada mês, na mesma tela</span></div>
+      <div id="anoKpis" class="center-kpis"></div>
+      <div id="anoTabela"></div>
+    </section>
+  </div>
+
   <div class="view hidden" id="view-diretrizes-REMOVIDO" hidden>
     <section class="card">
       <div class="card-head">

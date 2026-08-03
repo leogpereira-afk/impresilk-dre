@@ -595,8 +595,78 @@ function boot(D) {
   monthSel.innerHTML = ''; cmpSel.innerHTML = '';
   MONTHS.forEach((m, i) => { monthSel.add(new Option(m, i)); cmpSel.add(new Option(m, i)); });
   monthSel.value = cur; cmpSel.value = cmp;
-  monthSel.onchange = () => { cur = +monthSel.value; if (cmp === cur) { cmp = cur > 0 ? cur - 1 : Math.min(cur + 1, MONTHS.length - 1); cmpSel.value = cmp; } renderAll(); };
-  cmpSel.onchange = () => { cmp = +cmpSel.value; renderAll(); };
+  monthSel.onchange = () => { cur = +monthSel.value; if (cmp === cur) { cmp = cur > 0 ? cur - 1 : Math.min(cur + 1, MONTHS.length - 1); cmpSel.value = cmp; } sincronizaPeriodo(); renderAll(); };
+  cmpSel.onchange = () => { cmp = +cmpSel.value; sincronizaPeriodo(); renderAll(); };
+
+  /* ------------------------------------------------------------------ *
+   *  BARRA DE PERÍODO — ano + 12 chips de mês (no estilo do Mubisys)
+   *  ------------------------------------------------------------------
+   *  Dois dropdowns exigiam abrir, procurar e escolher para uma troca que
+   *  o dono faz o tempo todo. Os chips mostram o ano inteiro de uma vez:
+   *  quais meses existem, qual está aberto e qual é a comparação.        */
+  const MES_CURTO = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const parseLabel = l => {                       // "Jul/2026" -> {m:6, a:2026}
+    const [mm, aa] = String(l).split('/');
+    const i = MES_CURTO.findIndex(x => x.toLowerCase() === String(mm).slice(0, 3).toLowerCase());
+    return { m: i, a: parseInt(aa, 10) };
+  };
+  const META_MES = MONTHS.map(parseLabel);
+  const ANOS = [...new Set(META_MES.map(x => x.a))].filter(Boolean).sort();
+  // abre no ano VIGENTE; se o painel ainda não tem esse ano, no mais recente
+  const anoHoje = new Date().getFullYear();
+  let anoSel = ANOS.includes(anoHoje) ? anoHoje : (ANOS[ANOS.length - 1] || anoHoje);
+  if (META_MES[cur] && META_MES[cur].a !== anoSel) anoSel = META_MES[cur].a;
+
+  const elAno = document.getElementById('anoSelect');
+  const elChips = document.getElementById('mesChips');
+  const elCmp = document.getElementById('compareChip');
+
+  function sincronizaPeriodo() {
+    if (!elAno || !elChips) return;
+    if (META_MES[cur]) anoSel = META_MES[cur].a;
+    elAno.innerHTML = '';
+    ANOS.forEach(a2 => elAno.add(new Option(a2, a2)));
+    elAno.value = anoSel;
+
+    elChips.innerHTML = MES_CURTO.map((nome, m) => {
+      const i = META_MES.findIndex(x => x.a === anoSel && x.m === m);
+      const temDado = i >= 0;
+      const classes = ['mes-chip'];
+      if (i === cur) classes.push('sel');
+      if (i === cmp) classes.push('cmp');
+      if (!temDado) classes.push('vazio');
+      return `<button type="button" class="${classes.join(' ')}" ${temDado ? `data-i="${i}"` : 'disabled'}
+        title="${temDado ? MONTHS[i] : nome + '/' + anoSel + ' — sem dados'}">${nome}</button>`;
+    }).join('');
+    elChips.querySelectorAll('button[data-i]').forEach(b => {
+      b.onclick = () => {
+        const i = +b.dataset.i;
+        if (i === cur) return;
+        cur = i;
+        if (cmp === cur) cmp = cur > 0 ? cur - 1 : Math.min(cur + 1, MONTHS.length - 1);
+        monthSel.value = cur; cmpSel.value = cmp;
+        sincronizaPeriodo(); renderAll();
+      };
+    });
+
+    if (elCmp) {
+      elCmp.innerHTML = '';
+      MONTHS.forEach((m, i) => { if (i !== cur) elCmp.add(new Option(m, i)); });
+      elCmp.value = cmp;
+      elCmp.onchange = () => { cmp = +elCmp.value; cmpSel.value = cmp; sincronizaPeriodo(); renderAll(); };
+    }
+  }
+  if (elAno) elAno.onchange = () => {
+    anoSel = +elAno.value;
+    // ao trocar de ano, abre no último mês COM dado daquele ano
+    const doAno = META_MES.map((x, i) => ({ ...x, i })).filter(x => x.a === anoSel);
+    if (doAno.length) {
+      cur = doAno[doAno.length - 1].i;
+      if (cmp === cur) cmp = cur > 0 ? cur - 1 : Math.min(cur + 1, MONTHS.length - 1);
+      monthSel.value = cur; cmpSel.value = cmp;
+    }
+    sincronizaPeriodo(); renderAll();
+  };
 
 
   // Seletor de lente: o dono alterna entre o resultado REAL da operação e o
@@ -2469,7 +2539,85 @@ function boot(D) {
     draw();
   }
 
+  /* ------------------------------------------------------------------ *
+   *  ABA ANO — acumulado do ano selecionado + resumo de cada mês
+   *  ------------------------------------------------------------------
+   *  Junta o que estava espalhado: o total do ano e a linha de cada mês
+   *  na mesma tela, com os 4 blocos. Clicar no mês abre ele no painel.  */
+  function renderAno() {
+    const host = document.getElementById('anoTabela');
+    const kp = document.getElementById('anoKpis');
+    if (!host || !kp) return;
+    const idx = META_MES.map((x, i) => ({ ...x, i })).filter(x => x.a === anoSel).map(x => x.i);
+    const tit = document.getElementById('anoTitulo');
+    if (tit) tit.textContent = `📅 ${anoSel}`;
+    if (!idx.length) { kp.innerHTML = ''; host.innerHTML = '<p class="hint">Sem meses deste ano.</p>'; return; }
+
+    const soma = f => idx.reduce((t, i) => t + f(i), 0);
+    const vd = soma(salesAt), op = soma(resOperAt), so = soma(ownerAt);
+    const inv = soma(investAt), fin = soma(financAt), cx = soma(resAt);
+    const margem = vd ? op / vd : 0;
+    const meses = idx.length;
+
+    kp.innerHTML = `
+      <div class="ck clicavel" data-det="vendas"><span class="ck-l">Vendas · ${anoSel}</span>
+        <span class="ck-v">${fmt2(vd)}</span><span class="ck-s">${fmt(vd / meses)}/mês em ${meses} ${meses === 1 ? 'mês' : 'meses'}</span></div>
+      <div class="ck"><span class="ck-l">Resultado da Operação</span>
+        <span class="ck-v ${op >= 0 ? 'pos' : 'neg'}">${fmt2(op)}</span><span class="ck-s">margem ${pct(margem)} sobre vendas</span></div>
+      <div class="ck"><span class="ck-l">Retiradas dos sócios</span>
+        <span class="ck-v">${fmt2(so)}</span><span class="ck-s">${op > 0 ? `a operação cobriu ${pct(op / so)}` : 'sem operação positiva'}</span></div>
+      <div class="ck"><span class="ck-l">Investimentos</span>
+        <span class="ck-v">${fmt2(inv)}</span><span class="ck-s">máquinas e veículos — vira patrimônio</span></div>
+      <div class="ck"><span class="ck-l">Financiamento</span>
+        <span class="ck-v ${fin >= 0 ? '' : 'neg'}">${fmt2(fin)}</span><span class="ck-s">empréstimo entrando menos saindo</span></div>
+      <div class="ck"><span class="ck-l">Variação de Caixa</span>
+        <span class="ck-v ${cx >= 0 ? 'pos' : 'neg'}">${fmt2(cx)}</span><span class="ck-s">o que sobrou no banco no ano</span></div>`;
+
+    const linha = i => {
+      const v = salesAt(i), o = resOperAt(i), m = v ? o / v : 0;
+      return `<tr class="ano-linha${i === cur ? ' cur-row' : ''}" data-i="${i}">
+        <td class="t-name">${MONTHS[i]}${i === cur ? ' <span class="u-now">aberto</span>' : ''}</td>
+        <td class="mono">${fmt(revAt(i))}</td>
+        <td class="mono">${fmt(v)}</td>
+        <td class="mono">${fmt(despOperAt(i))}</td>
+        <td class="mono ${o >= 0 ? 'pos' : 'neg'}">${fmt(o)}</td>
+        <td class="${m >= 0.15 ? 'pos' : m >= 0.05 ? '' : 'neg'}">${pct(m)}</td>
+        <td class="mono">${fmt(ownerAt(i))}</td>
+        <td class="mono">${fmt(investAt(i))}</td>
+        <td class="mono ${resAt(i) >= 0 ? 'pos' : 'neg'}">${fmt(resAt(i))}</td>
+      </tr>`;
+    };
+    host.innerHTML = `
+      <p class="hint" style="margin:10px 0 8px">Clique numa linha para abrir o mês no painel inteiro.</p>
+      <div class="table-scroll"><table class="dre ano-tab">
+        <thead><tr><th class="t-name">Mês</th><th>Entrou</th><th>Vendas</th><th>Custos</th>
+          <th>Operação</th><th>Margem</th><th>Sócios</th><th>Máquinas</th><th>Caixa</th></tr></thead>
+        <tbody>${idx.map(linha).join('')}
+          <tr class="ano-total"><td class="t-name"><b>Acumulado ${anoSel}</b></td>
+            <td class="mono"><b>${fmt(soma(revAt))}</b></td>
+            <td class="mono"><b>${fmt(vd)}</b></td>
+            <td class="mono"><b>${fmt(soma(despOperAt))}</b></td>
+            <td class="mono ${op >= 0 ? 'pos' : 'neg'}"><b>${fmt(op)}</b></td>
+            <td><b>${pct(margem)}</b></td>
+            <td class="mono"><b>${fmt(so)}</b></td>
+            <td class="mono"><b>${fmt(inv)}</b></td>
+            <td class="mono ${cx >= 0 ? 'pos' : 'neg'}"><b>${fmt(cx)}</b></td></tr>
+        </tbody>
+      </table></div>`;
+    host.querySelectorAll('tr.ano-linha').forEach(tr => {
+      tr.onclick = () => {
+        const i = +tr.dataset.i;
+        if (i === cur) return;
+        cur = i;
+        if (cmp === cur) cmp = cur > 0 ? cur - 1 : Math.min(cur + 1, MONTHS.length - 1);
+        monthSel.value = cur; cmpSel.value = cmp;
+        sincronizaPeriodo(); renderAll();
+      };
+    });
+  }
+
   function renderAll() {
+    sincronizaPeriodo(); renderAno();
     renderKPIs(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
     renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai(); renderConcil(); renderEstrutura(); renderPrevia();
     if (typeof wireResGrupos === 'function') wireResGrupos();

@@ -849,3 +849,49 @@ body.locked { overflow: hidden; }
 /* célula da tabela mês a mês que fugiu do padrão */
 td.util-out.alta { color: var(--neg, #dc2626); font-weight: 700; }
 td.util-out.baixa { color: var(--brand, #2563eb); font-weight: 700; }
+
+/* ===================== BARRA DE PERÍODO (ano + chips de mês) =====================
+   Substitui os dois dropdowns. Mostra o ano inteiro de uma vez: que meses
+   existem, qual está aberto (sel) e qual é a comparação (cmp). */
+.periodo-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 20px; background: var(--card); border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 30;
+}
+.ano-sel {
+  font-weight: 700; font-size: .95rem; padding: 6px 10px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--bg); color: inherit; cursor: pointer;
+}
+.mes-chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.mes-chip {
+  border: 1px solid var(--line); background: var(--bg); color: inherit;
+  border-radius: 999px; padding: 6px 14px; font-size: .86rem; font-weight: 600;
+  cursor: pointer; transition: all .12s ease; position: relative;
+}
+.mes-chip:hover:not(:disabled) { border-color: var(--brand, #3b82f6); transform: translateY(-1px); }
+.mes-chip.sel {
+  background: var(--brand, #2563eb); border-color: var(--brand, #2563eb);
+  color: #fff; box-shadow: 0 2px 8px rgba(37, 99, 235, .3);
+}
+/* mês de comparação: contorno tracejado, sem competir com o selecionado */
+.mes-chip.cmp:not(.sel) { border-style: dashed; border-color: var(--brand, #3b82f6); opacity: .85; }
+.mes-chip.cmp:not(.sel)::after {
+  content: 'vs'; position: absolute; top: -7px; right: 6px; font-size: .58rem;
+  background: var(--card); padding: 0 3px; color: var(--brand, #3b82f6); font-weight: 700;
+}
+.mes-chip.vazio, .mes-chip:disabled { opacity: .3; cursor: not-allowed; }
+.cmp-ctrl { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--muted, #94a3b8); }
+.cmp-ctrl select {
+  border: 1px solid var(--line); background: var(--bg); color: inherit;
+  border-radius: 8px; padding: 5px 8px; font-size: .82rem; cursor: pointer;
+}
+@media (max-width: 720px) {
+  .periodo-bar { padding: 8px 12px; gap: 8px; }
+  .mes-chip { padding: 5px 10px; font-size: .8rem; }
+  .cmp-ctrl { width: 100%; }
+}
+
+/* aba Ano: linha do mês é clicável e leva o painel inteiro para ele */
+.ano-tab tr.ano-linha { cursor: pointer; }
+.ano-tab tr.ano-linha:hover { background: rgba(59, 130, 246, .08); }
+.ano-tab tr.ano-total { border-top: 2px solid var(--line); background: rgba(59, 130, 246, .05); }
