@@ -55,8 +55,24 @@ def call(fn, payload, timeout=90, tentativas=4):
             ultimo = f"HTTP {e.code}: {corpo}"
         except Exception as e:                             # rede/timeout
             ultimo = str(e)[:160]
+        if eh_estouro(ultimo):
+            # Janela grande demais para o tempo que a Edge Function tem (22s).
+            # Repetir a MESMA janela não adianta — quem chamou precisa partir
+            # o período. Sai na primeira, sem gastar as 4 tentativas.
+            raise JanelaGrande(ultimo)
         time.sleep(5 * (n + 1))                            # espera crescente
     raise RuntimeError(ultimo)
+
+
+class JanelaGrande(Exception):
+    """A Edge Function abortou por tempo — o período pedido é grande demais."""
+
+
+def eh_estouro(msg):
+    m = str(msg or "").lower()
+    return ("signal has been aborted" in m or "aborted" in m
+            or "timed out" in m or "timeout" in m
+            or "http 504" in m or "http 502" in m)
 
 
 def fatias(ini, fim, dias=7):
@@ -110,17 +126,38 @@ def por_dia(titulos, ini, fim):
 
 
 def coletar(recurso, ini, fim):
-    """Devolve os títulos únicos do período (dedup por id — fatias podem repetir)."""
+    """Devolve os títulos únicos do período (dedup por id — fatias podem repetir).
+
+    Fatia de 7 dias é o ponto de partida. Se a Edge Function abortar por tempo
+    (ela tem 22s por chamada), a janela é PARTIDA AO MEIO e cada metade tenta
+    de novo, até o dia isolado. Foi o que derrubou o robô em 02/08: julho ficou
+    grande demais para a fatia semanal e as 4 tentativas repetiram a mesma
+    janela, falhando igual. Um dia que nem sozinho passa vira erro de verdade —
+    melhor falhar do que gravar mês pela metade sem ninguém saber.
+    """
     vistos = {}
-    for a, b in fatias(ini, fim):
-        r = call("dre-financas", {
-            "action": "listar", "recurso": recurso, "status": "PAGO",
-            "filtrodata": "PAGAMENTO",
-            "datainicial": a.isoformat(), "datafinal": b.isoformat(),
-        })
+
+    def buscar(a, b, nivel=0):
+        try:
+            r = call("dre-financas", {
+                "action": "listar", "recurso": recurso, "status": "PAGO",
+                "filtrodata": "PAGAMENTO",
+                "datainicial": a.isoformat(), "datafinal": b.isoformat(),
+            })
+        except JanelaGrande:
+            if a >= b:
+                raise
+            meio = a + (b - a) // 2
+            print(f"  janela {a} → {b} estourou o tempo; partindo ao meio", flush=True)
+            buscar(a, meio, nivel + 1)
+            buscar(meio + datetime.timedelta(days=1), b, nivel + 1)
+            return
         for t in (r.get("itens") or []):
             vistos[t.get("id")] = t
         time.sleep(1.2)                                   # não afogar o ERP
+
+    for a, b in fatias(ini, fim):
+        buscar(a, b)
     return list(vistos.values())
 
 
