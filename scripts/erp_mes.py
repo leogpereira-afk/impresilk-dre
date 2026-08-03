@@ -22,6 +22,7 @@ Se o código dependesse da ordem de valor, o mesmo código teria nome diferente
 a cada mês e a árvore do painel embaralharia.
 """
 import json
+import unicodedata
 import re
 
 
@@ -255,6 +256,25 @@ def codigos_estaveis(por_produto, registro_codigos, mapa_conta):
     return reg
 
 
+def _texto_igual(a, b):
+    """A conta é a MESMA, só com outro nome?
+
+    Ignora acento, caixa e pontuação. Aceita também um nome contido no outro:
+    "Banco do Nordeste" → "Nordeste" é renome, não conta nova (e são R$ 23 mil
+    por mês — quebrar essa série seria pior que o problema). Já "Horas Extras"
+    → "Honorários Adicionais" não tem containment e é remanejamento de verdade.
+    """
+    limpa = lambda s: re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFD", str(s or "").lower())
+                             .encode("ascii", "ignore").decode())
+    x, y = limpa(a), limpa(b)
+    if not x or not y:
+        return True                       # sem nome dos dois lados: não remaneja
+    if x == y:
+        return True
+    menor, maior = (x, y) if len(x) <= len(y) else (y, x)
+    return len(menor) >= 5 and menor in maior
+
+
 def montar(label, receber, pagar, por_produto, valor_janela, codigo,
            registro_codigos=None, mapa_conta=None, nomes_conhecidos=None):
     """Devolve (registro do mês, códigos de produto atualizados).
@@ -267,8 +287,36 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
     folhas = {}
     nomes = dict(nomes_conhecidos or {})
     nomes.update(NOMES_BASE)
+    usados_no_pai = {}          # pai -> maior sufixo já dado a conta remanejada
+
+    def sem_colisao(c, nome):
+        """Um código canônico só é reaproveitado se o NOME bater.
+
+        A renumeração de 02/08 mexeu TAMBÉM nas subcontas, não só no nível 2:
+        o velho 2.1.11 era "Horas Extras" e o novo é "Honorários Adicionais".
+        Traduzir o prefixo e manter o sufixo fazia o painel exibir o rótulo
+        ANTIGO em cima do valor NOVO — R$ 41.815,37 de julho com nome errado,
+        e uma série histórica que compara coisas diferentes.
+
+        Quando o nome não bate, a conta ganha um código livre sob o MESMO pai
+        (sufixo a partir de 51, como já é feito com produto). O total do centro
+        continua exato, a série do pai continua comparável, e ninguém vê
+        'Horas Extras R$ 17.185' sendo na verdade honorários + comissão + diária.
+        """
+        antigo = nomes_conhecidos.get(c) if nomes_conhecidos else None
+        if not antigo or not nome or _texto_igual(antigo, nome):
+            return c
+        p = pai(c) or "2"
+        n = usados_no_pai.get(p, 50)
+        while True:
+            n += 1
+            novo = f"{p}.{n}"
+            if novo not in nomes and novo not in folhas:
+                usados_no_pai[p] = n
+                return novo
 
     pendencias = pendencias_de_classificacao(pagar, receber, valor_janela)
+    remanejadas = {}
     for t in pagar:
         c, nome = codigo(t.get("plano_contas"))
         if not c:
@@ -282,7 +330,10 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
         if pend:
             pend["valor"] = round(valor_janela(t), 2)
             pendencias.append(pend)
-        nomes.setdefault(c, nome)
+        if c not in remanejadas:
+            remanejadas[c] = sem_colisao(c, nome)
+        c = remanejadas[c]
+        nomes[c] = nome or nomes.get(c, c)
         folhas[c] = round(folhas.get(c, 0.0) + valor_janela(t), 2)
 
     for t in receber:
