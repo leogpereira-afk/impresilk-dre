@@ -2959,6 +2959,11 @@ function migraPerms(users) {
   return mudou;
 }
 
+// A lista por aparelho virou resíduo: ninguém entra por ela. Apagamos o que
+// estava gravado, porque guardava a "senha" embaralhada de todo mundo neste
+// navegador — e embaralhamento não é hash.
+try { localStorage.removeItem('impresilk_dre_users'); } catch (_) {}
+
 function loadUsers() {
   let u = [];
   try { u = JSON.parse(localStorage.getItem(USERS_KEY)) || []; } catch (_) { return []; }
@@ -2978,10 +2983,11 @@ function applyPermissions(user) {
   const isMaster = user.role === 'master';
   const allowed = isMaster ? ALL_VIEW_IDS.slice() : (user.perms || []);
   _allowed = new Set(allowed);
-  if (isMaster) _allowed.add('users');
+  // a aba de usuários saiu: não há conta por pessoa no DRE
+  // (a senha de entrada se troca pela Central de Acessos)
   document.querySelectorAll('#viewTabs button').forEach(b => {
     const v = b.dataset.view;
-    const ok = v === 'users' ? isMaster : _allowed.has(v);
+    const ok = v === 'users' ? false : _allowed.has(v);
     b.style.display = ok ? '' : 'none';
   });
   // Manual e Usuários saíram da barra de abas e viraram ícones no topo
@@ -2997,35 +3003,42 @@ function applyPermissions(user) {
   }
 }
 
-/* ---------- login / setup ---------- */
+/* ---------- porta de entrada ----------
+   Uma senha só, conferida no servidor (auth.js -> equipe-auth). A lista de
+   usuários por aparelho saiu de cena: ela morava no localStorage de cada
+   navegador, com um embaralhamento que não era hash, e qualquer aparelho novo
+   entrava pela tela de "criar master". */
 function showAuth() {
   const overlay = document.getElementById('authOverlay');
-  const hasMaster = loadUsers().some(u => u.role === 'master');
-  document.getElementById('loginForm').hidden = !hasMaster;
-  document.getElementById('setupForm').hidden = hasMaster;
+  document.getElementById('loginForm').hidden = false;
+  const dica = document.getElementById('authDica');
+  if (dica) dica.hidden = false;
   overlay.hidden = false;
   document.body.classList.add('locked');
-  const f = hasMaster ? document.getElementById('loginUser') : document.getElementById('setupName');
+  const f = document.getElementById('loginPass');
   if (f) f.focus();
 }
 function hideAuth() { document.getElementById('authOverlay').hidden = true; document.body.classList.remove('locked'); }
 function onAuthed() {
-  const u = currentUser();
-  if (!u) { showAuth(); return; }
+  if (!AUTH.temCracha()) { showAuth(); return; }
   hideAuth();
   const chip = document.getElementById('userChip');
   chip.hidden = false;
-  document.getElementById('ucName').textContent = u.name || u.user;
-  document.getElementById('ucRole').textContent = u.role === 'master' ? 'Master' : 'Usuário';
-  document.getElementById('ucAvatar').textContent = (u.name || u.user).trim().charAt(0).toUpperCase() || '·';
-  applyPermissions(u);
-  if (u.role === 'master') renderUsersAdmin();
+  document.getElementById('ucName').textContent = 'Impresilk';
+  document.getElementById('ucRole').textContent = 'DRE';
+  document.getElementById('ucAvatar').textContent = 'I';
+  // Porta única: quem passou vê tudo. Não há mais permissão por pessoa, porque
+  // não há mais pessoa — a senha é da equipe que alimenta o sistema.
+  applyPermissions({ role: 'master' });
 }
 function logout() {
   // dados ainda não sincronizados se perderiam de vista — avisa antes de sair
   const pend = (typeof getQueue === 'function') ? getQueue().length : 0;
   if (pend && !confirm(`Você tem ${pend} ${pend === 1 ? 'mês pendente' : 'meses pendentes'} de sincronização.\nClique em ☁️ para sincronizar antes de sair.\n\nSair mesmo assim?`)) return;
-  setSession(null); document.getElementById('userChip').hidden = true; showAuth();
+  AUTH.esquecer();          // sem isto, o próximo a pegar o computador entra
+  setSession(null);
+  document.getElementById('userChip').hidden = true;
+  showAuth();
 }
 
 /* ---------- painel de usuários (somente master) ---------- */
@@ -3176,18 +3189,36 @@ function wireUserModal() {
   document.getElementById('userModalClose').onclick = () => modal.hidden = true;
   modal.onclick = e => { if (e.target === modal) modal.hidden = true; };
 }
+let _entrandoDre = false;
 function initAuth() {
-  document.getElementById('loginForm').onsubmit = e => {
+  document.getElementById('loginForm').onsubmit = async e => {
     e.preventDefault();
-    const u = findUser(document.getElementById('loginUser').value.trim());
-    const ok = u && u.pass === hashPass(document.getElementById('loginPass').value);
+    if (_entrandoDre) return;                 // Enter duas vezes na rede lenta
+    const campo = document.getElementById('loginPass');
     const err = document.getElementById('loginErr');
-    if (!ok) { err.textContent = 'Usuário ou senha inválidos.'; err.hidden = false; return; }
-    err.hidden = true; document.getElementById('loginPass').value = '';
-    setSession({ user: u.user, t: Date.now() });
+    const bt = document.querySelector('#loginForm .auth-submit');
+    const senha = campo.value;
+    if (!senha) { err.textContent = 'Informe a senha.'; err.hidden = false; return; }
+    _entrandoDre = true;
+    if (bt) { bt.disabled = true; bt.textContent = 'Entrando…'; }
+    try {
+      await AUTH.entrar(senha);
+    } catch (ex) {
+      _entrandoDre = false;
+      if (bt) { bt.disabled = false; bt.textContent = 'Entrar'; }
+      err.textContent = (ex.status === 401 || ex.status === 403)
+        ? (ex.erro || 'Senha incorreta.')
+        : 'Não consegui falar com o servidor. Entrar precisa de internet uma vez.';
+      err.hidden = false;
+      return;
+    }
+    _entrandoDre = false;
+    if (bt) { bt.disabled = false; bt.textContent = 'Entrar'; }
+    err.hidden = true; campo.value = '';
     onAuthed();
   };
-  document.getElementById('setupForm').onsubmit = e => {
+  const _setup = document.getElementById('setupForm');
+  if (_setup) _setup.onsubmit = e => {
     e.preventDefault();
     const name = document.getElementById('setupName').value.trim();
     const user = document.getElementById('setupUser').value.trim().toLowerCase();
@@ -3205,7 +3236,12 @@ function initAuth() {
   document.getElementById('logoutBtn').onclick = logout;
   document.getElementById('newUserBtn').onclick = () => openUserModal(null);
   wireUserModal();
-  if (currentUser()) onAuthed(); else showAuth();
+  // A porta é o crachá do servidor. A lista por aparelho não decide mais nada.
+  if (AUTH.temCracha()) {
+    onAuthed();
+    // confere com o servidor sem travar a tela: crachá revogado ou vencido cai fora
+    AUTH.conferir().then(r => { if (r === false) { AUTH.esquecer(); showAuth(); } });
+  } else showAuth();
 }
 
 /* ==================================================================== */

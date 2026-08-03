@@ -13,7 +13,7 @@
 <!-- ?v= junto com o CACHE do sw.js: sem isso o cache HTTP do navegador
      serve CSS/JS velhos mesmo depois do deploy, e a tela fica desencontrada
      do codigo. Subir os dois JUNTOS a cada mudanca. -->
-<link rel="stylesheet" href="styles.css?v=57" />
+<link rel="stylesheet" href="styles.css?v=58" />
 </head>
 <body>
 <div id="authOverlay" class="auth-overlay" hidden>
@@ -28,25 +28,16 @@
       </div>
     </div>
 
-    <!-- Login (quando já existe um master) -->
+    <!-- Porta: uma senha só, conferida no servidor -->
     <form id="loginForm" class="auth-form" hidden>
       <h2>Entrar</h2>
-      <label class="auth-field"><span>Usuário</span><input id="loginUser" type="text" autocomplete="username" autocapitalize="none" /></label>
       <label class="auth-field"><span>Senha</span><input id="loginPass" type="password" autocomplete="current-password" /></label>
       <p id="loginErr" class="auth-err" hidden></p>
       <button type="submit" class="upload-btn auth-submit">Entrar</button>
     </form>
 
-    <!-- Primeiro acesso: cria o usuário master -->
-    <form id="setupForm" class="auth-form" hidden>
-      <h2>Criar acesso master</h2>
-      <p class="auth-note">Este é o primeiro acesso. Crie o usuário <b>master</b> (administrador) — ele poderá criar os demais usuários e definir o que cada um vê.</p>
-      <label class="auth-field"><span>Nome</span><input id="setupName" type="text" placeholder="Ex.: Leonardo" /></label>
-      <label class="auth-field"><span>Usuário</span><input id="setupUser" type="text" placeholder="Ex.: leonardo" autocapitalize="none" /></label>
-      <label class="auth-field"><span>Senha</span><input id="setupPass" type="password" placeholder="mínimo 4 caracteres" /></label>
-      <p id="setupErr" class="auth-err" hidden></p>
-      <button type="submit" class="upload-btn auth-submit">Criar e entrar</button>
-    </form>
+    <p id="authDica" class="auth-note" hidden>A senha é a mesma para a equipe que alimenta o sistema.
+      Quem cuida dela é a Central de Acessos — não se cria conta aqui dentro.</p>
   </div>
 </div>
 
@@ -523,9 +514,10 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="config.js?v=57"></script>
-<script src="data.js?v=57"></script>
-<script src="app.js?v=57"></script>
+<script src="config.js?v=58"></script>
+<script src="auth.js?v=58"></script>
+<script src="data.js?v=58"></script>
+<script src="app.js?v=58"></script>
 <!-- Registra o Service Worker (abre offline). Falha silenciosa se indisponível. -->
 <script>
   if ('serviceWorker' in navigator) {
