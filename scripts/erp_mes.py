@@ -140,6 +140,16 @@ def ajustar_conta(c, nome, texto):
     t = str(texto or "").upper()
     if c.startswith("2."):
         c = traduzir_plano(c)
+    # Fatura de cartão ainda sem itemizar, lançada em "Juros Cartão": não é
+    # juros, é a fatura inteira esperando quebra. Em jul/26 eram R$ 15.021,09
+    # ("aguardando lancamento do cartao") de R$ 16.456 do galho — o sinal de
+    # custo financeiro apontava 11x o real. Vai para 2.99, junto das outras
+    # faturas sem detalhamento.
+    if c.startswith("2.13.5") and ("AGUARDANDO" in t and "CART" in t):
+        return "2.99", "Fatura de cartão (sem detalhamento)", {
+            "tipo": "fatura-cartao-em-juros", "conta": c,
+            "texto": "Fatura de cartão lançada em Juros Cartão ('aguardando lançamento'). "
+                     "Não é juros — enquanto não for itemizada, infla o custo financeiro."}
     if c == "2.13.7.1":
         if "CAPITAL DE GIRO" in t or "GIRO" in t:
             return "2.13.7.1.3", "Capital de Giro", None
@@ -222,6 +232,26 @@ def pendencias_de_classificacao(pagar, receber, valor_janela):
     #  venda real, com NF ou OS de referência, marcados como não operacionais
     #  porque o título original já tinha sido baixado. A regra foi removida —
     #  o tipo do título não diz nada sobre a conta estar certa ou errada.)
+    # Pagamento possivelmente EM DUPLICIDADE: mesmo fornecedor, mesmo valor e
+    # mesma data de baixa em títulos diferentes. Achado real em jul/26:
+    # HANNOVER BH R$ 1.311,72 e BOA LED R$ 757,45, ambos lançados dia 14/07 e
+    # de novo dia 15/07 — R$ 2.403,57 no total com o caso da UNIGRAF.
+    vistos = {}
+    for t in pagar:
+        forn = str(t.get("origem") or "").strip()
+        if not forn:
+            continue
+        for pg in (t.get("pagamentos") or []):
+            dt = str(pg.get("data_pagamento") or pg.get("data_credito") or "")[:10]
+            v = round(float(pg.get("valor") or 0), 2)
+            if v < 300:                      # centavos e tarifas não interessam
+                continue
+            vistos.setdefault((forn, v, dt), []).append(t.get("id"))
+    for (forn, v, dt), ids in vistos.items():
+        if len(ids) > 1:
+            out.append({"tipo": "possivel-duplicidade", "conta": "", "valor": round(v * (len(ids) - 1), 2),
+                        "texto": f"{forn[:30]} — R$ {v:,.2f} pago {len(ids)}x em {dt[8:10]}/{dt[5:7]} "
+                                 f"(títulos {', '.join(str(i) for i in ids)}). Conferir se não é pagamento repetido."})
     return out
 
 
