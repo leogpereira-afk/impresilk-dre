@@ -168,16 +168,33 @@ def pendencias_de_classificacao(pagar, receber, valor_janela):
     for t in pagar:
         d = (str(t.get("descricao") or "") + " " + str(t.get("origem") or "")).upper()
         pc = str(t.get("plano_contas") or "")
+        c = pc.split("-")[0].strip()
         # (Pró Vida: já foi listado aqui como "plano de saúde na conta errada".
         #  O Leonardo confirmou em 01/08/2026 que É incentivo de produtividade
         #  para os funcionários — 2.1.13 está CERTO, regra removida.)
         # AMIL do Pedro Henrique é do grupo do Sr. Pedro (confirmado pelo
         # Leonardo em 01/08/2026) — o lugar é 2.14.1.4 (conta que o Leonardo criou), não o
         # plano de saúde das retiradas do Leonardo.
-        if "PEDRO HENRIQUE" in d and pc.startswith("2.14.2.4"):
-            out.append({"tipo": "amil-pedro-henrique", "conta": "2.14.2.4",
+        # Só o PLANO DE SAÚDE do Pedro Henrique: salário e adiantamento dele
+        # (é funcionário, "Colab: Pedro Henrique") estão certos em 2.1.
+        if "AMIL PEDRO HENRIQUE" in d and traduzir_plano(c).startswith("2.14.2"):
+            out.append({"tipo": "amil-pedro-henrique", "conta": c,
                         "valor": round(valor_janela(t), 2),
-                        "texto": "AMIL Pedro Henrique é do Sr. Pedro — mover de 2.14.2.4 (Leonardo) para 2.14.1.4 Amil Pedro Henrique."})
+                        "texto": "AMIL Pedro Henrique quem paga é o Sr. Pedro — está nas retiradas do "
+                                 "Leonardo; o lugar é o grupo do arrendamento (Amil Pedro & Maria)."})
+        # Conta de consumo (Cemig/Copasa) fora do galho de energia/água. O
+        # de-para leva 2.4.3→2.5.3 e 2.4.1→2.5.1; qualquer medidor lançado em
+        # outro galho vira imposto ou material em silêncio.
+        forn = str(t.get("origem") or "").upper()
+        if "CEMIG" in forn and not traduzir_plano(c).startswith("2.5.3"):
+            out.append({"tipo": "consumo-fora-do-galho", "conta": c,
+                        "valor": round(valor_janela(t), 2),
+                        "texto": f"Conta da CEMIG lançada em {pc[:34]} — fora do galho de energia. "
+                                 f"O painel vai contar como outra coisa."})
+        if ("COPASA" in forn or "SANEAMENTO" in forn) and not traduzir_plano(c).startswith("2.5.1"):
+            out.append({"tipo": "consumo-fora-do-galho", "conta": c,
+                        "valor": round(valor_janela(t), 2),
+                        "texto": f"Conta de água lançada em {pc[:34]} — fora do galho de água."})
     # 2.16 MUDOU DE SIGNIFICADO em 01/08/2026: era "Investimentos" (e é assim
     # que os 8 meses de histórico usam — R$ 29 mil em dez/25, R$ 38 mil em
     # mar/26) e o Leonardo renomeou para "Empréstimos Bancários", pendurando

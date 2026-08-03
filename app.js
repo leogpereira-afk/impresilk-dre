@@ -2148,6 +2148,7 @@ function boot(D) {
         });
         const TITULOS = {
           'dois-significados-216': '⚠️ Conta 2.16 com dois significados (investimento no histórico, empréstimo agora)',
+          'consumo-fora-do-galho': '⚡ Conta de luz/água lançada fora do galho de energia/água',
           'amil-pedro-henrique': '🩺 AMIL Pedro Henrique na conta do Leonardo (é do Sr. Pedro → 2.14.1.4)',
           'nordeste-sem-descricao': '🏦 Parcela do Nordeste sem descrição',
         };
