@@ -181,11 +181,23 @@ def buscar_os(recebimentos, orcamento_s=1500):
     querer = []
     for t in recebimentos:
         querer.extend(erp_os.numeros_de_os(t.get("despesa")))
-    falta = [n for n in sorted(set(querer)) if n not in cache]
+    # Rebusca: (1) OS que nunca veio; (2) OS que veio com ERRO — persistir o
+    #   erro envenenava a OS PARA SEMPRE, e o rateio descartava a receita dela
+    #   em todo mês futuro; (3) OS que ainda NÃO está "Entregue" — o docstring
+    #   dizia "OS entregue não muda mais", mas o cache guardava qualquer status:
+    #   48 das 233 (20,6%) estavam em produção, cobrindo R$ 65.633,94 de
+    #   receita que o ERP ainda pode alterar.
+    def _precisa(n):
+        o = cache.get(n)
+        if not isinstance(o, dict) or "_erro" in o:
+            return True
+        return str(o.get("status") or "").strip().lower() != "entregue"
+    falta = [n for n in sorted(set(querer)) if _precisa(n)]
     print(f"OS citadas: {len(set(querer))} · em cache: {len(set(querer)) - len(falta)} · a buscar: {len(falta)}")
 
     inicio = time.time()
     buscadas = 0
+    falhou = []
     for n in falta:
         if time.time() - inicio > orcamento_s:
             print(f"  orçamento de tempo estourou com {len(falta) - buscadas} OS pendentes")
@@ -193,12 +205,21 @@ def buscar_os(recebimentos, orcamento_s=1500):
         try:
             r = call("dre-financas", {"action": "raw", "recurso": f"ordem-servico/numero/{n}"},
                      timeout=60, tentativas=2)
-            cache[n] = r.get("resposta") if r.get("ok") else {"_erro": r.get("http")}
-        except Exception as e:
-            cache[n] = {"_erro": str(e)[:80]}
+            if r.get("ok"):
+                cache[n] = r.get("resposta")
+            else:
+                # falha NÃO entra no cache persistente: a próxima rodada tenta
+                # de novo, em vez de a OS ficar cega para sempre
+                cache.pop(n, None)
+                falhou.append(n)
+        except Exception:
+            cache.pop(n, None)
+            falhou.append(n)
         buscadas += 1
         time.sleep(0.8)
 
+    if falhou:
+        print(f"  {len(falhou)} OS falharam e NÃO entraram no cache (serão rebuscadas): {falhou[:8]}")
     CACHE_OS.parent.mkdir(parents=True, exist_ok=True)
     CACHE_OS.write_text(json.dumps(cache, ensure_ascii=False))
     return cache
@@ -334,6 +355,17 @@ def processar(ini):
     # conta de produto, Nordeste sem descrição…) viajam na prévia: é o que a
     # aba Conferência já lê, sem precisar de chamada nova.
     previa["pendencias"] = registro.get("pendencias") or []
+
+    # Receita que não casou com nenhuma OS NÃO some em silêncio: o total da
+    # prévia continuava cheio enquanto as células do mês perdiam o valor.
+    # Vira pendência com o número exato — quem lê o painel vê o buraco.
+    if diag_os.get("valorSemOS"):
+        previa["pendencias"].append({
+            "tipo": "receita-sem-os", "conta": "1.1.1",
+            "valor": round(diag_os["valorSemOS"], 2),
+            "texto": f"{diag_os.get('titulos', 0) - diag_os.get('rateados', 0)} recebimento(s) não casaram "
+                     f"com Ordem de Serviço — esse valor está no total do mês mas não aparece em nenhum produto."})
+        registro["pendencias"] = previa["pendencias"]
 
     if "--dry" in sys.argv:
         print("(--dry: não gravou nada no servidor)")

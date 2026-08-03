@@ -185,7 +185,11 @@ function monthsToDataset(records) {
   const months = recs.map(r => r.label);
   const meta = new Map(); const order = []; // união de códigos preservando a ordem hierárquica
   recs.forEach(r => (r.cells || []).forEach(c => {
-    if (!meta.has(c.code)) { meta.set(c.code, { name: c.name, level: c.level, parent: c.parent }); order.push(c.code); }
+    if (!meta.has(c.code)) order.push(c.code);      // ordem hierárquica: 1ª vez
+    // nome/nível/pai vêm do mês MAIS RECENTE que tem o código. Pegar do
+    // primeiro congelava o rótulo de Dez/25 sobre conteúdo de hoje: depois da
+    // renumeração, 2.1.11 aparecia como "Horas Extras" com R$ 8.864,59 dentro.
+    meta.set(c.code, { name: c.name, level: c.level, parent: c.parent });
   }));
   const accounts = order.map(code => {
     const m = meta.get(code);
@@ -538,8 +542,16 @@ function boot(D) {
   const ORIGENS = D.origens || MONTHS.map(() => 'planilha');
   const RECEITA_COMPARAVEL = new Set(['1', '1.1', '1.1.1', '1.1.2', '1.2', '1.3', '1.4', '1.5', '1.6', '1.7']);
   const mesmaEstrutura = (i, j) => ORIGENS[i] === ORIGENS[j];
-  const comparavel = (code, i, j) =>
-    mesmaEstrutura(i, j) || !String(code).startsWith('1') || RECEITA_COMPARAVEL.has(String(code));
+  // Depois da renumeração de 02/08 a DESPESA também deixou de ser comparável
+  // folha a folha entre um mês de planilha e um do ERP: 66 contas com dinheiro
+  // num lado e zero no outro. Acima do nível 2 (os totais de centro) continua
+  // valendo dos dois lados; abaixo, não.
+  const comparavel = (code, i, j) => {
+    if (mesmaEstrutura(i, j)) return true;
+    const c = String(code);
+    if (c.startsWith('1')) return RECEITA_COMPARAVEL.has(c);
+    return c.split('.').length <= 2;          // 2, 2.1, 2.13… sim; 2.1.11 não
+  };
   // variação relativa que respeita a regra acima (null = não dá para comparar)
   const ahEntre = (a, code, i, j) => {
     if (!comparavel(code, i, j)) return null;
@@ -735,12 +747,12 @@ function boot(D) {
       data: { labels, datasets: [{ data: vals, backgroundColor: PALETTE, borderColor: cssVar('--chart-border') || '#161f2e', borderWidth: 2 }] },
       options: { responsive: true, maintainAspectRatio: false, cutout: '62%',
         plugins: { legend: { position: 'right', labels: { color: cssVar('--chart-tick'), font: { size: 11 }, boxWidth: 10, padding: 8 } },
-          tooltip: { callbacks: { label: c => ` ${c.label}: ${fmt(c.raw)} (${pct(c.raw / (expAt(cur) || 1))})` } } } }
+          tooltip: { callbacks: { label: c => ` ${c.label}: ${fmt(c.raw)} (${pct(c.raw / (despOperAt(cur) || 1))})` } } } }
     });
     const maxV = data[0] ? data[0].v : 1;
     document.getElementById('expenseRank').innerHTML = data.slice(0, 6).map(d =>
       `<div class="row"><span class="nm">${d.name}</span>
-       <span class="vl">${fmt(d.v)} · ${pct(d.v / (expAt(cur) || 1))}</span>
+       <span class="vl">${fmt(d.v)} · ${pct(d.v / (despOperAt(cur) || 1))}</span>
        <span class="bar"><i style="width:${(d.v / maxV * 100).toFixed(1)}%"></i></span></div>`).join('');
   }
 
@@ -1688,7 +1700,9 @@ function boot(D) {
           <tbody>${movs.slice(0, 8).map(m => {
             // conta de dívida/financiamento não é "melhora" nem "piora" do
             // resultado — fica neutra, senão mais empréstimo aparece em verde
-            const naoOper = ['1.3', '1.4', '2.13.6', '2.13.7', '2.14.3', '2.16']
+            // 2.14 INTEIRO, não só 2.14.3: sem isso a retirada do Leonardo
+            // (−R$ 8.968,10 em jul/26) entrava verde, como economia da operação
+            const naoOper = ['1.3', '1.4', '1.7', '2.13.6', '2.13.7', '2.14', '2.16', '2.17', '2.18']
               .some(pf => m.code === pf || String(m.code).startsWith(pf + '.'));
             const bomM = m.rev ? m.d > 0 : m.d < 0;
             return `<tr><td class="t-name">${m.nome}${naoOper ? '<span class="es-obs">dívida/financiamento — não é resultado</span>' : ''}</td><td>${fmt(m.vb)}</td><td>${fmt(m.va)}</td>
@@ -1995,7 +2009,11 @@ function boot(D) {
       if (ms.length) mov.set(a.code, { a, ini: ms[0], fim: ms[ms.length - 1], n: ms.length });
     });
     const ult = MONTHS.length - 1;
-    const pararam = [...mov.values()].filter(x => x.fim < ult - 1 && x.n >= 3);
+    // `fim < ult - 1` exigia DOIS meses parados e cegava justamente a virada:
+    // 56 contas de despesa morreram em Jun/26 (R$ 63.894,72) e não apareciam.
+    const trocouPlano = !mesmaEstrutura(ult, ult - 1);
+    const pararam = [...mov.values()].filter(x =>
+      x.fim <= ult - 1 && x.n >= (trocouPlano ? 2 : 3));
     const surgiram = [...mov.values()].filter(x => x.ini >= ult - 1);
 
     // casa nome parecido + períodos que se completam + mesma ordem de grandeza
@@ -2150,6 +2168,7 @@ function boot(D) {
           'dois-significados-216': '⚠️ Conta 2.16 com dois significados (investimento no histórico, empréstimo agora)',
           'consumo-fora-do-galho': '⚡ Conta de luz/água lançada fora do galho de energia/água',
           'possivel-duplicidade': '💸 Possível pagamento em duplicidade — conferir com o fornecedor',
+          'receita-sem-os': '🧾 Receita sem Ordem de Serviço — está no total, mas fora da quebra por produto',
           'fatura-cartao-em-juros': '💳 Fatura de cartão lançada como juros (infla o custo financeiro)',
           'amil-pedro-henrique': '🩺 AMIL Pedro Henrique na conta do Leonardo (é do Sr. Pedro → 2.14.1.4)',
           'nordeste-sem-descricao': '🏦 Parcela do Nordeste sem descrição',
@@ -2356,8 +2375,13 @@ function boot(D) {
     signals.push({ type: opSt.slope >= 0 ? 'good' : 'warn', title: 'Margem operacional',
       html: `Tendência de margem operacional <b>${opSt.slope >= 0 ? 'crescente' : 'decrescente'}</b> nos ${MONTHS.length} meses (média <b>${pct(opSt.mean)}</b>). A operação é o <b>ativo forte</b> do negócio.` });
 
-    const ownerSeries = MONTHS.map((_, k) => opResAt(k) ? ownerAt(k) / opResAt(k) : 0);
-    const ownerAvg = ownerSeries.reduce((s, v) => s + v, 0) / ownerSeries.length;
+    // Razão dos ACUMULADOS, não média das razões mês a mês. A média explodia
+    // em mês de operação fraca (Jun/26: retirada 48.144 sobre operação 21.878
+    // = 220%) e o sinal dizia 83,1% enquanto o simulador, 30 linhas abaixo,
+    // dizia 59,4% para a mesma coisa.
+    const ownerTot = MONTHS.reduce((s, _, k) => s + ownerAt(k), 0);
+    const opResTot = MONTHS.reduce((s, _, k) => s + opResAt(k), 0);
+    const ownerAvg = opResTot ? ownerTot / opResTot : 0;
     signals.push({ type: ownerAvg > 0.8 ? 'bad' : ownerAvg > 0.5 ? 'warn' : 'good', title: 'Disciplina de retirada',
       html: `Em média, as retiradas consomem <b>${pct(ownerAvg)}</b> do resultado operacional. ${ownerAvg > 0.8 ? 'Está <b>alto</b> — limita reinvestimento e reservas.' : 'Espaço razoável para capitalizar a empresa.'}` });
 

@@ -113,12 +113,53 @@ DE_PARA_PLANO_NOVO = [
 # (2.4.1.x Copasa, 2.4.3.x Cemig). O painel acompanha energia e água pelas
 # contas canônicas 2.5.3 e 2.5.1 — o de-para acima já leva 2.4 → 2.5, e estas
 # duas linhas garantem que os medidores caiam no galho certo.
+# SUBCONTAS renumeradas (gabarito: cada título de julho comparado com o
+# codigo que ele TINHA no snapshot de 02/08, antes da renumeracao — 34
+# pares, R$ 33.783,18). Sem isto o prefixo era traduzido e o sufixo
+# ficava do plano novo: o Frete caía em 2.11.9.4 e a linha 'Frete'
+# (2.11.4) marcava R$ 0,00; EPI e Medicina Ocupacional continuavam
+# dentro de Funcionários em vez de Segurança do Trabalho.
+DE_PARA_SUBCONTA = [
+    ("2.1.12.1.4", "2.1.15.4"), # Aniversário do mês
+    ("2.1.12.1.5", "2.1.15.5"), # Eventos Pontuais
+    ("2.2.4.5.1", "2.2.5.5.1"), # Impressão I
+    ("2.2.7.2.1", "2.3.2.1"), # Limpeza Escritório
+    ("2.1.11.1", "2.1.12.1"), # Comissão interna
+    ("2.1.11.2", "2.1.12.2"), # Bônus
+    ("2.1.11.3", "2.1.11.1"), # Diária
+    ("2.1.11.4", "2.1.16"),  # Empreita
+    ("2.1.11.6", "2.1.11.4"), # Hora Extra
+    ("2.1.11.7", "2.1.19"),  # Incentivo de Viagens
+    ("2.1.15.1", "2.1.18"),  # Minas Brasil
+    ("2.1.18.1", "2.9.1"),   # Medicina Ocupacional
+    ("2.1.18.2", "2.9.2"),   # EPI
+    ("2.11.1.4", "2.14.2.4"), # Amil Pedro Henrique
+    ("2.2.7.1", "2.3.1"),    # Material de Limpeza
+    ("2.8.1.1", "2.10.1.1"), # Hotel
+    ("2.8.1.2", "2.10.1.2"), # Alimentação
+    ("2.8.1.3", "2.10.1.3"), # Pedágio
+    ("2.8.1.5", "2.10.1.5"), # Translado
+    ("2.8.9.1", "2.11.1"),   # Freelancer
+    ("2.8.9.3", "2.11.3"),   # Gráfica Rápida
+    ("2.8.9.4", "2.11.4"),   # Frete
+    ("2.1.11", "2.1.13"),    # Honorários Adicionais
+    ("2.1.12", "2.1.14"),    # Alimentação & Confraternização
+    ("2.1.14", "2.2.2"),     # Contribuição Sindical
+    ("2.2.2", "2.2.3"),      # CDL
+    ("2.2.5", "2.2.6"),      # Devolução Cliente
+    ("2.2.6", "2.2.7"),      # ACI
+    ("2.8.2", "2.10.2"),     # Estacionamento
+    ("2.8.3", "2.10.3"),     # Andaimes
+    ("2.8.4", "2.10.4"),     # Material de Construção
+    ("2.8.7", "2.10.7"),     # Alimentação
+]
+
 DE_PARA_FIXAS = [("2.4.1", "2.5.1"), ("2.4.3", "2.5.3")]
 
 
 def traduzir_plano(c):
     """Código do plano NOVO -> código canônico. Devolve o próprio se não casar."""
-    for novo, canon in DE_PARA_FIXAS + DE_PARA_PLANO_NOVO:
+    for novo, canon in DE_PARA_SUBCONTA + DE_PARA_FIXAS + DE_PARA_PLANO_NOVO:
         if c == novo or c.startswith(novo + "."):
             return canon + c[len(novo):]
     return c
@@ -236,22 +277,60 @@ def pendencias_de_classificacao(pagar, receber, valor_janela):
     # mesma data de baixa em títulos diferentes. Achado real em jul/26:
     # HANNOVER BH R$ 1.311,72 e BOA LED R$ 757,45, ambos lançados dia 14/07 e
     # de novo dia 15/07 — R$ 2.403,57 no total com o caso da UNIGRAF.
-    vistos = {}
-    for t in pagar:
+    # IDENTIDADE do fornecedor: 23,7% dos títulos de julho vêm com `origem`
+    # VAZIA (R$ 79.636 de valor) — exigir origem preenchida deixava o HOTEL
+    # (R$ 468) e o COMERCIAL MATÃO (R$ 380,10) de fora. Quando falta, usa a
+    # descrição + a conta. Só quando falta: `origem` é o que hoje separa
+    # adiantamentos e diárias de colaboradores diferentes.
+    def _quem(t):
         forn = str(t.get("origem") or "").strip()
-        if not forn:
+        if forn:
+            return forn
+        d = re.sub(r"[^a-z0-9]", "", unicodedata.normalize("NFD", str(t.get("descricao") or "").lower())
+                   .encode("ascii", "ignore").decode())[:30]
+        return (d + "|" + str(t.get("plano_contas") or "")[:20]) if d else ""
+
+    vistos, quando = {}, {}
+    for t in pagar:
+        quem = _quem(t)
+        if not quem:
             continue
+        cad = str(t.get("data_cadastro") or "")[:13]      # até a hora
         for pg in (t.get("pagamentos") or []):
             dt = str(pg.get("data_pagamento") or pg.get("data_credito") or "")[:10]
             v = round(float(pg.get("valor") or 0), 2)
-            if v < 300:                      # centavos e tarifas não interessam
+            if not v:
                 continue
-            vistos.setdefault((forn, v, dt), []).append(t.get("id"))
-    for (forn, v, dt), ids in vistos.items():
-        if len(ids) > 1:
-            out.append({"tipo": "possivel-duplicidade", "conta": "", "valor": round(v * (len(ids) - 1), 2),
-                        "texto": f"{forn[:30]} — R$ {v:,.2f} pago {len(ids)}x em {dt[8:10]}/{dt[5:7]} "
-                                 f"(títulos {', '.join(str(i) for i in ids)}). Conferir se não é pagamento repetido."})
+            vistos.setdefault((quem, v, dt), []).append((t.get("id"), cad))
+
+    # 1ª passada: pares acima do piso. Abaixo dele há multiplicidade LEGÍTIMA
+    # (diárias de R$ 80 para pessoas diferentes, tarifas iguais, dois medidores
+    # da Cemig com o mesmo valor) — sem o piso a regra vai de 3 para 21 grupos.
+    grupos, janelas = [], set()
+    for chave, its in vistos.items():
+        if len(its) > 1 and chave[1] >= 300:
+            grupos.append((chave, its))
+            cads = sorted({c for _, c in its})
+            if len(cads) > 1:
+                janelas.add(tuple(cads))
+    # 2ª passada: irmão do MESMO LOTE de redigitação entra mesmo abaixo do piso.
+    # Compara PAR A PAR, não o conjunto: NORTEFERRO e PIONEIRA formam TRIO com
+    # um título legítimo de maio/junho, e comparar o grupo inteiro fazia a
+    # janela não casar. Em jul/26 recupera 143,97 e 32,00 — e nada além.
+    for chave, its in vistos.items():
+        if len(its) > 1 and chave[1] < 300:
+            par = [x for x in its
+                   if any(x[1] in j and any(y[1] in j and y[0] != x[0] for y in its) for j in janelas)]
+            if len(par) > 1:
+                grupos.append((chave, par))
+
+    for (quem, v, dt), its in grupos:
+        ids = [i for i, _ in its]
+        cads = sorted({c for _, c in its})
+        lote = f" — redigitado em {cads[-1][8:10]}/{cads[-1][5:7]} {cads[-1][11:13]}h" if len(cads) > 1 else ""
+        out.append({"tipo": "possivel-duplicidade", "conta": "", "valor": round(v * (len(ids) - 1), 2),
+                    "texto": f"{quem.split('|')[0][:30]} — R$ {v:,.2f} pago {len(ids)}x em {dt[8:10]}/{dt[5:7]}"
+                             f"{lote} (títulos {', '.join(str(i) for i in ids)}). Conferir se não foi pago em duplicidade."})
     return out
 
 
