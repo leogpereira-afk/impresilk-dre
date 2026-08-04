@@ -3424,6 +3424,28 @@ function onAuthed() {
   // não há mais pessoa — a senha é da equipe que alimenta o sistema.
   applyPermissions({ role: 'master' });
 }
+// O DRE é uma PORTA, não um quadro de gente: a senha é UMA e vale para todo
+// mundo que alimenta o sistema. Por isso esta tela não diz "minha senha" --
+// seria mentira: trocar aqui tranca os colegas até avisá-los. O aviso e a
+// confirmação estão no texto de propósito. Quem esquecer, a Central destranca.
+async function trocarSenhaDoDre() {
+  const atual = prompt('Senha ATUAL do DRE:');
+  if (atual === null) return;
+  const nova = prompt('Senha NOVA (mínimo 6 caracteres).\n\nATENÇÃO: a senha do DRE é a MESMA para toda a equipe.\nTrocar aqui muda para todo mundo — avise quem usa.');
+  if (nova === null) return;
+  if (String(nova).length < 6) { alert('A senha nova precisa de ao menos 6 caracteres.'); return; }
+  const rep = prompt('Repita a senha nova:');
+  if (rep === null) return;
+  if (nova !== rep) { alert('As duas senhas novas não são iguais.'); return; }
+  if (!confirm('Confirma trocar a senha do DRE para TODA a equipe?')) return;
+  try {
+    await AUTH.trocarSenha(atual, nova);
+    alert('Senha do DRE trocada. Avise a equipe: todos entram com a nova a partir de agora.');
+  } catch (e) {
+    alert(e.erro || e.message || 'Não consegui trocar a senha agora.');
+  }
+}
+
 function logout() {
   // dados ainda não sincronizados se perderiam de vista — avisa antes de sair
   const pend = (typeof getQueue === 'function') ? getQueue().length : 0;
@@ -3627,6 +3649,8 @@ function initAuth() {
     err.hidden = true; onAuthed();
   };
   document.getElementById('logoutBtn').onclick = logout;
+  const btSenha = document.getElementById('senhaBtn');
+  if (btSenha) btSenha.onclick = trocarSenhaDoDre;
   document.getElementById('newUserBtn').onclick = () => openUserModal(null);
   wireUserModal();
   // A porta é o crachá do servidor. A lista por aparelho não decide mais nada.
