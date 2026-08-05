@@ -3,7 +3,7 @@
 // ▶ A cada mudança nos arquivos, SUBA o número do CACHE (v1 → v2 → …). No
 //   evento "activate" apagamos todo cache com nome diferente, o que força os
 //   aparelhos a baixarem a versão nova (evita ficar preso em arquivos antigos).
-const CACHE = 'app-shell-v63';
+const CACHE = 'app-shell-v64';
 
 // O MESMO número precisa estar no ?v= dos <link>/<script> do index.html. O
 // Service Worker só manda no que passa por ele; o cache HTTP do navegador é
@@ -27,8 +27,11 @@ const SHELL = [
 ];
 
 // INSTALL: pré-cacheia o shell e assume o controle imediatamente.
+// cache:'reload' na instalação: sem isto o SW guarda o que estava no cache
+// HTTP do navegador (o Pages manda max-age=600) e passa a servir a versão
+// velha até o próximo bump — a equipe não recebe a correção recém-publicada.
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL.map((u) => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 // ACTIVATE: remove caches antigos (qualquer nome != CACHE atual) e assume o
