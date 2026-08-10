@@ -3537,6 +3537,11 @@ function wireMubisys() {
           setStatus(`OK — ${r.total} lançamento(s) em contas a pagar no mês. Campos: ${(r.campos || []).length}`, 'ok');
           pv.textContent = 'CAMPOS DISPONÍVEIS:\n' + (r.campos || []).join(', ') + '\n\nAMOSTRA (1º item):\n' + JSON.stringify((r.amostra || [])[0] || {}, null, 2);
           pv.hidden = false;
+        } else if (/\b404\b/.test(String((r && r.erro) || ''))) {
+          // O Mubisys devolve 404 para PERÍODO SEM LANÇAMENTO — não é erro de
+          // conexão nem de credencial. Dizer "respondeu com erro" aqui fazia o
+          // teste acusar queda todo dia 1º, antes do primeiro pagamento do mês.
+          setStatus('Conexão OK — o Mubisys respondeu, só não há lançamento pago neste mês ainda.', 'ok');
         } else setStatus('Mubisys respondeu com erro: ' + ((r && r.erro) || '—'), 'err');
       } catch (_) { setStatus('Falha ao consultar o Mubisys (timeout ou rede).', 'err'); }
     };

@@ -20,6 +20,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Trava contra a regressão que já voltou três vezes (v46, v61/62, v63/64):
+      # o CACHE do sw.js sobe e o ?v= do index.html fica para trás. Quando isso
+      # acontece o Service Worker pré-carrega arquivos que a página nunca pede,
+      # e quem abre offline (ou com cache HTTP quente) vê tela velha. Aqui o
+      # deploy PARA antes de publicar o descasamento.
+      - name: Versão do sw.js tem que bater com a do index.html
+        run: |
+          SW=$(sed -n "s/.*app-shell-v\([0-9]*\).*/\1/p" sw.js | head -1)
+          HTML=$(grep -o '?v=[0-9]\+' index.html | sed 's/?v=//' | sort -u)
+          echo "sw.js  → v$SW"
+          echo "index  → $(echo $HTML | tr '\n' ' ')"
+          if [ -z "$SW" ]; then echo "::error::não achei o CACHE em sw.js"; exit 1; fi
+          if [ "$(echo "$HTML" | wc -l)" -ne 1 ] || [ "$HTML" != "$SW" ]; then
+            echo "::error::sw.js está em v$SW e o index.html pede $(echo $HTML | tr '\n' ' ') — suba os dois JUNTOS"
+            exit 1
+          fi
+          echo "✓ os dois em v$SW"
+
       - name: Separar os arquivos do site
         run: |
           mkdir -p dist

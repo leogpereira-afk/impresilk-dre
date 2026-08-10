@@ -188,9 +188,23 @@ Deno.serve(async (req: Request) => {
     const datainicial = body.datainicial || "";
     const datafinal = body.datafinal || "";
 
+    // PING responde "a integração está viva?", não "esse período tem dado?".
+    // O Mubisys devolve 404 para janela sem lançamento e 422 quando falta a
+    // data — nos dois casos ele FALOU CONOSCO e aceitou a credencial, então a
+    // conexão está boa. Antes o ping devolvia ok:false nesses dois casos e o
+    // teste acusava queda num domingo sem pagamento.
     if (action === "ping") {
       const r = await buscar("contas-pagar", creds, { status: "PAGO", filtrodata: "PAGAMENTO", datainicial, datafinal });
-      return json({ ok: r.ok, http: r.http });
+      const vivo = r.ok || r.http === 404 || r.http === 422;
+      return json({
+        ok: vivo,
+        http: r.http,
+        vazio: !r.ok && r.http === 404,
+        detalhe: r.ok ? "conexão e credencial OK"
+          : r.http === 404 ? "conexão OK — período sem lançamento"
+          : r.http === 422 ? "conexão OK — faltou informar o período"
+          : "o Mubisys recusou a chamada",
+      });
     }
 
     // Diagnóstico: devolve a resposta do Mubisys EXATAMENTE como veio, sem
@@ -210,6 +224,14 @@ Deno.serve(async (req: Request) => {
       const status = body.status || (recurso.startsWith("conta-banc") ? "" : "PAGO");
       const filtrodata = body.filtrodata || "PAGAMENTO";
       const r = await buscar(recurso, creds, { status, filtrodata, datainicial, datafinal });
+      // 404 do Mubisys é AUSÊNCIA DE DADO, não falha: devolve lista vazia em vez
+      // de 502. Como estava, um período sem lançamento chegava no painel como
+      // erro de servidor (o robô já contornava isso por conta própria).
+      if (!r.ok && r.http === 404) {
+        return json(action === "preview"
+          ? { ok: true, recurso, total: 0, vazio: true, campos: [], amostra: [] }
+          : { ok: true, recurso, total: 0, vazio: true, itens: [] });
+      }
       if (!r.ok) return json({ erro: `Mubisys HTTP ${r.http}`, detalhe: r.data }, 502);
       const lista = extrairLista(r.data);
       if (action === "preview") {
