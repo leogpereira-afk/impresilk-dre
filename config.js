@@ -1,13 +1,17 @@
 // config.js — configuração do CLIENTE (vai ao navegador).
 //
-// ⚠️ ATENÇÃO: este arquivo é servido ao browser, então TUDO aqui é PÚBLICO e
-// visível no DevTools. O TOKEN abaixo só barra acesso casual/bots — NÃO é
-// segurança forte. Para dados sensíveis, troque por login real (sessão/JWT)
-// com o segredo morando apenas no servidor.
+// ⚠️ TUDO neste arquivo é PÚBLICO: ele é servido ao navegador e qualquer pessoa
+// lê no código-fonte da página. Por isso NÃO existe mais token aqui.
 //
-// O MESMO valor precisa estar na variável de ambiente TOKEN do painel Netlify.
-// Se divergirem, todas as chamadas retornam 401.
-const TOKEN = 'tok_55606031e843116d7d944c7c1503afd663e742cc';
+// Até 05/08/2026 havia um `const TOKEN = 'tok_...'` nesta linha, e era ele que
+// autorizava os dados no servidor. Resultado: qualquer pessoa que abrisse o
+// código-fonte baixava o DRE inteiro — receita, custo e resultado mês a mês —
+// sem login nenhum. Foi confirmado na prática antes de consertar.
+//
+// Agora quem autoriza é o CRACHÁ da pessoa (o mesmo que abre a tela), que vive
+// no localStorage e é assinado por um segredo que só o servidor conhece. O
+// token antigo foi GIRADO: remover do arquivo não bastaria, porque ele já
+// estava público e continua nas cópias em cache de quem já visitou.
 
 // Endpoint do backend (função roteadora). Caminho relativo: funciona em
 // qualquer domínio onde o site estiver publicado.
@@ -34,7 +38,12 @@ async function apiFn(fn, action, payload = {}, timeoutMs = 30000) {
   try {
     const r = await fetch(API_BASE + '/' + (API_FN[fn] || fn), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-token': TOKEN },
+      headers: Object.assign(
+        { 'content-type': 'application/json' },
+        // O crachá é lido na hora da chamada, não guardado numa constante: ele
+        // muda quando a pessoa entra, sai ou troca de senha.
+        (typeof AUTH !== 'undefined' && AUTH.cracha()) ? { authorization: 'Bearer ' + AUTH.cracha() } : {}
+      ),
       body: JSON.stringify({ action, ...payload }),
       signal: ctrl.signal,
     });

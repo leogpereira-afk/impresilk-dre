@@ -20,6 +20,38 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const TOKEN = Deno.env.get("DRE_TOKEN") ?? "";
+const JWT_SECRET = Deno.env.get("EQUIPE_JWT_SECRET") ?? "";
+
+// Cracha da Central de Acessos (ver a explicacao longa em dre-sync): esta
+// function fala com o ERP e devolve numero de dinheiro, entao a porta e a
+// mesma -- gente entra com cracha, maquina com x-token.
+async function lerCracha(token: string): Promise<any | null> {
+  if (!JWT_SECRET || !token) return null;
+  const partes = token.split(".");
+  if (partes.length !== 3) return null;
+  try {
+    const enc = new TextEncoder();
+    const chave = await crypto.subtle.importKey(
+      "raw", enc.encode(JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const b64url = (x: string) => {
+      x = x.replace(/-/g, "+").replace(/_/g, "/");
+      while (x.length % 4) x += "=";
+      const bin = atob(x);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    };
+    const ok = await crypto.subtle.verify(
+      "HMAC", chave, b64url(partes[2]), enc.encode(`${partes[0]}.${partes[1]}`));
+    if (!ok) return null;
+    const p = JSON.parse(new TextDecoder().decode(b64url(partes[1])));
+    if (typeof p.exp === "number" && p.exp < Math.floor(Date.now() / 1000)) return null;
+    if (p.sis !== "dre") return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
 const DEFAULT_BASE = "https://api.mubisys.com/api";
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
@@ -143,8 +175,10 @@ function valorCaixa(t: any, ini: string, fim: string): number {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ erro: "Use POST" }, 405);
-  if (!TOKEN) return json({ erro: "DRE_TOKEN não configurado no servidor" }, 500);
-  if (req.headers.get("x-token") !== TOKEN) return json({ erro: "Token inválido" }, 401);
+  const m = String(req.headers.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i);
+  const cracha = m ? await lerCracha(m[1]) : null;
+  const ehMaquina = !!TOKEN && req.headers.get("x-token") === TOKEN;
+  if (!cracha && !ehMaquina) return json({ erro: "Entre no sistema.", semSessao: true }, 401);
 
   let body: any;
   try {

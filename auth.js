@@ -39,6 +39,9 @@ const AUTH = (() => {
 
   return {
     temCracha: () => !!pegar(),
+    // O crachá agora também autoriza os DADOS (dre-sync e dre-financas), não só
+    // a tela: por isso ele precisa ser legível de fora deste módulo.
+    cracha: pegar,
     esquecer,
     async entrar(senha) {
       const r = await chamar('login', { usuario: USUARIO, senha });

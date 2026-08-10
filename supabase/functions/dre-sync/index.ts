@@ -10,7 +10,25 @@
 // formato preservado tambem mantem o backup do Hub funcionando.
 //
 // PROJETO COMPARTILHADO: prefixo obrigatorio no nome da function.
-// verify_jwt = false: a autorizacao e o x-token conferido aqui dentro.
+//
+// AUTORIZACAO (mudou em 05/08/2026, e a mudanca importa):
+//
+// Ate aqui a unica porta era o x-token -- e esse token estava ESCRITO EM TEXTO
+// PURO no config.js, que e servido ao navegador. Qualquer pessoa que abrisse o
+// codigo-fonte da pagina baixava o DRE inteiro (receita, custo, resultado mes a
+// mes) sem login nenhum. Foi confirmado na pratica: 284 KB baixados so com o
+// que estava no arquivo publico. O proprio comentario de la admitia "NAO e
+// seguranca forte".
+//
+// Agora sao DUAS portas, para dois usos que sempre foram diferentes:
+//
+//   GENTE   -> Authorization: Bearer <cracha da equipe-auth>, com sis = "dre".
+//              E o mesmo cracha que ja abre a tela; agora ele tambem abre o
+//              dado. O segredo (EQUIPE_JWT_SECRET) nunca sai do servidor.
+//   MAQUINA -> x-token, so para o backup do Hub, que nao tem como fazer login.
+//              O valor FOI GIRADO: o antigo e publico para sempre.
+//
+// Se um dia o x-token voltar a aparecer em arquivo de cliente, o buraco volta.
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -18,7 +36,40 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const TOKEN = Deno.env.get("DRE_TOKEN") ?? "";
+const JWT_SECRET = Deno.env.get("EQUIPE_JWT_SECRET") ?? "";
 const BUCKET = "dre-arquivos";
+
+// Le o cracha da Central de Acessos. Copia enxuta do verificarJwt da
+// equipe-auth: so Web Crypto, sem dependencia.
+async function lerCracha(token: string): Promise<any | null> {
+  if (!JWT_SECRET || !token) return null;
+  const partes = token.split(".");
+  if (partes.length !== 3) return null;
+  try {
+    const enc = new TextEncoder();
+    const chave = await crypto.subtle.importKey(
+      "raw", enc.encode(JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const b64url = (s: string) => {
+      s = s.replace(/-/g, "+").replace(/_/g, "/");
+      while (s.length % 4) s += "=";
+      const bin = atob(s);
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    };
+    const ok = await crypto.subtle.verify(
+      "HMAC", chave, b64url(partes[2]), enc.encode(`${partes[0]}.${partes[1]}`));
+    if (!ok) return null;
+    const p = JSON.parse(new TextDecoder().decode(b64url(partes[1])));
+    if (typeof p.exp === "number" && p.exp < Math.floor(Date.now() / 1000)) return null;
+    // O cracha e emitido POR SISTEMA. Um cracha do Brief nao abre o DRE --
+    // era exatamente esse o furo da acao "eu" da equipe-auth.
+    if (p.sis !== "dre") return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
 
 const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -60,8 +111,14 @@ Deno.serve(async (req: Request) => {
     return json({ erro: "JSON inválido" }, 400);
   }
 
+  // Gente entra com cracha; maquina (o backup do Hub) entra com x-token.
+  const m = String(req.headers.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i);
+  const cracha = m ? await lerCracha(m[1]) : null;
   const token = req.headers.get("x-token") ?? body.token;
-  if (!TOKEN || token !== TOKEN) return json({ erro: "Não autorizado" }, 401);
+  const ehMaquina = !!TOKEN && token === TOKEN;
+  if (!cracha && !ehMaquina) {
+    return json({ erro: "Entre no sistema.", semSessao: true }, 401);
+  }
 
   try {
     switch (body.action as string) {
