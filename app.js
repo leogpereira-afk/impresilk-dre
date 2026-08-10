@@ -2859,9 +2859,245 @@ function boot(D) {
       </div>`;
   }
 
+  /* ------------------------------------------------------------------ *
+   *  DRE PADRÃO — a cascata contábil clássica
+   *  ------------------------------------------------------------------
+   *  O DRE por Seção é o espelho do plano de contas: bom para achar
+   *  lançamento, ruim para medir operação, porque o custo de produção
+   *  fica espalhado em seis galhos e a MARGEM BRUTA não aparece em
+   *  lugar nenhum. Aqui as MESMAS contas viram a cascata clássica —
+   *  Receita Bruta → Líquida → Lucro Bruto → EBITDA → Resultado — e no
+   *  fim a ponte de volta para a variação de caixa.
+   *
+   *  REGRA DE CONSTRUÇÃO: a alocação varre TODOS os filhos de "2" e
+   *  obriga cada um a cair num balde. O que não for reconhecido vai para
+   *  "Outras" COM O NOME, em vez de sumir. Conferido nos 9 meses da
+   *  série: a ponte fecha no centavo contra o caixa do painel.        */
+  const PAD_CPV       = ['2.12', '2.11', '2.10', '2.6'];  // material, terceirização, obra, máquinas
+  const PAD_PESSOAL   = ['2.1', '2.9'];
+  const PAD_ADMIN     = ['2.2', '2.3', '2.5'];
+  const PAD_VEICULOS  = ['2.7'];
+  const PAD_TERCEIROS = ['2.8'];
+  const PAD_COMERCIAL = ['2.15'];
+  const PAD_DED_IMP   = ['2.4.1', '2.4.8'];   // DAS (Simples) e ISSQN incidem sobre a venda
+  const PAD_DED_DEV   = ['2.2.6'];            // devolução a cliente
+  const PAD_IOF       = ['2.4.7'];
+  const PAD_FIN_TAR   = ['2.13.1', '2.13.2', '2.13.5'];  // tarifas e juros de cartão
+
+  const somaC = (codes, i) => codes.reduce((s, c) => s + val(get(c), i), 0);
+
+  function padraoAt(i) {
+    const d = { cpv: 0, pessoal: 0, admin: 0, veiculos: 0, terceiros: 0, comercial: 0,
+                tributos: 0, semRateio: 0, outros: 0, despFin: 0, socios: 0,
+                maquinas: 0, divOut: 0, outrosLista: [] };
+    const f1 = (childrenOf.get('1') || []).map(x => x.code);
+    const f2 = (childrenOf.get('2') || []).map(x => x.code);
+
+    d.recFin = val(get('1.3'), i);
+    d.divIn = val(get('1.4'), i) + val(get('1.7'), i);
+    // valor lançado DIRETO na conta 1, sem centro de custo — nos meses de
+    // planilha chega a R$ 8,4 mil; sem esta linha a cascata não fecha
+    d.recSemCat = round2(val(get('1'), i) - f1.reduce((s, c) => s + val(get(c), i), 0));
+    d.bruta = round2(f1.filter(c => !['1.3', '1.4', '1.7'].includes(c))
+      .reduce((s, c) => s + val(get(c), i), 0) + d.recSemCat);
+
+    d.dedImp = somaC(PAD_DED_IMP, i);
+    d.dedDev = somaC(PAD_DED_DEV, i);
+    d.deducoes = round2(d.dedImp + d.dedDev);
+    d.liquida = round2(d.bruta - d.deducoes);
+
+    f2.forEach(c => {
+      const tot = val(get(c), i);
+      if (!tot) return;
+      if (c === '2.4') {                                    // impostos: 3 destinos
+        d.tributos += round2(tot - somaC(PAD_DED_IMP, i) - somaC(PAD_IOF, i));
+        d.despFin += somaC(PAD_IOF, i);
+      } else if (c === '2.13') {                            // bancárias: 3 destinos
+        const fin = somaC(PAD_FIN_TAR, i);
+        const maq = somaC(['2.13.7.1.1', '2.13.7.1.2'], i);
+        d.despFin += fin; d.maquinas += maq;
+        d.divOut += round2(tot - fin - maq);                // antecipação + giro
+      } else if (c === '2.14') {                            // societárias: 3 destinos
+        const maq = val(get('2.14.3.4'), i);
+        d.maquinas += maq;
+        d.divOut += round2(val(get('2.14.3'), i) - maq);
+        d.socios += round2(tot - val(get('2.14.3'), i));
+      } else if (c === '2.16') d.maquinas += tot;
+      else if (['2.17', '2.18'].includes(c)) d.divOut += tot;
+      else if (PAD_CPV.includes(c)) d.cpv += tot;
+      else if (PAD_PESSOAL.includes(c)) d.pessoal += tot;
+      else if (PAD_ADMIN.includes(c)) d.admin += round2(tot - (c === '2.2' ? somaC(PAD_DED_DEV, i) : 0));
+      else if (PAD_VEICULOS.includes(c)) d.veiculos += tot;
+      else if (PAD_TERCEIROS.includes(c)) d.terceiros += tot;
+      else if (PAD_COMERCIAL.includes(c)) d.comercial += tot;
+      else if (c === '2.99') d.semRateio += tot;
+      else { d.outros += tot; d.outrosLista.push({ c, nome: (get(c) || {}).name || c, v: round2(tot) }); }
+    });
+    const despSemCat = round2(val(get('2'), i) - f2.reduce((s, c) => s + val(get(c), i), 0));
+    if (Math.abs(despSemCat) > 0.01) {
+      d.outros += despSemCat;
+      d.outrosLista.push({ c: '2', nome: 'Sem centro de custo', v: despSemCat });
+    }
+    ['cpv', 'pessoal', 'admin', 'veiculos', 'terceiros', 'comercial', 'tributos',
+     'semRateio', 'outros', 'despFin', 'socios', 'maquinas', 'divOut'].forEach(k => d[k] = round2(d[k]));
+
+    d.bruto = round2(d.liquida - d.cpv);
+    d.despOper = round2(d.pessoal + d.admin + d.veiculos + d.terceiros + d.comercial
+      + d.tributos + d.semRateio + d.outros);
+    d.ebitda = round2(d.bruto - d.despOper);
+    d.resFin = round2(d.recFin - d.despFin);
+    d.resultado = round2(d.ebitda + d.resFin);
+    d.caixa = round2(val(get('1'), i) - val(get('2'), i));
+    d.conferido = round2(d.resultado - d.socios - d.maquinas + d.divIn - d.divOut);
+    d.fecha = Math.abs(d.conferido - d.caixa) < 0.02;
+    return d;
+  }
+
+  function renderPadrao() {
+    const host = document.getElementById('padraoTabela');
+    if (!host) return;
+    const d = padraoAt(cur), p = padraoAt(cmp);
+    const tit = document.getElementById('padraoTitulo');
+    if (tit) tit.textContent = `📄 DRE no formato padrão · ${MONTHS[cur]}`;
+
+    // acumulado do ano aberto na barra de período
+    const doAno = META_MES.map((x, i) => ({ ...x, i })).filter(x => x.a === anoSel).map(x => x.i);
+    const acum = {};
+    doAno.forEach(i => { const a = padraoAt(i); Object.keys(a).forEach(k => {
+      if (typeof a[k] === 'number') acum[k] = round2((acum[k] || 0) + a[k]); }); });
+
+    const av = (x, base) => base ? pct(x / base) : '—';
+    const ah = (a, b) => b ? signedPct((a - b) / Math.abs(b)) : '—';
+    const dir = (a, b, custo) => !b ? 'av' : (a > b ? (custo ? 'neg' : 'pos') : (custo ? 'pos' : 'neg'));
+    const mg = (x, o) => o.liquida ? x / o.liquida : 0;
+
+    const kpi = (rot, v, sub, cls) =>
+      `<div class="ck"><span class="ck-l">${rot}</span>
+        <span class="ck-v ${cls || ''}">${pct(v)}</span><span class="ck-s">${sub}</span></div>`;
+    document.getElementById('padraoKpis').innerHTML =
+      kpi('Margem bruta', mg(d.bruto, d), `era ${av(p.bruto, p.liquida)} em ${MONTHS[cmp]}`,
+          mg(d.bruto, d) >= mg(p.bruto, p) ? 'pos' : 'neg') +
+      kpi('Margem EBITDA', mg(d.ebitda, d), `era ${av(p.ebitda, p.liquida)} em ${MONTHS[cmp]}`,
+          mg(d.ebitda, d) >= mg(p.ebitda, p) ? 'pos' : 'neg') +
+      kpi('Margem líquida', mg(d.resultado, d), `era ${av(p.resultado, p.liquida)} em ${MONTHS[cmp]}`,
+          mg(d.resultado, d) >= mg(p.resultado, p) ? 'pos' : 'neg');
+
+    const LINHAS = [
+      ['RECEITA OPERACIONAL BRUTA', 'bruta', 'grande', false],
+      ['(−) Deduções sobre a receita', 'deducoes', 'filha', true],
+      ['RECEITA OPERACIONAL LÍQUIDA', 'liquida', 'result', false],
+      ['(−) Custo dos produtos e serviços vendidos', 'cpv', 'filha', true],
+      ['= LUCRO BRUTO', 'bruto', 'result', false],
+      ['(−) Despesas com pessoal', 'pessoal', 'filha', true],
+      ['(−) Despesas administrativas', 'admin', 'filha', true],
+      ['(−) Despesas com veículos', 'veiculos', 'filha', true],
+      ['(−) Serviços de terceiros', 'terceiros', 'filha', true],
+      ['(−) Despesas comerciais', 'comercial', 'filha', true],
+      ['(−) Tributos fora da venda', 'tributos', 'filha', true],
+      ['(−) Fatura de cartão sem rateio', 'semRateio', 'filha', true],
+      ['(−) Outras despesas operacionais', 'outros', 'filha', true],
+      ['= EBITDA · resultado operacional', 'ebitda', 'result', false],
+      ['(+) Receitas financeiras', 'recFin', 'filha', false],
+      ['(−) Despesas financeiras', 'despFin', 'filha', true],
+      ['= RESULTADO DO EXERCÍCIO', 'resultado', 'grande', false],
+    ];
+    host.innerHTML = `<div class="table-scroll"><table class="dre pad-tab">
+      <thead><tr><th class="t-name">Conta</th><th>${MONTHS[cur]}</th><th>AV</th>
+        <th>vs ${MONTHS[cmp]}</th><th>${MONTHS[cmp]}</th><th>Acum. ${anoSel}</th></tr></thead>
+      <tbody>${LINHAS.filter(([, k]) => d[k] || p[k] || acum[k]).map(([rot, k, cls, custo]) => `
+        <tr class="pad-${cls}">
+          <td class="t-name">${rot}</td>
+          <td class="mono ${d[k] < 0 ? 'neg' : ''}">${fmt2(d[k])}</td>
+          <td class="av">${av(d[k], d.liquida)}</td>
+          <td class="${dir(d[k], p[k], custo)}">${ah(d[k], p[k])}</td>
+          <td class="mono">${fmt(p[k])}</td>
+          <td class="mono">${fmt(acum[k] || 0)}</td>
+        </tr>`).join('')}</tbody></table></div>`;
+
+    const PONTE = [
+      ['RESULTADO DO EXERCÍCIO', d.resultado, acum.resultado, 'result'],
+      ['(−) Retiradas dos sócios e arrendamento', -d.socios, -(acum.socios || 0), 'filha'],
+      ['(−) Máquinas e veículos (viram patrimônio)', -d.maquinas, -(acum.maquinas || 0), 'filha'],
+      ['(+) Empréstimos captados', d.divIn, acum.divIn, 'filha'],
+      ['(−) Empréstimos devolvidos', -d.divOut, -(acum.divOut || 0), 'filha'],
+      ['= VARIAÇÃO DE CAIXA DO MÊS', d.caixa, acum.caixa, 'grande'],
+    ];
+    document.getElementById('padraoPonte').innerHTML = `
+      <h3 class="banco-group-title" style="margin-top:20px">Do resultado até o caixa</h3>
+      <p class="hint" style="margin-bottom:8px">O que separa o lucro do saldo do banco — nada aqui é despesa da operação.</p>
+      <div class="table-scroll"><table class="dre pad-tab">
+        <thead><tr><th class="t-name">Conta</th><th>${MONTHS[cur]}</th><th>Acum. ${anoSel}</th></tr></thead>
+        <tbody>${PONTE.map(([rot, a, b, cls]) => `<tr class="pad-${cls}">
+          <td class="t-name">${rot}</td>
+          <td class="mono ${a < 0 ? 'neg' : 'pos'}">${fmt2(a)}</td>
+          <td class="mono ${(b || 0) < 0 ? 'neg' : 'pos'}">${fmt(b || 0)}</td></tr>`).join('')}
+        </tbody></table></div>
+      <p class="hint" style="margin-top:8px">${d.fecha
+        ? '✓ a ponte fecha no centavo com a variação de caixa do painel'
+        : '<b class="neg">⚠ a ponte NÃO fechou — há conta fora de todos os baldes</b>'}</p>`;
+
+    const MAPA = [
+      ['Receita bruta', 'todos os galhos de receita menos 1.3 Rendimentos, 1.4 Empréstimos e 1.7 a Identificar'],
+      ['Deduções', '2.4.1 DAS (Simples Nacional) · 2.4.8 ISSQN · 2.2.6 Devolução a cliente'],
+      ['Custo dos produtos e serviços', '2.12 Materiais e Insumos · 2.11 Terceirização · 2.10 Instalações Externas · 2.6 Máquinas/Equipamentos'],
+      ['Despesas com pessoal', '2.1 Despesas Funcionários · 2.9 Segurança do Trabalho'],
+      ['Administrativas', '2.2 Administrativas (fora a devolução) · 2.3 Limpeza · 2.5 Fixas'],
+      ['Tributos fora da venda', '2.4.3 DARF'],
+      ['Receitas financeiras', '1.3 Rendimentos'],
+      ['Despesas financeiras', '2.13.1 Tarifa de Boletos · 2.13.2 Tarifa de Serviços · 2.13.5 Juros Cartão · 2.4.7 IOF'],
+      ['Sócios (abaixo da linha)', '2.14.1 Arrendamento · 2.14.2 Retiradas'],
+      ['Máquinas (abaixo da linha)', '2.16 Investimentos · 2.13.7.1.1 e .2 Nordeste · 2.14.3.4'],
+      ['Empréstimos (abaixo da linha)', '1.4 captado · 2.13.6 Antecipação · 2.13.7.1.3 Giro · 2.14.3 bancários · 2.17 · 2.18'],
+    ];
+    document.getElementById('padraoMapa').innerHTML = `
+      <h3 class="banco-group-title" style="margin-top:20px">De onde vem cada linha</h3>
+      <p class="hint" style="margin-bottom:8px">Toda decisão de classificação, à vista, para ser conferida.</p>
+      <div class="table-scroll"><table class="dre pad-tab"><tbody>
+        ${MAPA.map(([a, b]) => `<tr><td class="t-name"><b>${a}</b></td><td class="pad-mapa">${b}</td></tr>`).join('')}
+      </tbody></table></div>`;
+
+    // Fatura de cartão parada em "Juros Cartão" distorce a margem líquida do mês
+    // que a carrega. Quando isso acontece no mês COMPARADO, a melhora aparente
+    // é correção de classificação, não ganho de operação — avisa em vez de deixar
+    // o dono comemorar número errado.
+    const jurosCmp = val(get('2.13.5'), cmp), jurosCur = val(get('2.13.5'), cur);
+    const alerta = jurosCmp > 5000 || jurosCur > 5000;
+    document.getElementById('padraoNotas').innerHTML = `
+      ${alerta ? `<div class="util-alert" style="margin-top:18px"><b>⚠ Cuidado ao comparar a margem líquida.</b>
+        A conta <b>2.13.5 Juros Cartão</b> está em <b>${fmt2(jurosCmp > 5000 ? jurosCmp : jurosCur)}</b>
+        em ${jurosCmp > 5000 ? MONTHS[cmp] : MONTHS[cur]} — juros de verdade não chegam nesse valor.
+        É fatura de cartão sem itemizar parada ali dentro, e ela infla a despesa financeira daquele mês.
+        Enquanto isso não for arrumado no Mubisys, compare pela <b>margem bruta</b> e pela
+        <b>EBITDA</b>, que não passam por essa conta.</div>` : ''}
+      ${d.outrosLista.length ? `<p class="hint" style="margin-top:12px">Dentro de <b>Outras despesas
+        operacionais</b>: ${d.outrosLista.map(x => `${escAttr(x.nome)} ${fmt2(x.v)}`).join(' · ')}.</p>` : ''}
+      <p class="hint" style="margin-top:12px"><b>Três ressalvas.</b>
+        <b>1.</b> A base é <b>caixa, não competência</b>: cada valor entra no mês em que o dinheiro
+        saiu ou entrou, não no mês da nota — a forma da cascata é a padrão, a data de corte não.
+        <b>2.</b> Não há <b>depreciação</b>: máquina comprada sai do caixa de uma vez e fica abaixo
+        da linha, então o EBITDA aqui já é praticamente o EBIT.
+        <b>3.</b> <b>IR e CSLL</b> estão dentro do DAS do Simples, já deduzido lá em cima — por isso
+        não existe linha separada de imposto sobre o lucro.</p>`;
+  }
+
+  // Baixar PDF = imprimir. O @media print isola este cartão e o navegador
+  // oferece "Salvar como PDF" (no iPhone: Compartilhar → Imprimir → salvar).
+  // Sem biblioteca externa: a CSP dos Artifacts e do site bloqueia CDN.
+  const btPdf = document.getElementById('padraoPdf');
+  if (btPdf) btPdf.onclick = () => {
+    // se o cartão estiver recolhido, o PDF sairia em branco: abre antes
+    const card = document.getElementById('padraoCard');
+    if (card) card.classList.remove('collapsed');
+    document.body.classList.add('imprimindo-padrao');
+    const limpa = () => document.body.classList.remove('imprimindo-padrao');
+    window.addEventListener('afterprint', limpa, { once: true });
+    setTimeout(limpa, 60000);        // Safari antigo não dispara afterprint
+    window.print();
+  };
+
   function renderAll() {
     sincronizaPeriodo(); renderAno(); renderManual();
-    renderKPIs(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
+    renderKPIs(); renderPadrao(); renderDRE(); renderComposition(); renderRevComposition(); renderTrend(); buildMirrorHead(); renderMirror();
     renderCenters(); renderUtilities(); renderBreakdowns(); renderBigCenter(); renderBuffett(); renderBlocos3(); renderInsightsTab(); renderEntraSai(); renderConcil(); renderEstrutura(); renderPrevia();
     if (typeof wireResGrupos === 'function') wireResGrupos();
     if (typeof renderAuditoria === 'function') renderAuditoria();

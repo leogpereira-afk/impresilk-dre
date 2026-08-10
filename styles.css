@@ -992,3 +992,55 @@ td.util-out.baixa { color: var(--brand, #2563eb); font-weight: 700; }
 .ano-tab tr.ano-linha { cursor: pointer; }
 .ano-tab tr.ano-linha:hover { background: rgba(59, 130, 246, .08); }
 .ano-tab tr.ano-total { border-top: 2px solid var(--line); background: rgba(59, 130, 246, .05); }
+
+/* ── DRE PADRÃO (cascata contábil) ───────────────────────────────────── */
+.pad-tab td, .pad-tab th { vertical-align: middle; }
+.pad-tab tr.pad-filha td.t-name { padding-left: 26px; color: var(--txt-dim); font-size: 12.5px; }
+.pad-tab tr.pad-result td {
+  font-weight: 700; border-top: 1px solid var(--line); background: var(--card-2);
+}
+.pad-tab tr.pad-grande td {
+  font-weight: 800; font-size: 14.5px; background: var(--card-2);
+  border-top: 2px solid var(--line); border-bottom: 2px solid var(--line);
+}
+.pad-tab td.pad-mapa { color: var(--txt-dim); font-size: 12px; text-align: left; white-space: normal; }
+#padraoKpis { margin-bottom: 16px; }
+#padraoPdf { white-space: nowrap; }
+
+/* ── IMPRESSÃO ───────────────────────────────────────────────────────────
+   "Baixar PDF" é window.print() com esta folha: some tudo menos o cartão do
+   DRE, força tema claro e impede que uma tabela seja partida entre páginas.
+   Sem biblioteca externa — a CSP do site bloqueia CDN, e o "Salvar como PDF"
+   do próprio navegador (inclusive no iPhone) resolve. */
+@media print {
+  @page { size: A4; margin: 12mm 10mm 14mm; }
+  body.imprimindo-padrao {
+    background: #fff !important; color: #101820 !important;
+    --card: #fff; --card-2: #f4f7fb; --bg: #fff; --bg-soft: #fff;
+    --line: #c9d2de; --txt: #101820; --txt-dim: #46566a; --txt-mute: #6f7c8c;
+    --pos: #1d6b46; --neg: #a3113f; --shadow: none;
+  }
+  body.imprimindo-padrao > *:not(main),
+  body.imprimindo-padrao main > *:not(.view),
+  body.imprimindo-padrao .view:not(#view-overview),
+  body.imprimindo-padrao #view-overview > *:not(.res-grp),
+  body.imprimindo-padrao .res-grp:not([data-grp="padrao"]),
+  body.imprimindo-padrao #padraoPdf,
+  body.imprimindo-padrao .card-collapse,
+  body.imprimindo-padrao .periodo-bar,
+  body.imprimindo-padrao .tabs,
+  body.imprimindo-padrao .topbar { display: none !important; }
+  body.imprimindo-padrao .card {
+    box-shadow: none !important; border: 0 !important; padding: 0 !important;
+  }
+  body.imprimindo-padrao .table-scroll { overflow: visible !important; }
+  body.imprimindo-padrao table { font-size: 9.5pt; }
+  body.imprimindo-padrao .center-kpis { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; }
+  body.imprimindo-padrao table, body.imprimindo-padrao .ck, body.imprimindo-padrao .util-alert {
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  body.imprimindo-padrao tr { break-inside: avoid; }
+  body.imprimindo-padrao thead { display: table-header-group; }
+  body.imprimindo-padrao h2, body.imprimindo-padrao h3 { break-after: avoid; page-break-after: avoid; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

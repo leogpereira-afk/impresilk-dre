@@ -11,14 +11,14 @@
 <!-- Sem manifest o app era instalavel so pela metade: o celular usava o titulo
      da aba como nome e um icone recortado da pagina. Os icones sao quadrados de
      verdade (192 e 512), gerados a partir do logo. -->
-<link rel="manifest" href="manifest.webmanifest?v=64" />
+<link rel="manifest" href="manifest.webmanifest?v=65" />
 <link rel="apple-touch-icon" href="icone-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <!-- ?v= junto com o CACHE do sw.js: sem isso o cache HTTP do navegador
      serve CSS/JS velhos mesmo depois do deploy, e a tela fica desencontrada
      do codigo. Subir os dois JUNTOS a cada mudanca. -->
-<link rel="stylesheet" href="styles.css?v=64" />
+<link rel="stylesheet" href="styles.css?v=65" />
 </head>
 <body>
 <div id="authOverlay" class="auth-overlay" hidden>
@@ -183,6 +183,7 @@
       <button data-grp="composicao">🥧 Composição</button>
       <button data-grp="evolucao">📈 Evolução</button>
       <button data-grp="dono">👑 Visão de Dono</button>
+      <button data-grp="padrao">📄 DRE Padrão</button>
     </nav>
 
     <div class="res-grp" data-grp="resumo">
@@ -301,7 +302,28 @@
       <div id="buffettSignals" class="insight-grid"></div>
     </section>
     </div>
-  
+
+    <!-- ============ DRE PADRÃO (cascata contábil clássica) ============ -->
+    <!-- As MESMAS contas do plano, rearranjadas em Receita Bruta → Líquida →
+         Lucro Bruto → EBITDA → Resultado, e a ponte de volta para o caixa.
+         Serve para comparar a operação com qualquer outra empresa. -->
+    <div class="res-grp hidden" data-grp="padrao">
+      <section class="card" id="padraoCard">
+        <div class="card-head">
+          <h2 id="padraoTitulo">📄 DRE no formato padrão</h2>
+          <button id="padraoPdf" class="upload-btn" type="button">⬇️ Baixar PDF</button>
+        </div>
+        <p class="hint" style="margin-bottom:14px">A cascata contábil clássica montada com as
+          mesmas contas do painel. Diferente do DRE por Seção, aqui o custo de produção fica
+          numa linha só — é o que deixa a <b>margem bruta</b> aparecer.</p>
+        <div id="padraoKpis" class="center-kpis"></div>
+        <div id="padraoTabela"></div>
+        <div id="padraoPonte"></div>
+        <div id="padraoMapa"></div>
+        <div id="padraoNotas"></div>
+      </section>
+    </div>
+
   </div>
 
   <!-- ===================== CENTROS DE CUSTO ===================== -->
@@ -550,10 +572,10 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="config.js?v=64"></script>
-<script src="auth.js?v=64"></script>
-<script src="data.js?v=64"></script>
-<script src="app.js?v=64"></script>
+<script src="config.js?v=65"></script>
+<script src="auth.js?v=65"></script>
+<script src="data.js?v=65"></script>
+<script src="app.js?v=65"></script>
 <!-- Registra o Service Worker (abre offline). Falha silenciosa se indisponível. -->
 <script>
   if ('serviceWorker' in navigator) {
