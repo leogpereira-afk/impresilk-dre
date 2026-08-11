@@ -22,6 +22,17 @@
   --chart-border: #161f2e;
   --page-grad: radial-gradient(1200px 600px at 80% -10%, #16263a 0%, var(--bg) 55%);
   --topbar-bg: rgba(12,17,24,.82);
+  /* ── Apelidos que o código já usava mas ninguém tinha declarado ───────
+     --good/--bad/--brand/--muted apareciam 15 vezes em styles.css e app.js
+     SEM existir em lugar nenhum: cada uso caía no fallback inline, e os
+     fallbacks discordavam entre si. Era por isso que "positivo" saía em dois
+     verdes diferentes na mesma tela (.b3-v.pos em #22c55e ao lado de
+     .ck-v.pos em var(--pos) #34d399). Agora significado tem uma cor só. */
+  --good: var(--pos);
+  --bad: var(--neg);
+  --muted: var(--txt-dim);      /* --txt-mute reprova em contraste a 11px */
+  --brand: #2563eb;             /* PREENCHIMENTO: fundo do chip com texto branco */
+  --brand-ink: #7cb0ff;         /* TEXTO da marca sobre card — precisa clarear no escuro */
 }
 body.theme-light {
   --bg: #eef2f8;
@@ -46,6 +57,11 @@ body.theme-light {
   --chart-border: #ffffff;
   --page-grad: radial-gradient(1200px 600px at 80% -10%, #e3ecf8 0%, var(--bg) 55%);
   --topbar-bg: rgba(255,255,255,.85);
+  --good: var(--pos);
+  --bad: var(--neg);
+  --muted: var(--txt-dim);
+  --brand: #1d4ed8;
+  --brand-ink: #1d4ed8;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 * { -webkit-tap-highlight-color: transparent; }
@@ -212,7 +228,7 @@ main { max-width: 1240px; margin: 0 auto; padding: 24px 28px; display: flex; fle
 /* Tables */
 .table-scroll { overflow-x: auto; }
 .table-scroll.tall { max-height: 540px; overflow-y: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
 thead th {
   position: sticky; top: 0; background: var(--card); z-index: 2;
   text-align: right; font-size: 11px; text-transform: uppercase; letter-spacing: .5px;
@@ -894,7 +910,7 @@ body.locked { overflow: hidden; }
    palavras, as contas que somam nele e a série de todos os meses. */
 .clicavel { cursor: pointer; position: relative; transition: transform .12s ease, box-shadow .12s ease; }
 .clicavel:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0, 0, 0, .10); }
-.clicavel:focus-visible { outline: 2px solid var(--brand, #3b82f6); outline-offset: 2px; }
+.clicavel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* a lupa some no celular: lá o toque já é o gesto natural e o ícone rouba espaço */
 .clicavel::after {
   content: '🔎'; position: absolute; top: 8px; right: 10px;
@@ -929,11 +945,11 @@ body.locked { overflow: hidden; }
 .util-alert.baixa { background: rgba(59, 130, 246, .08); border: 1px solid rgba(59, 130, 246, .30); }
 .util-alert .ua-ic { font-size: 1.3rem; line-height: 1; margin-top: 2px; }
 .util-alert b { color: var(--neg, #dc2626); }
-.util-alert.baixa b { color: var(--brand, #2563eb); }
+.util-alert.baixa b { color: var(--brand-ink); }
 
 /* célula da tabela mês a mês que fugiu do padrão */
 td.util-out.alta { color: var(--neg, #dc2626); font-weight: 700; }
-td.util-out.baixa { color: var(--brand, #2563eb); font-weight: 700; }
+td.util-out.baixa { color: var(--brand-ink); font-weight: 700; }
 
 /* ===================== BARRA DE PERÍODO (ano + chips de mês) =====================
    Substitui os dois dropdowns. Mostra o ano inteiro de uma vez: que meses
@@ -972,7 +988,7 @@ td.util-out.baixa { color: var(--brand, #2563eb); font-weight: 700; }
 .mes-chip.cmp:not(.sel) { border-style: dashed; border-color: var(--brand, #3b82f6); opacity: .85; }
 .mes-chip.cmp:not(.sel)::after {
   content: 'vs'; position: absolute; top: -7px; right: 6px; font-size: .58rem;
-  background: var(--card); padding: 0 3px; color: var(--brand, #3b82f6); font-weight: 700;
+  background: var(--card); padding: 0 3px; color: var(--brand-ink); font-weight: 700;
 }
 .mes-chip.vazio, .mes-chip:disabled { opacity: .3; cursor: not-allowed; }
 .cmp-ctrl { display: flex; align-items: center; gap: 6px; font-size: .78rem; color: var(--muted, #94a3b8); }
@@ -1019,6 +1035,10 @@ td.util-out.baixa { color: var(--brand, #2563eb); font-weight: 700; }
     --card: #fff; --card-2: #f4f7fb; --bg: #fff; --bg-soft: #fff;
     --line: #c9d2de; --txt: #101820; --txt-dim: #46566a; --txt-mute: #6f7c8c;
     --pos: #1d6b46; --neg: #a3113f; --shadow: none;
+    /* o print redefine --pos/--neg: sem repetir os apelidos aqui, --good e
+       --bad continuariam apontando para a cor de tela dentro do PDF */
+    --good: #1d6b46; --bad: #a3113f; --muted: #46566a;
+    --brand: #1d4ed8; --brand-ink: #1d4ed8;
   }
   body.imprimindo-padrao > *:not(main),
   body.imprimindo-padrao main > *:not(.view),
@@ -1043,4 +1063,112 @@ td.util-out.baixa { color: var(--brand, #2563eb); font-weight: 700; }
   body.imprimindo-padrao thead { display: table-header-group; }
   body.imprimindo-padrao h2, body.imprimindo-padrao h3 { break-after: avoid; page-break-after: avoid; }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* Aviso em PROSA. Não reaproveitar .util-alert aqui: ela é display:flex (feita
+   para ícone + texto lado a lado) e transformava cada <b> do parágrafo num item
+   de flex — o aviso saía picotado em colunas, com toda palavra em negrito
+   vermelha por causa de `.util-alert b`. */
+.aviso-box {
+  display: block; margin: 18px 0 0; padding: 12px 15px;
+  border-radius: 12px; font-size: .92rem; line-height: 1.55;
+  color: var(--txt-dim);
+  background: rgba(248, 113, 113, .07);
+  border: 1px solid rgba(248, 113, 113, .3);
+  border-left: 3px solid var(--neg);
+}
+.aviso-box b { color: var(--txt); font-weight: 700; }
+
+/* O atributo hidden do HTML perde para display:grid/flex. Sem esta linha,
+   esconder #kpis (grid), #concil (flex) ou #lenteNav (flex) por JS não fazia
+   absolutamente nada. */
+[hidden] { display: none !important; }
+
+/* nota curta ao lado do rótulo de uma linha de total, para o nome não precisar
+   virar uma frase */
+.t-nota { font-weight: 500; font-size: 11px; color: var(--txt-mute); margin-left: 8px; }
+
+/* ── Celular: o valor que sumia ───────────────────────────────────────────
+   No card "Todo o dinheiro que entrou e saiu" o dono via "R$" e o número
+   cortado. Causa: a tabela interna disputava largura com o nome da conta e o
+   .es-bloco corta o que vaza. Nada de largura fixa aqui — `width: 1%` faz o
+   navegador dar à coluna exatamente o que o número precisa, e o nome fica com
+   todo o resto. Assim não corta em mês nenhum, por maior que seja o valor. */
+.es-tab { table-layout: auto; width: 100%; }
+.es-tab td.t-name { white-space: normal; word-break: break-word; }
+.es-tab td.mono, .es-tab td:not(.t-name) { white-space: nowrap; width: 1%; }
+
+/* ══ CELULAR: menos rolagem até o primeiro dado ═══════════════════════════
+   Medido numa tela de 390px ANTES: topbar de 2 linhas + barra de meses + abas
+   + lente + 4 KPIs empilhados = ~2.000px de rolagem até a primeira linha de
+   tabela. Os 4 KPIs sozinhos respondiam por ~500px. */
+@media (max-width: 560px) {
+  /* duas colunas em vez de uma: 4 telas de KPI viram 1 */
+  .kpis { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .kpi { padding: 12px 13px; }
+  /* o valor tem centavos (fmt2) e o card fica com ~137px úteis: sem encolher,
+     "R$ 258.894,51" era cortado pelo overflow:hidden do .kpi, sem reticências */
+  .kpi .value { font-size: clamp(15px, 4.6vw, 20px); margin: 5px 0 4px; letter-spacing: -.3px; }
+  .kpi .label { font-size: 10.5px; letter-spacing: .3px; }
+  .kpi .delta { font-size: 11px; }
+  .kpi::before { width: 3px; }
+
+  /* a topbar não precisa ocupar um quarto da tela para sempre */
+  .topbar { position: static; padding-top: calc(10px + env(safe-area-inset-top)); padding-bottom: 10px; }
+  .controls { gap: 8px; justify-content: flex-start; }
+  /* o rótulo "DADOS" sozinho comia uma linha inteira acima dos botões */
+  .ctrl > span { display: none; }
+  .theme-btn { width: 38px; height: 36px; font-size: 16px; }
+  .upload-btn { padding: 8px 12px; font-size: 12.5px; }
+}
+
+/* Faixa rolável precisa DIZER que rola: sem a sombra na borda, os meses de
+   Jul a Dez e as abas à direita simplesmente pareciam não existir. */
+@media (max-width: 900px) {
+  .mes-chips, .tabs, .subtabs, .center-chips {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent 100%);
+            mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent 100%);
+  }
+  /* na última posição de rolagem a máscara some, senão o item final fica pálido */
+  .mes-chips:has(> :last-child:hover), .tabs:has(> :last-child:hover) {
+    -webkit-mask-image: none; mask-image: none;
+  }
+}
+
+/* ══ HIERARQUIA DA TABELA DRE ═════════════════════════════════════════════
+   O dono chamou a tela de "poluída" olhando esta tabela: 25 linhas com o mesmo
+   peso visual, sem nada dizendo onde uma seção acaba e a outra começa. O total
+   não muda; muda quem grita.
+
+   Regra: só TRÊS níveis de leitura.
+     1) as duas linhas de bloco (RECEITAS / DESPESAS) e o total
+     2) as contas
+     3) o que é contexto (peso, variação) recua                             */
+
+/* 1 — as linhas de bloco viram cabeçalho de seção, não mais uma linha da lista */
+.dre tbody tr.group td {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--txt-dim); background: transparent;
+  border-bottom: 1px solid var(--line);
+  padding-top: 22px; padding-bottom: 7px;
+}
+.dre tbody tr.group td.t-name { color: var(--txt); }
+.dre tbody tr.group.exp td { background: transparent; }
+/* a faixa colorida de bloco vira um traço fino à esquerda do nome */
+.dre tbody tr.group td.t-name { box-shadow: inset 3px 0 0 var(--rev); padding-left: 14px; }
+.dre tbody tr.group.exp td.t-name { box-shadow: inset 3px 0 0 var(--exp); }
+/* a primeira linha de bloco não precisa do respiro de cima */
+.dre tbody tr.group:first-child td { padding-top: 10px; }
+
+/* 2 — as contas: régua mais leve, para a linha não competir com o número */
+.dre tbody td { border-bottom: 1px solid var(--rule-linha, rgba(128,140,160,.16)); }
+
+/* 3 — contexto recua: peso e variação param de disputar com o valor */
+.dre tbody td.av { color: var(--txt-mute); font-size: 12.5px; }
+.dre tbody td.mono, .dre tbody td:nth-child(2) { font-variant-numeric: tabular-nums; }
+
+/* o total fecha a conta com peso, mas sem virar outro bloco colorido */
+.dre tbody tr.result td {
+  font-weight: 800; font-size: 15px; background: transparent;
+  border-top: 2px solid var(--txt); border-bottom: 0; padding-top: 14px;
 }

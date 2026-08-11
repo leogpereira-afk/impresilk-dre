@@ -784,7 +784,10 @@ function boot(D) {
     sectionRows(expSections, 'exp');
     const r = resAt(cur), rp = resAt(cmp);
     const rah = rp ? (r - rp) / Math.abs(rp) : null;
-    rows.push(`<tr class="result"><td class="t-name">= RESULTADO</td>
+    // Este número é ENTRADAS − SAÍDAS, ou seja variação de caixa. Chamar de
+    // "RESULTADO" fazia a mesma palavra nomear duas coisas na mesma tela: o KPI
+    // "Resultado da Operação" (R$ 41.782) e esta linha (R$ 10.358).
+    rows.push(`<tr class="result"><td class="t-name">= VARIAÇÃO DE CAIXA <span class="t-nota">entrou − saiu</span></td>
       <td class="mono ${r >= 0 ? 'pos' : 'neg'}">${fmt2(r)}</td><td class="av">${pct(r / denom)}</td>
       <td class="${rah == null ? 'av' : rah >= 0 ? 'pos' : 'neg'}">${rah == null ? '—' : signedPct(rah)}</td></tr>`);
 
@@ -3063,7 +3066,7 @@ function boot(D) {
     const jurosCmp = val(get('2.13.5'), cmp), jurosCur = val(get('2.13.5'), cur);
     const alerta = jurosCmp > 5000 || jurosCur > 5000;
     document.getElementById('padraoNotas').innerHTML = `
-      ${alerta ? `<div class="util-alert" style="margin-top:18px"><b>⚠ Cuidado ao comparar a margem líquida.</b>
+      ${alerta ? `<div class="aviso-box"><b>⚠ Cuidado ao comparar a margem líquida.</b>
         A conta <b>2.13.5 Juros Cartão</b> está em <b>${fmt2(jurosCmp > 5000 ? jurosCmp : jurosCur)}</b>
         em ${jurosCmp > 5000 ? MONTHS[cmp] : MONTHS[cur]} — juros de verdade não chegam nesse valor.
         É fatura de cartão sem itemizar parada ali dentro, e ela infla a despesa financeira daquele mês.
@@ -3543,8 +3546,8 @@ const DIRETRIZES = [
   { g: 'Rotina de fechamento mensal', t: 'Backup mensal', d: 'Após o fechamento, clique <b>💾</b> para baixar o backup .json com todos os meses. É a proteção independente da nuvem — guarde numa pasta do Drive.' },
 
   { g: 'Como ler o resultado', t: 'Resultado do mês ≠ desempenho das vendas', d: 'No caixa, um mês pode fechar apertado só porque muitas contas venceram nele — e folgado porque clientes atrasados pagaram. Antes de concluir, olhe a <b>tendência de 3+ meses</b> e a aba <b>Análise</b>.' },
-  { g: 'Como ler o resultado', t: 'Separe a operação do sócio', d: 'O número mais honesto da operação é o <b>Resultado Operacional</b> (aba Análise): vendas menos custos, <b>antes</b> de retiradas, arrendamento e investimentos. Se a operação dá lucro mas o caixa aperta, o ajuste é nas retiradas — não na produção.' },
-  { g: 'Como ler o resultado', t: 'Ponto de equilíbrio', d: 'A aba Análise mostra quanto é preciso <b>vender no mês para não ter prejuízo</b>. Vender acima = lucro; abaixo = prejuízo. Termos completos no <b>📖 Glossário</b>.' },
+  { g: 'Como ler o resultado', t: 'Separe a operação do sócio', d: 'O número mais honesto da operação é o <b>Resultado Operacional</b> (aba <b>Resultado</b>): vendas menos custos, <b>antes</b> de retiradas, arrendamento e investimentos. Se a operação dá lucro mas o caixa aperta, o ajuste é nas retiradas — não na produção.' },
+  { g: 'Como ler o resultado', t: 'Ponto de equilíbrio', d: 'A aba <b>Insights</b> mostra quanto é preciso <b>vender no mês para não ter prejuízo</b>. Vender acima = lucro; abaixo = prejuízo. Termos completos no <b>📖 Glossário</b>.' },
 ];
 
 /* ==================================================================== */
@@ -4059,18 +4062,33 @@ function initApp() {
 
   // navegação por abas
   const tabBtns = document.querySelectorAll('#viewTabs button');
+  // A faixa de lente + 4 KPIs + conciliação fala do MÊS. Ela mora FORA das
+  // .view, então aparecia em toda aba — inclusive nas que perguntam outra
+  // coisa. Na aba Ano punha os números do mês em cima dos números do ano, com
+  // rótulos quase iguais; no Manual e na Conferência não respondia nada; e era
+  // a origem do "sobrou R$ 10.358" aparecendo quatro vezes na mesma tela.
+  const COM_FAIXA = new Set(['insights', 'overview', 'centers']);
   function switchView(view) {
     if (_allowed.size && !_allowed.has(view)) return; // bloqueia views sem permissão
     tabBtns.forEach(b => b.classList.toggle('active', b.dataset.view === view));
     // Manual/Usuários/Conferência-extras não têm botão de aba: nada a marcar
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('hidden', v.id !== 'view-' + view));
+    const faixa = COM_FAIXA.has(view);
+    ['lenteNav', 'kpis', 'concil'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.hidden = !faixa;
+    });
     try { localStorage.setItem(VIEW_KEY, view); } catch (_) {}
     window.dispatchEvent(new Event('resize')); // força os gráficos a recalcular tamanho
   }
   _switchView = switchView;
   tabBtns.forEach(b => b.onclick = () => switchView(b.dataset.view));
-  let startView = 'overview';
-  try { startView = localStorage.getItem(VIEW_KEY) || 'overview'; } catch (_) {}
+  // Abre em Insights: é a tela que responde "como foi o mês?" numa frase. O
+  // HTML já marcava esse botão como ativo, mas o JS abria em Resultado — quem
+  // entrava pela primeira vez caía numa tabela de 25 linhas. Quem já tem outra
+  // aba salva continua nela.
+  let startView = 'insights';
+  try { startView = localStorage.getItem(VIEW_KEY) || 'insights'; } catch (_) {}
   switchView(startView);
 
   // glossário (conteúdo estático — independe dos dados)

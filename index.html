@@ -11,14 +11,14 @@
 <!-- Sem manifest o app era instalavel so pela metade: o celular usava o titulo
      da aba como nome e um icone recortado da pagina. Os icones sao quadrados de
      verdade (192 e 512), gerados a partir do logo. -->
-<link rel="manifest" href="manifest.webmanifest?v=66" />
+<link rel="manifest" href="manifest.webmanifest?v=67" />
 <link rel="apple-touch-icon" href="icone-192.png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <!-- ?v= junto com o CACHE do sw.js: sem isso o cache HTTP do navegador
      serve CSS/JS velhos mesmo depois do deploy, e a tela fica desencontrada
      do codigo. Subir os dois JUNTOS a cada mudanca. -->
-<link rel="stylesheet" href="styles.css?v=66" />
+<link rel="stylesheet" href="styles.css?v=67" />
 </head>
 <body>
 <div id="authOverlay" class="auth-overlay" hidden>
@@ -197,7 +197,7 @@
     <section class="card">
         <div class="card-head">
           <h2>DRE por Seção</h2>
-          <span class="hint">Peso = fatia sobre as vendas · Variação = diferença vs o mês comparado</span>
+          <span class="hint">Peso = fatia sobre as <b>vendas</b> (por isso as linhas de topo passam de 100%: a receita total inclui empréstimo captado) · Variação = vs o mês comparado</span>
         </div>
         <div class="table-scroll">
           <table class="dre" id="dreTable">
@@ -572,10 +572,10 @@
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="config.js?v=66"></script>
-<script src="auth.js?v=66"></script>
-<script src="data.js?v=66"></script>
-<script src="app.js?v=66"></script>
+<script src="config.js?v=67"></script>
+<script src="auth.js?v=67"></script>
+<script src="data.js?v=67"></script>
+<script src="app.js?v=67"></script>
 <!-- Registra o Service Worker (abre offline). Falha silenciosa se indisponível. -->
 <script>
   if ('serviceWorker' in navigator) {
