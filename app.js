@@ -64,6 +64,33 @@ function parsePlanoContas(rows) {
   return accounts;
 }
 
+/* A BIBLIOTECA DE PLANILHA CHEGA SO NA HORA DE IMPORTAR UMA PLANILHA.
+ *
+ * O xlsx tem 307 kB e estava no <script> do index.html: era 76% de tudo o que
+ * a primeira tela pedia (307 de 401 kB), em toda visita, para todo mundo -
+ * inclusive para quem so abre o DRE para olhar os numeros do mes, que e o uso
+ * normal. Ler planilha acontece uma vez por mes, ao importar o export do ERP.
+ *
+ * Uma promessa so, zerada em caso de falha para a proxima tentativa poder
+ * tentar de novo.
+ */
+let _xlsxPronto = null;
+function garantirXLSX() {
+  if (typeof XLSX !== 'undefined') return Promise.resolve();
+  if (_xlsxPronto) return _xlsxPronto;
+  _xlsxPronto = new Promise((ok, falhou) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload = () => ok();
+    s.onerror = () => {
+      _xlsxPronto = null;
+      falhou(new Error('Nao consegui carregar o leitor de planilha. Verifique a conexao e tente de novo.'));
+    };
+    document.head.appendChild(s);
+  });
+  return _xlsxPronto;
+}
+
 function parsePlanoContasWorkbook(arrayBuffer) {
   const wb = XLSX.read(arrayBuffer, { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -3936,8 +3963,10 @@ function wireMonthUpload() {
     if (!/\.(xlsx|xlsm|xls)$/i.test(file.name)) { toast('Envie o export .xlsx “Plano de Contas”', 'err'); return; }
     if (file.size > 10 * 1024 * 1024) { toast('Arquivo muito grande (limite 10 MB) — confira se é o export certo', 'err'); return; }
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = async e => {
       try {
+        // A biblioteca so e buscada aqui, com o arquivo ja escolhido.
+        await garantirXLSX();
         const parsed = parsePlanoContasWorkbook(e.target.result);
         const g = c => { const a = parsed.find(x => x.code === c); return a ? a.value : 0; };
         const rec = g('1'), desp = g('2'), res = round2(rec - desp);

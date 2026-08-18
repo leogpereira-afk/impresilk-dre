@@ -571,7 +571,10 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- xlsx (307 kB) NAO entra aqui. Era 76% de tudo o que a primeira tela pedia,
+     para uma biblioteca usada em UM lugar: ler o export .xlsx do plano de contas.
+     Agora e carregada na hora de importar - ver garantirXLSX() no app.js.
+     O chart.js FICA: os graficos sao a tela, adiar so faria a pagina piscar. -->
 <script src="config.js?v=67"></script>
 <script src="auth.js?v=67"></script>
 <script src="data.js?v=67"></script>
