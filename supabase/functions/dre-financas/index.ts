@@ -2,9 +2,9 @@
 // dre-financas — conector do ERP (substitui netlify/functions/financas.mjs)
 //
 // MESMO contrato: salvarConfig | statusConfig | ping | preview | listar |
-// importarMes. O importarMes puxa o mes em fatias semanais paralelas, filtra
-// compoe_dre=Sim e soma o valor de CAIXA por codigo do plano de contas -- e o
-// coracao do DRE, portado sem mudar a matematica.
+// importarMes. Coleta paginada, pagamentos por data, deduplicação por título
+// e sinalização de lotes parciais. A validação do contrato em produção continua
+// necessária antes de promover uma coleta a base conciliada.
 //
 // De-para: store "integracoes" chave "mubisys" -> dre_meta chave "mubisys";
 // fallback pelos secrets MUBI_* (os mesmos do RH/PCP -- a credencial e uma so).
@@ -68,12 +68,14 @@ const json = (body: unknown, status = 200) =>
   });
 
 async function getMeta(chave: string): Promise<any | null> {
-  const { data } = await sb.from("dre_meta").select("valor").eq("chave", chave).maybeSingle();
+  const { data, error } = await sb.from("dre_meta").select("valor").eq("chave", chave).maybeSingle();
+  if (error) throw new Error("Não foi possível ler a configuração da integração.");
   return data?.valor ?? null;
 }
 async function setMeta(chave: string, valor: unknown) {
-  await sb.from("dre_meta").upsert(
+  const { error } = await sb.from("dre_meta").upsert(
     { chave, valor, atualizado_em: new Date().toISOString() }, { onConflict: "chave" });
+  if (error) throw new Error("A configuração da integração não foi salva.");
 }
 
 function baseConfiavel(url: string): boolean {
@@ -111,9 +113,21 @@ const extrairLista = (d: any): any[] =>
   : (d && typeof d === "object" && !d.error && Object.keys(d).length) ? [d]
   : [];
 
+function respostaParcial(data: any): boolean {
+  return data == null || typeof data !== "object" || (!Array.isArray(data) && !Object.keys(data).length) || !!(data?.error || data?.ok === false || data?.parcial || data?.partial || data?.has_more || data?.next_page || data?.next || data?.links?.next ||
+    (Number(data?.total_pages) > Number(data?.current_page || 1)) ||
+    (Array.isArray(data?.data) && Number(data?.total) > data.data.length));
+}
+function vazioConfirmado(recurso: string, r: any): boolean {
+  if (!['contas-pagar','contas-receber'].includes(recurso) || r.http !== 404) return false;
+  const d=r.data;
+  return !respostaParcial(d) && ((Array.isArray(d) && d.length===0) ||
+    (['data','items','results'].some(k=>Array.isArray(d?.[k]) && d[k].length===0)));
+}
+
 async function buscar(recurso: string, creds: any, f: any, timeoutMs = 22000) {
   const q = new URLSearchParams();
-  for (const k of ["status", "filtrodata", "datainicial", "datafinal"]) {
+  for (const k of ["status", "filtrodata", "datainicial", "datafinal", "page", "per_page"]) {
     if (f[k]) q.set(k, f[k]);
   }
   const url = `${creds.base}/${creds.publicKey}/${recurso}${q.toString() ? "?" + q : ""}`;
@@ -129,6 +143,57 @@ async function buscar(recurso: string, creds: any, f: any, timeoutMs = 22000) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// A API documenta page/per_page (até 500) nestas listas. O envelope muda
+// entre versões: percorremos páginas numeradas, nunca URLs vindas da resposta.
+// Falha, repetição, limite ou total divergente deixam o lote incompleto.
+async function buscarCompleto(recurso: string, creds: any, f: any, timeoutMs = 22000, orcamentoMs = 95000) {
+  if (!["contas-pagar", "contas-receber", "conta-bancaria"].includes(recurso)) return buscar(recurso, creds, f, timeoutMs);
+  const todos: any[] = [], vistos = new Set<string>();
+  const inicio = Date.now(), tamanho = 500;
+  let totalEsperado: number | null = null, paginas = 0;
+  const resposta = (parcial: boolean) => ({ok:true,http:200,data:{data:todos,parcial,paginacao:{paginas,totalEsperado}}});
+  for (let page = 1; page <= 50; page++) {
+    const restante = orcamentoMs - (Date.now() - inicio);
+    if (restante <= 0) return resposta(true);
+    let r: any;
+    try { r = await buscar(recurso, creds, {...f,page,per_page:tamanho},Math.min(timeoutMs,restante)); }
+    catch { return resposta(true); }
+    if (vazioConfirmado(recurso,r)) r = {ok:true,http:200,data:[]};
+    if (!r.ok) return page === 1 ? r : resposta(true);
+    const d = r.data;
+    if (d == null || typeof d !== "object" || d.error || d.ok === false || d.parcial || d.partial) return resposta(true);
+    const lote = Array.isArray(d) ? d : [d.data,d.items,d.results].find(Array.isArray);
+    if (!lote) return resposta(true);
+    paginas++;
+    const meta = {...(d.pagination || {}),...(d.meta || {}),...d};
+    const atual = meta.current_page ?? meta.page;
+    if (atual != null && Number(atual) !== page) return resposta(true);
+    if (meta.total != null) {
+      const t = Number(meta.total);
+      if (!Number.isInteger(t) || t < 0 || (totalEsperado != null && t !== totalEsperado)) return resposta(true);
+      totalEsperado = t;
+    }
+    for (const item of lote) {
+      const key = item?.id != null ? `${item.empresa_id ?? item.empresa ?? ""}:${item.id}` : JSON.stringify(item);
+      if (vistos.has(key)) return resposta(true);
+      vistos.add(key);todos.push(item);
+    }
+    if (totalEsperado != null && todos.length > totalEsperado) return resposta(true);
+    const ultima = Number(meta.last_page ?? meta.total_pages ?? 0);
+    const proxima = !!(meta.has_more || meta.next_page || meta.next || d.links?.next || ultima > page);
+    if (!lote.length) return resposta(proxima || (totalEsperado != null && todos.length !== totalEsperado));
+    if (proxima) continue;
+    if (totalEsperado != null) {
+      if (todos.length === totalEsperado) return resposta(false);
+      if (ultima && page >= ultima) return resposta(true);
+      continue;
+    }
+    if (ultima && page >= ultima) return resposta(false);
+    if (lote.length < tamanho) return resposta(false);
+  }
+  return resposta(true);
 }
 
 // Divide [ini, fim] em fatias de N dias: o mes inteiro estoura o tempo do
@@ -160,16 +225,51 @@ function planoCodigo(pc: unknown) {
 // Valor de CAIXA do titulo dentro da janela: soma os pagamentos que cairam no
 // periodo (o topo do titulo as vezes vem com valor_pagamento zerado).
 function valorCaixa(t: any, ini: string, fim: string): number {
+  const money = (v: any) => { if (v == null || v === "" || !Number.isFinite(Number(v))) throw new Error("Pagamento sem valor válido"); return Math.sign(Number(v)) * Math.round(Math.abs(Number(v)) * 100); };
   const pgs = Array.isArray(t.pagamentos) ? t.pagamentos : [];
   if (pgs.length) {
-    let s = 0;
+    let cents = 0;
     for (const p of pgs) {
       const dp = String(p.data_pagamento || p.data_credito || "").slice(0, 10);
-      if (dp >= ini && dp <= fim) s += Number(p.valor) || 0;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dp)) throw new Error("Pagamento sem data válida");
+      if (dp >= ini && dp <= fim) cents += money(p.valor);
     }
-    if (s) return s;
+    return cents / 100;
   }
-  return Number(t.valor_pagamento) || Number(t.valor_titulo) || 0;
+  const dp = String(t.data_pagamento || t.data_credito || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dp)) throw new Error("Título sem data de pagamento válida");
+  return dp >= ini && dp <= fim ? money(t.valor_pagamento) / 100 : 0;
+}
+
+// O mesmo título pode voltar em várias janelas. A apuração usa sua identidade
+// e todos os pagamentos do período, sem depender da ordem das respostas.
+function agregarFatias(resultados: any[], ini: string, fim: string) {
+  const porCodigo: Record<string, { nome: string; valor: number }> = {};
+  let incluidos = 0, ignorados = 0, semCodigo = 0, falhas = 0, duplicados = 0;
+  let receita = 0, despesa = 0;
+  const vistos = new Map<string, string>();
+  for (const it of resultados) {
+    if (!it?.res?.ok || respostaParcial(it.res.data)) { falhas++; continue; }
+    for (const t of extrairLista(it.res.data)) {
+      if (t.id == null) { falhas++; continue; }
+      const key = `${it.rc.recurso}:${t.empresa_id ?? t.empresa ?? ""}:${t.id}`;
+      const fingerprint = JSON.stringify([t.compoe_dre, t.plano_contas, t.valor_pagamento, t.data_pagamento, t.pagamentos]);
+      if (vistos.has(key)) { duplicados++; if (vistos.get(key) !== fingerprint) falhas++; continue; }
+      vistos.set(key, fingerprint);
+      if (String(t.compoe_dre ?? "").toLowerCase() !== "sim") { ignorados++; continue; }
+      let cents: number;
+      try { cents = Math.round(valorCaixa(t, ini, fim) * 100); } catch { falhas++; continue; }
+      if (it.rc.recurso === "contas-receber") receita += cents; else despesa += cents;
+      incluidos++;
+      const { code, nome } = planoCodigo(t.plano_contas);
+      if (!code) { semCodigo++; continue; }
+      if (!porCodigo[code]) porCodigo[code] = { nome, valor: 0 };
+      porCodigo[code].valor += cents;
+    }
+  }
+  for (const k in porCodigo) porCodigo[k].valor /= 100;
+  return {porCodigo, totais:{receita:receita / 100, despesa:despesa / 100},
+    diag:{incluidos,ignorados,semCodigo,falhas,duplicados}, parcial:falhas > 0};
 }
 
 
@@ -231,6 +331,13 @@ Deno.serve(async (req: Request) => {
 
   try {
     if (action === "salvarConfig") {
+      if (!ehMaquina) {
+        const {data,error} = await sb.from("dre_config_global").select("config").eq("id",true).maybeSingle();
+        if (error) return json({erro:"Não foi possível conferir permissões."},503);
+        const papel = data?.config?.permissoes?.[String(cracha.sub)] ||
+          (["admin","master","direcao"].includes(String(cracha.papel)) ? "admin" : "edicao");
+        if (papel !== "admin") return json({erro:"A configuração da integração exige acesso administrativo."},403);
+      }
       const atual = (await getMeta("mubisys")) ?? {};
       if (body.base && String(body.base).trim() && !baseConfiavel(String(body.base).trim().replace(/\/+$/, ""))) {
         return json({ erro: "Endereço do Mubisys não permitido. Use o endereço oficial (…mubisys.com)." }, 400);
@@ -263,22 +370,18 @@ Deno.serve(async (req: Request) => {
     const datainicial = body.datainicial || "";
     const datafinal = body.datafinal || "";
 
-    // PING responde "a integração está viva?", não "esse período tem dado?".
-    // O Mubisys devolve 404 para janela sem lançamento e 422 quando falta a
-    // data — nos dois casos ele FALOU CONOSCO e aceitou a credencial, então a
-    // conexão está boa. Antes o ping devolvia ok:false nesses dois casos e o
-    // teste acusava queda num domingo sem pagamento.
+    // Uma resposta HTTP prova comunicação, não comprova autenticação nem
+    // ausência de lançamentos. O sucesso exige consulta válida com lista.
     if (action === "ping") {
-      const r = await buscar("contas-pagar", creds, { status: "PAGO", filtrodata: "PAGAMENTO", datainicial, datafinal });
-      const vivo = r.ok || r.http === 404 || r.http === 422;
-      return json({
-        ok: vivo,
-        http: r.http,
-        vazio: !r.ok && r.http === 404,
-        detalhe: r.ok ? "conexão e credencial OK"
-          : r.http === 404 ? "conexão OK — período sem lançamento"
-          : r.http === 422 ? "conexão OK — faltou informar o período"
-          : "o Mubisys recusou a chamada",
+      const r = await buscar("contas-pagar", creds, { status:"PAGO", filtrodata:"PAGAMENTO", datainicial, datafinal, page:1, per_page:1 });
+      const d = r.data;
+      const lista = Array.isArray(d) ? d : [d?.data,d?.items,d?.results].find(Array.isArray);
+      const vazio = vazioConfirmado("contas-pagar",r);
+      const valido = (r.ok && !!lista && !d?.error && d?.ok !== false) || vazio;
+      return json({ok:valido,http:r.http,vazio,
+        detalhe:valido ? "Consulta ao Mubisys validada. A conferência do período exige a coleta completa."
+          : r.http === 422 ? "O servidor respondeu, mas recusou os parâmetros da consulta."
+          : "O servidor respondeu sem comprovar uma consulta válida. Confira o período e a integração.",
       });
     }
 
@@ -289,7 +392,7 @@ Deno.serve(async (req: Request) => {
       const r = await buscar(recurso, creds, {
         status: body.status ?? "",
         filtrodata: body.filtrodata ?? "",
-        datainicial, datafinal,
+        datainicial, datafinal, page:body.page, per_page:body.per_page,
       });
       return json({ ok: r.ok, http: r.http, resposta: r.data });
     }
@@ -298,11 +401,10 @@ Deno.serve(async (req: Request) => {
       const recurso = body.recurso || "contas-pagar";
       const status = body.status || (recurso.startsWith("conta-banc") ? "" : "PAGO");
       const filtrodata = body.filtrodata || "PAGAMENTO";
-      const r = await buscar(recurso, creds, { status, filtrodata, datainicial, datafinal });
-      // 404 do Mubisys é AUSÊNCIA DE DADO, não falha: devolve lista vazia em vez
-      // de 502. Como estava, um período sem lançamento chegava no painel como
-      // erro de servidor (o robô já contornava isso por conta própria).
-      if (!r.ok && r.http === 404) {
+      const r = await buscarCompleto(recurso, creds, { status, filtrodata, datainicial, datafinal });
+      // HTTP 404 sozinho não comprova ausência de lançamentos. Exige envelope
+      // vazio verificável; outros formatos precisam da validação do contrato.
+      if (vazioConfirmado(recurso, r)) {
         return json(action === "preview"
           ? { ok: true, recurso, total: 0, vazio: true, campos: [], amostra: [] }
           : { ok: true, recurso, total: 0, vazio: true, itens: [] });
@@ -310,10 +412,10 @@ Deno.serve(async (req: Request) => {
       if (!r.ok) return json({ erro: `Mubisys HTTP ${r.http}`, detalhe: r.data }, 502);
       const lista = extrairLista(r.data);
       if (action === "preview") {
-        return json({ ok: true, recurso, total: lista.length,
+        return json({ ok: true, recurso, total: lista.length, parcial:respostaParcial(r.data),
           campos: lista[0] ? Object.keys(lista[0]) : [], amostra: lista.slice(0, 3) });
       }
-      return json({ ok: true, recurso, total: lista.length, itens: lista });
+      return json({ ok: true, recurso, total: lista.length, parcial:respostaParcial(r.data), itens: lista });
     }
 
     if (action === "importarMes") {
@@ -323,17 +425,7 @@ Deno.serve(async (req: Request) => {
         { recurso: "contas-pagar", status: "PAGO", filtrodata: "PAGAMENTO" },
         { recurso: "contas-receber", status: "PAGO", filtrodata: "PAGAMENTO" },
       ];
-      // FILA DE 2, nao rajada de 10. A conferencia da migracao pegou que o
-      // importarMes sempre foi loteria: o mesmo junho deu 86k, 221k e 428k em
-      // tres rodadas. Causa raiz: o Mubisys engasga com rajada -- a medicao do
-      // Painel (lib/mubi.js) mostra que 2 chamadas simultaneas respondem bem e
-      // 4+ estouram TODAS. O codigo original disparava as 10 fatias de uma vez
-      // e depois descartava em silencio as que ele mesmo afogou.
-      //
-      // Fila de 2 + uma nova tentativa por fatia + orcamento global de 120s
-      // (a Edge Function morre em 150). Se mesmo assim sobrar fatia, o
-      // resultado sai marcado como parcial -- numero incompleto SEM aviso e um
-      // numero errado com cara de certo.
+      // Duas consultas simultâneas, repetição limitada e orçamento de execução.
       type Fatia = { rc: any; a: string; b: string };
       const todas: Fatia[] = [];
       for (const rc of recursos) for (const [a, b] of fatias) todas.push({ rc, a, b });
@@ -346,11 +438,12 @@ Deno.serve(async (req: Request) => {
         for (let tentativa = 1; tentativa <= 2; tentativa++) {
           if (Date.now() - inicioImport > ORCAMENTO_MS) return { ...f, res: null };
           try {
-            const res = await buscar(f.rc.recurso, creds, {
+            const res = await buscarCompleto(f.rc.recurso, creds, {
               status: f.rc.status, filtrodata: f.rc.filtrodata,
               datainicial: f.a, datafinal: f.b,
-            }, 45000);
+            }, 45000, Math.max(1,ORCAMENTO_MS-(Date.now()-inicioImport)));
             if (res.ok) return { ...f, res };
+            if (vazioConfirmado(f.rc.recurso,res)) return {...f,res:{ok:true,data:[]}};
           } catch { /* tenta de novo */ }
           if (tentativa === 1) retentadas++;
         }
@@ -365,35 +458,10 @@ Deno.serve(async (req: Request) => {
           resultados.push(await umaFatia(f));
         }
       }));
-      const porCodigo: Record<string, { nome: string; valor: number }> = {};
-      let incluidos = 0, ignorados = 0, semCodigo = 0, falhas = 0;
-      for (const it of resultados) {
-        if (!it?.res?.ok) { falhas++; continue; }
-        for (const t of extrairLista(it.res.data)) {
-          if (String(t.compoe_dre ?? "").toLowerCase() !== "sim") { ignorados++; continue; }
-          const { code, nome } = planoCodigo(t.plano_contas);
-          if (!code) { semCodigo++; continue; }
-          const v = valorCaixa(t, it.a, it.b);
-          if (!porCodigo[code]) porCodigo[code] = { nome, valor: 0 };
-          porCodigo[code].valor += v;
-          incluidos++;
-        }
-      }
-      for (const k in porCodigo) porCodigo[k].valor = Math.round(porCodigo[k].valor * 100) / 100;
-      const somaGrupo = (pref: string) => Math.round(
-        Object.entries(porCodigo)
-          .filter(([c]) => c === pref || c.startsWith(pref + "."))
-          .reduce((s, [, v]) => s + v.valor, 0) * 100) / 100;
-      // parcial: true quando mesmo a segunda passada perdeu fatia. Um total
-      // parcial SEM aviso e um numero errado com cara de certo -- foi assim que
-      // a auditoria apontava divergencias falsas.
-      const parcial = falhas > 0;
-      return json({
-        ok: true, porCodigo,
-        totais: { receita: somaGrupo("1"), despesa: somaGrupo("2") },
-        diag: { incluidos, ignorados, semCodigo, falhas, fatias: fatias.length, retentadas },
-        parcial,
-        ...(parcial ? { aviso: `${falhas} fatia(s) do periodo falharam mesmo apos nova tentativa -- os totais estao INCOMPLETOS. Tente de novo.` } : {}),
+      const apuracao = agregarFatias(resultados, datainicial, datafinal);
+      return json({ok:true, ...apuracao,
+        diag:{...apuracao.diag, fatias:fatias.length, retentadas},
+        ...(apuracao.parcial ? {aviso:"A consulta está incompleta ou encontrou pagamentos inconsistentes. Nenhum total será usado para confronto."} : {}),
       });
     }
 
