@@ -22,3 +22,13 @@ node_modules/
 
 # Artefato de deploy (gerado para o Netlify Drop)
 impresilk-dre-site.zip
+__pycache__/
+*.pyc
+.preview/
+.test-output/
+
+dist/
+
+# Materiais de auditoria e servidor de revisão permanecem locais.
+/IMPLEMENTACAO.md
+/scripts/preview_local.py

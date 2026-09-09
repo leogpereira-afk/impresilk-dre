@@ -3,7 +3,7 @@
 // ▶ A cada mudança nos arquivos, SUBA o número do CACHE (v1 → v2 → …). No
 //   evento "activate" apagamos todo cache com nome diferente, o que força os
 //   aparelhos a baixarem a versão nova (evita ficar preso em arquivos antigos).
-const CACHE = 'app-shell-v67';
+const CACHE = 'dre-shell-v68';
 
 // O MESMO número precisa estar no ?v= dos <link>/<script> do index.html. O
 // Service Worker só manda no que passa por ele; o cache HTTP do navegador é
@@ -19,7 +19,7 @@ const SHELL = [
   './index.html',
   `./app.js?v=${V}`,
   `./styles.css?v=${V}`,
-  `./data.js?v=${V}`,
+  `./financeiro.js?v=${V}`,
   `./config.js?v=${V}`,
   `./auth.js?v=${V}`,
   './logo.png',
@@ -38,8 +38,19 @@ self.addEventListener('install', (e) => {
 // controle das abas já abertas.
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys()
-      .then((nomes) => Promise.all(nomes.filter((n) => n !== CACHE).map((n) => caches.delete(n))))
+    caches.keys().then(async nomes => {
+      const scope=new URL('./',self.location).href;
+      for(const name of nomes){
+        if(name===CACHE)continue;
+        if(name.startsWith('dre-shell-v'))await caches.delete(name);
+        else if(/^app-shell-v\d+$/.test(name)){
+          // Nomes antigos eram compartilhados com outros apps do mesmo domínio.
+          const cache=await caches.open(name);
+          for(const req of await cache.keys())if(req.url.startsWith(scope))await cache.delete(req);
+          if(!(await cache.keys()).length)await caches.delete(name);
+        }
+      }
+    })
       .then(() => self.clients.claim())
   );
 });
@@ -51,6 +62,8 @@ self.addEventListener('fetch', (e) => {
 
   // Só lidamos com GET. POST/PUT (chamadas à API) passam direto pela rede.
   if (req.method !== 'GET') return;
+  if (url.pathname.endsWith('/data.js')) return;
+  if (url.origin !== self.location.origin || !url.pathname.startsWith(new URL('./',self.location).pathname)) return;
 
   // NUNCA cachear as funções: os dados são responsabilidade da fila do cliente
   // (IndexedDB/sync), não do cache de arquivos. Deixa passar direto.
@@ -69,13 +82,14 @@ self.addEventListener('fetch', (e) => {
       })
       .catch(async () => {
         // Offline: serve do cache. Navegação (abrir o app) cai no index.html.
-        const cacheado = await caches.match(req);
+        const ownCache=await caches.open(CACHE);
+        const cacheado = await ownCache.match(req);
         if (cacheado) return cacheado;
         // './index.html', nao '/index.html': no GitHub Pages o app mora em
         // /impresilk-dre/, e a barra sozinha aponta para a RAIZ do dominio --
         // que nao esta no cache. Offline, abrir o app dava tela em branco.
         if (req.mode === 'navigate') {
-          return (await caches.match('./index.html')) || Response.error();
+          return (await ownCache.match('./index.html')) || Response.error();
         }
         return Response.error();
       })
