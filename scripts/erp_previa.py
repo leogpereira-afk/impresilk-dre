@@ -1,22 +1,8 @@
-#!/usr/bin/env python3
-"""Lê o mês corrente do Mubisys e grava a prévia em cfg.previaERP.
 
-Roda no GitHub Actions (.github/workflows/erp-previa.yml) e também na mão:
-    python3 scripts/erp_previa.py            # mês corrente
-    python3 scripts/erp_previa.py 2026-07    # mês específico
-
-Regras que este script respeita (aprendidas na marra, não mexer sem medir):
-  * O ERP engasga com chamadas simultâneas — aqui é SEQUENCIAL, uma fatia por vez.
-  * Janela mensal inteira estoura o tempo — busca em fatias de 7 dias.
-  * Dia/semana sem lançamento devolve HTTP 404: é vazio, NÃO é erro.
-  * Só entra no total quem tem compoe_dre = "Sim".
-  * Título pode ter vários pagamentos: soma só os que caem dentro da janela.
-  * NÃO filtrar por empresa. O ERP tem duas (Impresilk e Universo) e o caixa é
-    um só — a planilha oficial já vem consolidada. Medido em jun/26: somando as
-    duas, receita e despesa batem com a planilha em 0,4%; filtrando só a
-    Impresilk, sobra Universo de fora e a conferência acusa rombo falso.
-"""
+"""Módulo financeiro: processa dados recebidos da origem autenticada."""
 import json
+import os
+import uuid
 import re
 import sys
 import time
@@ -26,19 +12,20 @@ import urllib.error
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import erp_os                                             # noqa: E402
-import erp_mes                                            # noqa: E402
+import erp_os
+import erp_mes
 
 RAIZ = Path(__file__).resolve().parent.parent
 cfg_js = (RAIZ / "config.js").read_text(encoding="utf-8")
-TOKEN = re.search(r"const TOKEN\s*=\s*'([^']+)'", cfg_js).group(1)
+TOKEN = os.environ.get("DRE_MACHINE_TOKEN", "")
 BASE = re.search(r"const API_BASE\s*=\s*'([^']+)'", cfg_js).group(1)
 
 PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
-
 def call(fn, payload, timeout=90, tentativas=4):
-    """POST na Edge Function. 404 do ERP vira lista vazia (é ausência de dado)."""
+    """call: processa dados recebidos da origem autenticada."""
+    if not TOKEN:
+        raise RuntimeError("Configure DRE_MACHINE_TOKEN no ambiente da rotina. Não use credencial de navegador.")
     ultimo = None
     for n in range(tentativas):
         try:
@@ -50,30 +37,25 @@ def call(fn, payload, timeout=90, tentativas=4):
             return json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode())
         except urllib.error.HTTPError as e:
             corpo = e.read().decode()[:200]
-            if "404" in corpo or "não encontrado" in corpo.lower():
-                return {"ok": True, "itens": []}          # janela sem lançamento
-            ultimo = f"HTTP {e.code}: {corpo}"
-        except Exception as e:                             # rede/timeout
+            ultimo = f"HTTP {e.code}: falha no serviço {fn}"
+            if e.code in (401, 403):
+                raise RuntimeError("Autenticação da rotina recusada; configure o segredo do servidor no GitHub.")
+        except Exception as e:
             ultimo = str(e)[:160]
         if eh_estouro(ultimo):
-            # Janela grande demais para o tempo que a Edge Function tem (22s).
-            # Repetir a MESMA janela não adianta — quem chamou precisa partir
-            # o período. Sai na primeira, sem gastar as 4 tentativas.
+
             raise JanelaGrande(ultimo)
-        time.sleep(5 * (n + 1))                            # espera crescente
+        time.sleep(5 * (n + 1))
     raise RuntimeError(ultimo)
 
-
 class JanelaGrande(Exception):
-    """A Edge Function abortou por tempo — o período pedido é grande demais."""
-
+    """JanelaGrande: processa dados recebidos da origem autenticada."""
 
 def eh_estouro(msg):
     m = str(msg or "").lower()
     return ("signal has been aborted" in m or "aborted" in m
             or "timed out" in m or "timeout" in m
             or "http 504" in m or "http 502" in m)
-
 
 def fatias(ini, fim, dias=7):
     out, d = [], ini
@@ -83,33 +65,34 @@ def fatias(ini, fim, dias=7):
         d = b + datetime.timedelta(days=1)
     return out
 
-
 def valor_na_janela(t, ini, fim):
-    """Valor de CAIXA do título dentro da janela (o topo às vezes vem zerado)."""
+    """valor_na_janela: processa dados recebidos da origem autenticada."""
+    from decimal import Decimal, ROUND_HALF_UP
+    def centavos(v):
+        if v is None or v == "": raise ValueError("Pagamento sem valor válido")
+        n = Decimal(str(v))
+        if not n.is_finite(): raise ValueError("Pagamento sem valor finito")
+        return n.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    def data(x):
+        d = str(x.get("data_pagamento") or x.get("data_credito") or "")[:10]
+        datetime.date.fromisoformat(d)
+        return d
     pgs = t.get("pagamentos") or []
     if pgs:
-        s = 0.0
-        for p in pgs:
-            dp = str(p.get("data_pagamento") or p.get("data_credito") or "")[:10]
-            if ini <= dp <= fim:
-                s += float(p.get("valor") or 0)
-        if s:
-            return s
-    return float(t.get("valor_pagamento") or 0) or float(t.get("valor_titulo") or 0)
-
+        soma = Decimal("0")
+        for pg in pgs:
+            dp = data(pg)
+            if ini <= dp <= fim: soma += centavos(pg.get("valor"))
+        return float(soma)
+    dp = data(t)
+    return float(centavos(t.get("valor_pagamento"))) if ini <= dp <= fim else 0.0
 
 def codigo(pc):
     m = re.match(r"^([\d][\d.]*?)\s*-\s*(.*)$", str(pc or "").strip())
     return (m.group(1).rstrip("."), (m.group(2) or "").strip()) if m else ("", "")
 
-
 def por_dia(titulos, ini, fim):
-    """Quanto entrou/saiu em cada dia do mês.
-
-    Serve para comparar com uma planilha exportada no meio do mês: sem isto o
-    painel compara mês inteiro do ERP contra planilha parcial e acusa um rombo
-    que não existe (jul/26 aparecia +21% de receita só por causa disso).
-    """
+    """por_dia: processa dados recebidos da origem autenticada."""
     dias = {}
     for t in titulos:
         pgs = t.get("pagamentos") or []
@@ -124,17 +107,24 @@ def por_dia(titulos, ini, fim):
                 dias[d] = round(dias.get(d, 0.0) + valor_na_janela(t, ini, fim), 2)
     return dict(sorted(dias.items()))
 
+def eventos_financeiros(titulos, natureza, ini, fim):
+    """eventos_financeiros: processa dados recebidos da origem autenticada."""
+    eventos = []
+    for t in titulos:
+        code, nome = codigo(t.get("plano_contas"))
+        pgs = t.get("pagamentos") or [{"data_pagamento":t.get("data_pagamento"),"data_credito":t.get("data_credito"),"valor":t.get("valor_pagamento")}]
+        for i, pg in enumerate(pgs):
+            data = str(pg.get("data_pagamento") or pg.get("data_credito") or "")[:10]
+            if not (ini <= data <= fim): continue
+            valor = valor_na_janela({"pagamentos":[pg]}, ini, fim)
+            eventos.append({"natureza":natureza,"empresa":str(t.get("empresa") or t.get("empresa_id") or "Não informada"),
+                "tituloId":str(t.get("id")),"pagamentoId":str(pg["id"]) if pg.get("id") is not None else None,
+                "indiceNaColeta":i,"data":data,"valor":valor,"contaOrigem":code,"nomeConta":nome,
+                "ordensServico":erp_os.numeros_de_os(t.get("despesa")) if natureza=="entrada" else []})
+    return eventos
 
 def coletar(recurso, ini, fim):
-    """Devolve os títulos únicos do período (dedup por id — fatias podem repetir).
-
-    Fatia de 7 dias é o ponto de partida. Se a Edge Function abortar por tempo
-    (ela tem 22s por chamada), a janela é PARTIDA AO MEIO e cada metade tenta
-    de novo, até o dia isolado. Foi o que derrubou o robô em 02/08: julho ficou
-    grande demais para a fatia semanal e as 4 tentativas repetiram a mesma
-    janela, falhando igual. Um dia que nem sozinho passa vira erro de verdade —
-    melhor falhar do que gravar mês pela metade sem ninguém saber.
-    """
+    """coletar: processa dados recebidos da origem autenticada."""
     vistos = {}
 
     def buscar(a, b, nivel=0):
@@ -152,26 +142,26 @@ def coletar(recurso, ini, fim):
             buscar(a, meio, nivel + 1)
             buscar(meio + datetime.timedelta(days=1), b, nivel + 1)
             return
+        if r.get("ok") is not True or r.get("parcial") or not isinstance(r.get("itens"), list):
+            raise RuntimeError("Coleta incompleta; última versão preservada.")
         for t in (r.get("itens") or []):
-            vistos[t.get("id")] = t
-        time.sleep(1.2)                                   # não afogar o ERP
+            if t.get("id") is None:
+                raise RuntimeError("Título sem identificador; coleta não verificável.")
+            key = (str(t.get("empresa_id") or t.get("empresa") or ""), str(t["id"]))
+            def financeiro(x): return [x.get(k) for k in ("compoe_dre","plano_contas","valor_pagamento","data_pagamento","pagamentos")]
+            if key in vistos and financeiro(vistos[key]) != financeiro(t):
+                raise RuntimeError("Título alterado durante a coleta; repita para obter uma versão consistente.")
+            vistos[key] = t
+        time.sleep(1.2)
 
     for a, b in fatias(ini, fim):
         buscar(a, b)
     return list(vistos.values())
 
-
 CACHE_OS = RAIZ / ".cache" / "os.json"
 
-
 def buscar_os(recebimentos, orcamento_s=1500):
-    """Baixa as OS citadas pelos recebimentos, com cache em disco.
-
-    Uma OS entregue não muda mais, então o cache poupa quase tudo: no dia a dia
-    só entram as OS novas do mês. O orçamento de tempo evita que um ERP lento
-    trave o robô — o que não deu tempo fica registrado no diagnóstico em vez de
-    virar número incompleto com cara de completo.
-    """
+    """buscar_os: processa dados recebidos da origem autenticada."""
     cache = {}
     if CACHE_OS.exists():
         try:
@@ -181,17 +171,13 @@ def buscar_os(recebimentos, orcamento_s=1500):
     querer = []
     for t in recebimentos:
         querer.extend(erp_os.numeros_de_os(t.get("despesa")))
-    # Rebusca: (1) OS que nunca veio; (2) OS que veio com ERRO — persistir o
-    #   erro envenenava a OS PARA SEMPRE, e o rateio descartava a receita dela
-    #   em todo mês futuro; (3) OS que ainda NÃO está "Entregue" — o docstring
-    #   dizia "OS entregue não muda mais", mas o cache guardava qualquer status:
-    #   48 das 233 (20,6%) estavam em produção, cobrindo R$ 65.633,94 de
-    #   receita que o ERP ainda pode alterar.
+
     def _precisa(n):
         o = cache.get(n)
         if not isinstance(o, dict) or "_erro" in o:
             return True
-        return str(o.get("status") or "").strip().lower() != "entregue"
+        return (str(o.get("status") or "").strip().lower() != "entregue"
+                or time.time() - float(o.get("_dreConsultadoEm") or 0) > 6 * 3600)
     falta = [n for n in sorted(set(querer)) if _precisa(n)]
     print(f"OS citadas: {len(set(querer))} · em cache: {len(set(querer)) - len(falta)} · a buscar: {len(falta)}")
 
@@ -206,10 +192,11 @@ def buscar_os(recebimentos, orcamento_s=1500):
             r = call("dre-financas", {"action": "raw", "recurso": f"ordem-servico/numero/{n}"},
                      timeout=60, tentativas=2)
             if r.get("ok"):
-                cache[n] = r.get("resposta")
+                resposta = r.get("resposta")
+                if not isinstance(resposta, dict): raise ValueError("O.S. inválida")
+                cache[n] = {**resposta, "_dreConsultadoEm": time.time()}
             else:
-                # falha NÃO entra no cache persistente: a próxima rodada tenta
-                # de novo, em vez de a OS ficar cega para sempre
+
                 cache.pop(n, None)
                 falhou.append(n)
         except Exception:
@@ -219,36 +206,32 @@ def buscar_os(recebimentos, orcamento_s=1500):
         time.sleep(0.8)
 
     if falhou:
-        print(f"  {len(falhou)} OS falharam e NÃO entraram no cache (serão rebuscadas): {falhou[:8]}")
+        print(f"  {len(falhou)} OS falharam e NÃO entraram no cache (serão rebuscadas)")
     CACHE_OS.parent.mkdir(parents=True, exist_ok=True)
     CACHE_OS.write_text(json.dumps(cache, ensure_ascii=False))
-    return cache
 
+    return {n:o for n,o in cache.items() if isinstance(o,dict) and "_erro" not in o
+            and time.time() - float(o.get("_dreConsultadoEm") or 0) <= 6 * 3600}
 
 def main():
     hoje = datetime.date.today()
     arg_mes = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
-    if arg_mes:                                            # "2026-07"
+    if arg_mes:
         ano, mes = (int(x) for x in arg_mes.split("-")[:2])
         alvos = [datetime.date(ano, mes, 1)]
     else:
         corrente = hoje.replace(day=1)
         alvos = [corrente]
-        # Até o dia 7, consolida TAMBÉM o mês anterior. Pagamento datado do fim
-        # do mês entra no ERP com dias de atraso (a Cemig de 27/07 só apareceu
-        # depois) — sem esta releitura, o mês fecharia para sempre com o que
-        # existia na manhã do dia 1º. O anterior roda primeiro, para a prévia
-        # (cfg.previaERP) terminar apontando para o mês corrente.
-        if hoje.day <= 7:
-            alvos.insert(0, (corrente - datetime.timedelta(days=1)).replace(day=1))
+
+        alvos.insert(0, (corrente - datetime.timedelta(days=1)).replace(day=1))
     for ini in alvos:
         processar(ini)
-
 
 def processar(ini):
     fim = (ini + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
     label = f"{PT[ini.month - 1]}/{ini.year}"
     si, sf = ini.isoformat(), fim.isoformat()
+    execucao_id = os.environ.get("GITHUB_RUN_ID") or str(uuid.uuid4())
     print(f"lendo {label} ({si} → {sf})")
 
     pagar = coletar("contas-pagar", ini, fim)
@@ -272,23 +255,14 @@ def processar(ini):
     rec_class = round(sum(valor_na_janela(t, si, sf) for t in receber if codigo(t.get("plano_contas"))[0]), 2)
     desp_total = round(sum(valor_na_janela(t, si, sf) for t in pagar), 2)
 
-    # Fatura de cartão vem com plano de contas "2-Despesas" — o código existe,
-    # mas é o topo da árvore: o ERP não abre o que foi comprado dentro dela.
-    # Em jun/26 eram R$ 17.154,88 (duas faturas) e respondiam por quase toda a
-    # divergência contra a planilha, que traz a fatura já rateada.
     fatura = [t for t in pagar if codigo(t.get("plano_contas"))[0] in ("2", "")]
     fatura_v = round(sum(valor_na_janela(t, si, sf) for t in fatura), 2)
 
-    # Quebra por produto: o total da receita já está certo, mas só a OS diz de
-    # QUE produto veio cada real. O rateio devolve exatamente o mesmo total.
     operacionais = [t for t in receber if t.get("tipo") == "Receita operacional"]
     cache_os = buscar_os(operacionais)
     por_produto, diag_os = erp_os.ratear(operacionais, cache_os,
                                          lambda t: valor_na_janela(t, si, sf))
 
-    # Mesma receita lida por conta do DRE. Junta o rateio da OS com os títulos
-    # que já vêm com plano de contas (receita não operacional), para poder pôr
-    # lado a lado com a planilha e achar produto cadastrado na conta errada.
     contas_os, produtos_sem_conta = erp_os.por_conta(por_produto)
     for t in receber:
         if t.get("tipo") == "Receita operacional":
@@ -331,62 +305,64 @@ def processar(ini):
         },
     }
 
-    # O mês oficial, montado direto do ERP — é isto que aposenta o .xlsx.
-    # Os códigos de produto vêm do servidor para serem os mesmos todo mês, e os
-    # nomes das contas vêm dos meses que já estão lá (o plano de contas inteiro).
-    cfg_atual = (call("dre-sync", {"action": "getCfg"}, 60) or {}).get("cfg") or {}
+    cfg_res = call("dre-sync", {"action": "getCfg"}, 60)
+    if cfg_res.get("ok") is not True: raise RuntimeError("Configurações não confirmadas")
+    cfg_atual = cfg_res.get("cfg") or {}
     lista = call("dre-sync", {"action": "list"}, 90) or {}
-    meses_servidor = lista.get("itens") or []
+    if lista.get("ok") is not True or not isinstance(lista.get("itens"),list): raise RuntimeError("Histórico não confirmado")
+    meses_servidor = lista["itens"]
+    offset = lista.get("nextOffset")
+    while offset is not None:
+        lista = call("dre-sync", {"action":"list", "offset":offset}, 90)
+        if lista.get("ok") is not True or not isinstance(lista.get("itens"),list): raise RuntimeError("Histórico parcial")
+        meses_servidor.extend(lista["itens"])
+        prox = lista.get("nextOffset")
+        if prox is not None and prox <= offset: raise RuntimeError("Paginação inválida")
+        offset = prox
+    for reg in sorted(meses_servidor, key=lambda r:r.get("atualizadoEm", "")):
+        for campo, mapa in (reg.get("mapeamento") or {}).items():
+            cfg_atual.setdefault(campo, {}).update(mapa)
     nomes_contas = {}
     for r in meses_servidor:
         for c in (r.get("cells") or []):
-            # Descarta nome igual ao código: é o preenchimento de emergência de
-            # um mês que este robô gerou antes de saber o nome. Sem esta linha o
-            # erro se propaga — a primeira leitura ruim vira a definitiva.
+
             if c.get("name") and c.get("code") and c["name"] != c["code"]:
                 nomes_contas.setdefault(c["code"], c["name"])
 
+    regras_privadas = (cfg_atual.get("regras") or {}).get("classificacaoPrivada")
+    if not isinstance(regras_privadas,dict) or regras_privadas.get("versao") != 1:
+        raise RuntimeError("Configuração privada de classificação não validada; nada foi gravado.")
     registro, cod_produtos, cod_remanejadas = erp_mes.montar(
         label, receber, pagar, por_produto, lambda t: valor_na_janela(t, si, sf),
         codigo, cfg_atual.get("produtosCodigo"), erp_os.MAPA_CONTA, nomes_contas,
-        cfg_atual.get("contasRemanejadas"))
+        cfg_atual.get("contasRemanejadas"), regras_privadas)
 
-    # As pendências de classificação (Pró Vida, receita não-operacional em
-    # conta de produto, Nordeste sem descrição…) viajam na prévia: é o que a
-    # aba Conferência já lê, sem precisar de chamada nova.
     previa["pendencias"] = registro.get("pendencias") or []
 
-    # Receita que não casou com nenhuma OS NÃO some em silêncio: o total da
-    # prévia continuava cheio enquanto as células do mês perdiam o valor.
-    # Vira pendência com o número exato — quem lê o painel vê o buraco.
-    if diag_os.get("valorSemOS"):
-        previa["pendencias"].append({
-            "tipo": "receita-sem-os", "conta": "1.1.1",
-            "valor": round(diag_os["valorSemOS"], 2),
-            "texto": f"{diag_os.get('titulos', 0) - diag_os.get('rateados', 0)} recebimento(s) não casaram "
-                     f"com Ordem de Serviço — esse valor está no total do mês mas não aparece em nenhum produto."})
-        registro["pendencias"] = previa["pendencias"]
+    registro["eventos"] = eventos_financeiros(receber,"entrada",si,sf) + eventos_financeiros(pagar,"saida",si,sf)
+    for natureza,total in (("entrada",rec_total),("saida",desp_total)):
+        if abs(sum(e["valor"] for e in registro["eventos"] if e["natureza"]==natureza)-total) > .011:
+            raise RuntimeError("Trilha de pagamentos não fecha; nada foi gravado.")
+    registro["previaERP"] = previa
+    registro["mapeamento"] = {"produtosCodigo":cod_produtos, "contasRemanejadas":cod_remanejadas}
+    registro["qualidade"] = {
+        "execucaoId":execucao_id, "coletadoEm":previa["geradoEm"], "de":si,
+        "ate":min(fim, datetime.date.today()).isoformat(), "regra":"caixa-v2",
+        "estado":"parcial" if fim >= datetime.date.today() else "aguardando-conferencia",
+        "escopo":"compõe DRE", "conciliado":False, "apiContratoValidado":False,
+        "titulosReceita":len(receber), "titulosDespesa":len(pagar)
+    }
+    valores = {c["code"]:c["value"] for c in registro["cells"]}
+    if abs(valores.get("1",0)-rec_total) > .011 or abs(valores.get("2",0)-desp_total) > .011:
+        raise RuntimeError("Os totais de controle não fecham; nada foi gravado.")
 
-    if "--dry" in sys.argv:
+    if "--dry" in sys.argv or os.environ.get("DRE_PUBLISH") != "1":
         print("(--dry: não gravou nada no servidor)")
     elif not (receber or pagar):
-        # Mês sem lançamento não grava NADA — nem registro, nem prévia.
-        # O registro vazio já zerou o painel uma vez (01/08, cron do dia 1º);
-        # a prévia vazia sobrescreveria a do mês anterior na Conferência,
-        # apagando totais e pendências que ainda interessam.
+
         print(f"NÃO gravei {label}: nenhum lançamento no período ainda.")
     else:
-        cfg_atual["previaERP"] = previa
-        cfg_atual["produtosCodigo"] = cod_produtos
-        # a escolha de código das contas remanejadas TEM que sobreviver entre
-        # execuções, senão a conta muda de código a cada leitura do robô
-        cfg_atual["contasRemanejadas"] = cod_remanejadas
-        call("dre-sync", {"action": "setCfg", "cfg": cfg_atual}, 90)
 
-        # TRAVA: nunca reescrever mês que veio da planilha. Os 8 meses do
-        # histórico (Dez/25→Jul/26) foram conferidos conta a conta e não podem
-        # ser sobrescritos por uma leitura automática. Só grava mês novo ou mês
-        # que este mesmo robô gerou antes (origem "erp").
         antigo = next((r for r in meses_servidor if r.get("id") == registro["id"]), None)
         if antigo and antigo.get("origem") != "erp" and "--forcar" not in sys.argv:
             print(f"NÃO gravei {label}: já existe e veio da planilha "
@@ -394,23 +370,18 @@ def processar(ini):
                   f"Use --forcar para substituir.")
         else:
             registro["atualizadoEm"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            r = call("dre-sync", {"action": "upsert", "registro": registro}, 90)
+            r = call("dre-sync", {"action": "upsert", "registro": registro, "baseAtualizadoEm":(antigo or {}).get("atualizadoEm"), "operacaoId":execucao_id+":"+registro["id"]}, 90)
             if r.get("conflito"):
-                print(f"NÃO gravei {label}: o servidor tem versão mais nova.")
+                raise RuntimeError("Conflito: versão concorrente preservada.")
+            elif r.get("ok") is not True:
+                raise RuntimeError("Gravação não confirmada pelo servidor.")
             else:
                 print(f"mês {label} gravado do ERP ({len(registro['cells'])} contas)")
 
     d = previa["diag"]
-    print(f"receita R$ {rec_total:,.2f} ({d['titulosReceita']} títulos · "
-          f"R$ {d['receitaSemCodigo']:,.2f} sem plano de contas no título)")
-    print(f"despesa R$ {desp_total:,.2f} ({d['titulosDespesa']} títulos · "
-          f"{d['contas']} contas · R$ {fatura_v:,.2f} em fatura de cartão sem quebra)")
-    print(f"produtos: {len(por_produto)} · rateado R$ {diag_os['valorRateado']:,.2f} "
-          f"de {diag_os['rateados']}/{diag_os['titulos']} títulos operacionais"
-          + (f" · R$ {diag_os['valorSemOS']:,.2f} sem OS" if diag_os["valorSemOS"] else ""))
-    for nome, v in list(por_produto.items())[:8]:
-        print(f"   {v:>12,.2f}  {nome}")
-
+    print(f"Conferência: {d['titulosReceita']} títulos de receita; {d['titulosDespesa']} de despesa; "
+          f"{d['contas']} contas; {diag_os['rateados']}/{diag_os['titulos']} títulos rateados; "
+          f"{len(registro['pendencias'])} pendências. Valores comerciais omitidos do log.")
 
 if __name__ == "__main__":
     main()
