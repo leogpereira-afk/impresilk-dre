@@ -134,6 +134,10 @@ def coletar(recurso, ini, fim):
                 "filtrodata": "PAGAMENTO",
                 "datainicial": a.isoformat(), "datafinal": b.isoformat(),
             })
+            diag = r.get("diagnostico") or {}
+            if r.get("parcial") and (diag.get("motivo") in ("tempo-ou-rede", "orcamento-esgotado")
+                    or (diag.get("motivo") == "http" and diag.get("http") in (502,504))):
+                raise JanelaGrande("A origem não concluiu a janela no prazo.")
         except JanelaGrande:
             if a >= b:
                 raise
@@ -189,10 +193,11 @@ def buscar_os(recebimentos, orcamento_s=1500):
             print(f"  orçamento de tempo estourou com {len(falta) - buscadas} OS pendentes")
             break
         try:
-            r = call("dre-financas", {"action": "raw", "recurso": f"ordem-servico/numero/{n}"},
+            r = call("dre-financas", {"action": "listar", "recurso": f"ordem-servico/numero/{n}"},
                      timeout=60, tentativas=2)
-            if r.get("ok"):
-                resposta = r.get("resposta")
+            if r.get("ok") and not r.get("parcial"):
+                itens = r.get("itens")
+                resposta = itens[0] if isinstance(itens, list) and len(itens) == 1 else None
                 if not isinstance(resposta, dict): raise ValueError("O.S. inválida")
                 cache[n] = {**resposta, "_dreConsultadoEm": time.time()}
             else:
@@ -233,6 +238,13 @@ def processar(ini):
     si, sf = ini.isoformat(), fim.isoformat()
     execucao_id = os.environ.get("GITHUB_RUN_ID") or str(uuid.uuid4())
     print(f"lendo {label} ({si} → {sf})")
+
+    cfg_res = call("dre-sync", {"action": "getCfg"}, 60)
+    if cfg_res.get("ok") is not True: raise RuntimeError("Configurações não confirmadas")
+    cfg_atual = cfg_res.get("cfg") or {}
+    regras_privadas = (cfg_atual.get("regras") or {}).get("classificacaoPrivada")
+    if not isinstance(regras_privadas,dict) or regras_privadas.get("versao") != 1:
+        raise RuntimeError("Configuração privada de classificação não validada; nada foi gravado.")
 
     pagar = coletar("contas-pagar", ini, fim)
     receber = coletar("contas-receber", ini, fim)
@@ -305,9 +317,6 @@ def processar(ini):
         },
     }
 
-    cfg_res = call("dre-sync", {"action": "getCfg"}, 60)
-    if cfg_res.get("ok") is not True: raise RuntimeError("Configurações não confirmadas")
-    cfg_atual = cfg_res.get("cfg") or {}
     lista = call("dre-sync", {"action": "list"}, 90) or {}
     if lista.get("ok") is not True or not isinstance(lista.get("itens"),list): raise RuntimeError("Histórico não confirmado")
     meses_servidor = lista["itens"]
@@ -329,9 +338,6 @@ def processar(ini):
             if c.get("name") and c.get("code") and c["name"] != c["code"]:
                 nomes_contas.setdefault(c["code"], c["name"])
 
-    regras_privadas = (cfg_atual.get("regras") or {}).get("classificacaoPrivada")
-    if not isinstance(regras_privadas,dict) or regras_privadas.get("versao") != 1:
-        raise RuntimeError("Configuração privada de classificação não validada; nada foi gravado.")
     registro, cod_produtos, cod_remanejadas = erp_mes.montar(
         label, receber, pagar, por_produto, lambda t: valor_na_janela(t, si, sf),
         codigo, cfg_atual.get("produtosCodigo"), erp_os.MAPA_CONTA, nomes_contas,

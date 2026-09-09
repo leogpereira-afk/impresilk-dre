@@ -52,6 +52,22 @@ class CaixaTest(unittest.TestCase):
 if __name__=='__main__': unittest.main()
 
 class RotinaTest(unittest.TestCase):
+    def test_timeout_em_resposta_parcial_divide_janela_sem_perder_titulos(self):
+        calls=[]
+        def api(fn,payload):
+            calls.append((payload['datainicial'],payload['datafinal']))
+            if payload['datainicial'] != payload['datafinal']:
+                return {'ok':True,'parcial':True,'diagnostico':{'motivo':'tempo-ou-rede'},'itens':[]}
+            return {'ok':True,'itens':[{'id':payload['datainicial']}]}
+        with patch.object(previa,'call',side_effect=api),patch.object(previa.time,'sleep'),patch('builtins.print'):
+            r=previa.coletar('contas-pagar',datetime.date(2026,8,1),datetime.date(2026,8,2))
+        self.assertEqual([t['id'] for t in r],['2026-08-01','2026-08-02'])
+        self.assertEqual(calls,[('2026-08-01','2026-08-02'),('2026-08-01','2026-08-01'),('2026-08-02','2026-08-02')])
+    def test_sem_regras_privadas_interrompe_antes_de_consultar_erp(self):
+        with patch.object(previa,'call',return_value={'ok':True,'cfg':{}}),patch.object(previa,'coletar') as collect,patch('builtins.print'):
+            with self.assertRaisesRegex(RuntimeError,'Configuração privada'):
+                previa.processar(datetime.date(2026,8,1))
+            collect.assert_not_called()
     def test_rotina_revisa_mes_anterior_apos_dia_sete(self):
         class Hoje(datetime.date):
             @classmethod
@@ -65,14 +81,14 @@ class RotinaTest(unittest.TestCase):
 class CacheTest(unittest.TestCase):
     def test_os_em_producao_recem_lida_participa_do_rateio(self):
         import tempfile
-        with tempfile.TemporaryDirectory() as d,patch.object(previa,'CACHE_OS',Path(d)/'os.json'),patch.object(previa,'call',return_value={'ok':True,'resposta':{'status':'Produção','itens':[{'item':'A','valor_final':100}]}}),patch.object(previa.time,'sleep'):
+        with tempfile.TemporaryDirectory() as d,patch.object(previa,'CACHE_OS',Path(d)/'os.json'),patch.object(previa,'call',return_value={'ok':True,'itens':[{'status':'Produção','itens':[{'item':'A','valor_final':100}]}]}),patch.object(previa.time,'sleep'):
             cache=previa.buscar_os([{'despesa':'123'}])
             self.assertIn('123',cache)
     def test_os_entregue_antiga_precisa_ser_revalidada(self):
         import tempfile,json
         with tempfile.TemporaryDirectory() as d:
             arq=Path(d)/'os.json';arq.write_text(json.dumps({'123':{'status':'Entregue','itens':[{'item':'A','valor_final':100}]}}))
-            with patch.object(previa,'CACHE_OS',arq),patch.object(previa,'call',return_value={'ok':True,'resposta':{'status':'Entregue','itens':[{'item':'A','valor_final':80}]}}),patch.object(previa.time,'sleep'):
+            with patch.object(previa,'CACHE_OS',arq),patch.object(previa,'call',return_value={'ok':True,'itens':[{'status':'Entregue','itens':[{'item':'A','valor_final':80}]}]}),patch.object(previa.time,'sleep'):
                 cache=previa.buscar_os([{'despesa':'123'}])
                 self.assertEqual(cache['123']['itens'][0]['valor_final'],80)
 

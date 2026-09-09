@@ -21,3 +21,29 @@ test('ping 422 distingue resposta do servidor de consulta válida',async()=>{con
 test('ping bem sucedido continua disponível',async()=>{const s=server();const r=await s.call({action:'ping'},true);assert.equal(r.body.ok,true);});
 
 test('administrador configura a integração usando o registro global existente',async()=>{const s=server({role:'admin'});const r=await s.call({action:'salvarConfig',publicKey:'nova'});assert.equal(r.status,200);assert.equal(r.body.ok,true);assert.equal(s.writes(),1);});
+
+test('consulta incompleta explica a origem da falha na interface existente',async()=>{
+  const s=server({response:{status:503,data:{error:'detalhe-privado'}}});
+  const r=await s.call({action:'importarMes',datainicial:'2026-08-01',datafinal:'2026-08-07'},true);
+  assert.equal(r.body.parcial,true);
+  assert.match(r.body.aviso,/contas-pagar.*2026-08-01.*HTTP 503/);
+  assert.equal(r.body.diag.janelasIncompletas.length,2);
+  assert.equal(JSON.stringify(r).includes('detalhe-privado'),false);
+  assert.equal(s.writes(),0);
+});
+test('diagnóstico raw retorna somente estrutura e contagens sem dados comerciais',async()=>{
+  const s=server({response:{status:200,data:[{id:1,cliente:'cliente-privado',valor:98765}]}});
+  const r=await s.call({action:'raw',recurso:'contas-pagar'},true);
+  assert.equal(r.body.total,1);
+  assert.equal(r.body.tipos.cliente,'string');
+  assert.equal(JSON.stringify(r).includes('cliente-privado'),false);
+  assert.equal(JSON.stringify(r).includes('98765'),false);
+});
+test('consulta de OS para rateio conserva os pesos sem devolver dados do cliente',async()=>{
+  const s=server({response:{status:200,data:{id:3,status:'Entregue',cliente:'cliente-privado',itens:[{item:'Placa',modelo:'A',valor_final:120,sub_total:100,observacao:'observacao-privada',itens_agrupados:[]}]}}});
+  const r=await s.call({action:'listar',recurso:'ordem-servico/numero/12345'},true);
+  assert.equal(r.body.itens[0].itens[0].valor_final,120);
+  assert.equal(r.body.itens[0].status,'Entregue');
+  assert.equal(JSON.stringify(r).includes('cliente-privado'),false);
+  assert.equal(JSON.stringify(r).includes('observacao-privada'),false);
+});

@@ -153,19 +153,20 @@ async function buscarCompleto(recurso: string, creds: any, f: any, timeoutMs = 2
   const todos: any[] = [], vistos = new Set<string>();
   const inicio = Date.now(), tamanho = 500;
   let totalEsperado: number | null = null, paginas = 0;
-  const resposta = (parcial: boolean) => ({ok:true,http:200,data:{data:todos,parcial,paginacao:{paginas,totalEsperado}}});
+  // Apenas códigos fixos, status e contagens: nunca credenciais ou corpo do ERP.
+  const resposta = (parcial: boolean, motivo = 'paginacao-inconsistente', http?: number) => ({ok:true,http:200,data:{data:todos,parcial,paginacao:{paginas,totalEsperado},...(parcial ? {diagnostico:{motivo,...(http ? {http} : {})}} : {})}});
   for (let page = 1; page <= 50; page++) {
     const restante = orcamentoMs - (Date.now() - inicio);
-    if (restante <= 0) return resposta(true);
+    if (restante <= 0) return resposta(true,'orcamento-esgotado');
     let r: any;
     try { r = await buscar(recurso, creds, {...f,page,per_page:tamanho},Math.min(timeoutMs,restante)); }
-    catch { return resposta(true); }
+    catch { return resposta(true,'tempo-ou-rede'); }
     if (vazioConfirmado(recurso,r)) r = {ok:true,http:200,data:[]};
-    if (!r.ok) return page === 1 ? r : resposta(true);
+    if (!r.ok) return resposta(true,'http',r.http);
     const d = r.data;
-    if (d == null || typeof d !== "object" || d.error || d.ok === false || d.parcial || d.partial) return resposta(true);
+    if (d == null || typeof d !== "object" || d.error || d.ok === false || d.parcial || d.partial) return resposta(true,'resposta-invalida');
     const lote = Array.isArray(d) ? d : [d.data,d.items,d.results].find(Array.isArray);
-    if (!lote) return resposta(true);
+    if (!lote) return resposta(true,'lista-ausente');
     paginas++;
     const meta = {...(d.pagination || {}),...(d.meta || {}),...d};
     const atual = meta.current_page ?? meta.page;
@@ -177,7 +178,7 @@ async function buscarCompleto(recurso: string, creds: any, f: any, timeoutMs = 2
     }
     for (const item of lote) {
       const key = item?.id != null ? `${item.empresa_id ?? item.empresa ?? ""}:${item.id}` : JSON.stringify(item);
-      if (vistos.has(key)) return resposta(true);
+      if (vistos.has(key)) return resposta(true,'pagina-repetida');
       vistos.add(key);todos.push(item);
     }
     if (totalEsperado != null && todos.length > totalEsperado) return resposta(true);
@@ -193,7 +194,7 @@ async function buscarCompleto(recurso: string, creds: any, f: any, timeoutMs = 2
     if (ultima && page >= ultima) return resposta(false);
     if (lote.length < tamanho) return resposta(false);
   }
-  return resposta(true);
+  return resposta(true,'limite-de-paginas');
 }
 
 // Divide [ini, fim] em fatias de N dias: o mes inteiro estoura o tempo do
@@ -246,19 +247,27 @@ function valorCaixa(t: any, ini: string, fim: string): number {
 function agregarFatias(resultados: any[], ini: string, fim: string) {
   const porCodigo: Record<string, { nome: string; valor: number }> = {};
   let incluidos = 0, ignorados = 0, semCodigo = 0, falhas = 0, duplicados = 0;
+  let pagamentosInvalidos = 0, titulosSemId = 0, titulosAlterados = 0;
+  const janelasIncompletas: any[] = [];
   let receita = 0, despesa = 0;
   const vistos = new Map<string, string>();
   for (const it of resultados) {
-    if (!it?.res?.ok || respostaParcial(it.res.data)) { falhas++; continue; }
+    if (!it?.res?.ok || respostaParcial(it.res.data)) {
+      falhas++;
+      const d = it?.res?.data?.diagnostico || {};
+      janelasIncompletas.push({recurso:it?.rc?.recurso,inicio:it?.a,fim:it?.b,
+        motivo:d.motivo || it?.motivo || 'consulta-falhou',...(d.http ? {http:d.http} : {})});
+      continue;
+    }
     for (const t of extrairLista(it.res.data)) {
-      if (t.id == null) { falhas++; continue; }
+      if (t.id == null) { falhas++; titulosSemId++; continue; }
       const key = `${it.rc.recurso}:${t.empresa_id ?? t.empresa ?? ""}:${t.id}`;
       const fingerprint = JSON.stringify([t.compoe_dre, t.plano_contas, t.valor_pagamento, t.data_pagamento, t.pagamentos]);
-      if (vistos.has(key)) { duplicados++; if (vistos.get(key) !== fingerprint) falhas++; continue; }
+      if (vistos.has(key)) { duplicados++; if (vistos.get(key) !== fingerprint) { falhas++; titulosAlterados++; } continue; }
       vistos.set(key, fingerprint);
       if (String(t.compoe_dre ?? "").toLowerCase() !== "sim") { ignorados++; continue; }
       let cents: number;
-      try { cents = Math.round(valorCaixa(t, ini, fim) * 100); } catch { falhas++; continue; }
+      try { cents = Math.round(valorCaixa(t, ini, fim) * 100); } catch { falhas++; pagamentosInvalidos++; continue; }
       if (it.rc.recurso === "contas-receber") receita += cents; else despesa += cents;
       incluidos++;
       const { code, nome } = planoCodigo(t.plano_contas);
@@ -269,7 +278,18 @@ function agregarFatias(resultados: any[], ini: string, fim: string) {
   }
   for (const k in porCodigo) porCodigo[k].valor /= 100;
   return {porCodigo, totais:{receita:receita / 100, despesa:despesa / 100},
-    diag:{incluidos,ignorados,semCodigo,falhas,duplicados}, parcial:falhas > 0};
+    diag:{incluidos,ignorados,semCodigo,falhas,duplicados,janelasIncompletas,pagamentosInvalidos,titulosSemId,titulosAlterados}, parcial:falhas > 0};
+}
+
+function explicarConsulta(diag: any): string {
+  const motivos: Record<string,string> = {'tempo-ou-rede':'tempo de resposta ou rede','orcamento-esgotado':'tempo total esgotado',
+    'pagina-repetida':'página repetida','paginacao-inconsistente':'paginação inconsistente','resposta-invalida':'resposta inválida',
+    'lista-ausente':'lista não encontrada','limite-de-paginas':'limite de páginas','consulta-falhou':'consulta falhou'};
+  const partes = diag.janelasIncompletas.map((j: any) => `${j.recurso} (${j.inicio} a ${j.fim}): ${j.motivo === 'http' ? 'HTTP '+j.http : motivos[j.motivo] || 'consulta incompleta'}`);
+  if (diag.pagamentosInvalidos) partes.push(`${diag.pagamentosInvalidos} pagamentos sem data ou valor válido`);
+  if (diag.titulosSemId) partes.push(`${diag.titulosSemId} títulos sem identificação`);
+  if (diag.titulosAlterados) partes.push(`${diag.titulosAlterados} títulos alterados durante a consulta`);
+  return 'Consulta incompleta. Nenhum total será usado para confronto. '+partes.join('; ')+'.';
 }
 
 
@@ -385,16 +405,21 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Diagnóstico: devolve a resposta do Mubisys EXATAMENTE como veio, sem
-    // extrair lista. Serve para mapear endpoint novo antes de escrever código.
+    // Diagnóstico limitado à estrutura: não devolve amostras nem valores.
     if (action === "raw") {
       const recurso = body.recurso || "contas-pagar";
+      if (!['contas-pagar','contas-receber','conta-bancaria'].includes(recurso) && !/^ordem-servico\/numero\/\d+$/.test(recurso)) return json({erro:'Recurso de diagnóstico não permitido.'},400);
       const r = await buscar(recurso, creds, {
         status: body.status ?? "",
         filtrodata: body.filtrodata ?? "",
         datainicial, datafinal, page:body.page, per_page:body.per_page,
       });
-      return json({ ok: r.ok, http: r.http, resposta: r.data });
+      const lista = r.ok ? extrairLista(r.data) : [];
+      const tipos: Record<string,string> = {};
+      for (const item of lista.slice(0,3)) for (const [campo,valor] of Object.entries(item)) {
+        tipos[campo] = Array.isArray(valor) ? 'array' : valor === null ? 'null' : typeof valor;
+      }
+      return json({ok:r.ok,http:r.http,total:lista.length,campos:Object.keys(tipos),tipos});
     }
 
     if (action === "preview" || action === "listar") {
@@ -410,12 +435,19 @@ Deno.serve(async (req: Request) => {
           : { ok: true, recurso, total: 0, vazio: true, itens: [] });
       }
       if (!r.ok) return json({ erro: `Mubisys HTTP ${r.http}`, detalhe: r.data }, 502);
-      const lista = extrairLista(r.data);
+      let lista = extrairLista(r.data);
+      if (/^ordem-servico\/numero\/\d+$/.test(recurso)) {
+        // O rateio precisa apenas de status, produto/modelo e pesos dos itens.
+        const item = (i: any): any => ({item:i.item,modelo:i.modelo,valor_final:i.valor_final,sub_total:i.sub_total,
+          itens_agrupados:Array.isArray(i.itens_agrupados) ? i.itens_agrupados.map(item) : []});
+        lista = lista.map(o=>({id:o.id,status:o.status,itens:Array.isArray(o.itens) ? o.itens.map(item) : []}));
+      }
       if (action === "preview") {
         return json({ ok: true, recurso, total: lista.length, parcial:respostaParcial(r.data),
           campos: lista[0] ? Object.keys(lista[0]) : [], amostra: lista.slice(0, 3) });
       }
-      return json({ ok: true, recurso, total: lista.length, parcial:respostaParcial(r.data), itens: lista });
+      return json({ ok: true, recurso, total: lista.length, parcial:respostaParcial(r.data),
+        ...(r.data?.diagnostico ? {diagnostico:r.data.diagnostico} : {}), itens: lista });
     }
 
     if (action === "importarMes") {
@@ -436,7 +468,7 @@ Deno.serve(async (req: Request) => {
 
       const umaFatia = async (f: Fatia) => {
         for (let tentativa = 1; tentativa <= 2; tentativa++) {
-          if (Date.now() - inicioImport > ORCAMENTO_MS) return { ...f, res: null };
+          if (Date.now() - inicioImport >= ORCAMENTO_MS) return { ...f, res: null, motivo:'orcamento-esgotado' };
           try {
             const res = await buscarCompleto(f.rc.recurso, creds, {
               status: f.rc.status, filtrodata: f.rc.filtrodata,
@@ -461,7 +493,7 @@ Deno.serve(async (req: Request) => {
       const apuracao = agregarFatias(resultados, datainicial, datafinal);
       return json({ok:true, ...apuracao,
         diag:{...apuracao.diag, fatias:fatias.length, retentadas},
-        ...(apuracao.parcial ? {aviso:"A consulta está incompleta ou encontrou pagamentos inconsistentes. Nenhum total será usado para confronto."} : {}),
+        ...(apuracao.parcial ? {aviso:explicarConsulta(apuracao.diag)} : {}),
       });
     }
 

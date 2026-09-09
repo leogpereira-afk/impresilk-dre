@@ -46,3 +46,25 @@ test('metadados de total divergente não confirmam coleta completa',async()=>{
 test('recurso de item único não recebe paginação',async()=>{
   const calls=apiPaginada([{data:{id:10,itens:[]}}]);await context.buscarCompleto('ordem-servico/numero/10',creds,{});assert.equal(calls[0].searchParams.has('page'),false);assert.equal(calls.length,1);
 });
+
+test('diagnóstico distingue limite de tempo de erro HTTP sem revelar a resposta do ERP',async()=>{
+  context.fetch=async()=>{throw new Error('credencial-e-dado-privado');};
+  let r=await context.buscarCompleto('contas-pagar',creds,{});
+  assert.equal(r.data.diagnostico.motivo,'tempo-ou-rede');
+  assert.equal(JSON.stringify(r).includes('credencial-e-dado-privado'),false);
+  apiPaginada([{status:503,data:{error:'dado-privado'}}]);
+  r=await context.buscarCompleto('contas-pagar',creds,{});
+  assert.equal(r.data.diagnostico.motivo,'http');
+  assert.equal(r.data.diagnostico.http,503);
+  assert.equal(JSON.stringify(r).includes('dado-privado'),false);
+});
+test('conferência identifica janela incompleta e pagamentos inválidos por contagem',()=>{
+  const r=context.agregarFatias([
+    {rc:{recurso:'contas-receber'},a:'2026-08-01',b:'2026-08-07',res:{ok:true,data:{data:[],parcial:true,diagnostico:{motivo:'tempo-ou-rede'}}}},
+    {rc:{recurso:'contas-pagar'},a:'2026-08-01',b:'2026-08-07',res:{ok:true,data:[{id:1,compoe_dre:'Sim',pagamentos:[{valor:10}]}]}}
+  ],'2026-08-01','2026-08-31');
+  assert.equal(r.diag.janelasIncompletas.length,1);
+  assert.equal(r.diag.janelasIncompletas[0].motivo,'tempo-ou-rede');
+  assert.equal(r.diag.pagamentosInvalidos,1);
+  assert.equal(r.parcial,true);
+});
