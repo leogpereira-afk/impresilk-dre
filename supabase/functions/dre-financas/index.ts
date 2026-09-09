@@ -20,6 +20,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const TOKEN = Deno.env.get("DRE_TOKEN") ?? "";
+const COLLECTOR_TOKEN = Deno.env.get("DRE_COLLECTOR_TOKEN") ?? "";
 const JWT_SECRET = Deno.env.get("EQUIPE_JWT_SECRET") ?? "";
 
 // Cracha da Central de Acessos (ver a explicacao longa em dre-sync): esta
@@ -339,7 +340,8 @@ Deno.serve(async (req: Request) => {
     return json({ erro: "Seu acesso ao sistema foi encerrado. Fale com a gestão.", semSessao: true }, 401);
   }
   const ehMaquina = !!TOKEN && req.headers.get("x-token") === TOKEN;
-  if (!cracha && !ehMaquina) return json({ erro: "Entre no sistema.", semSessao: true }, 401);
+  const ehColetor = !!COLLECTOR_TOKEN && req.headers.get("x-token") === COLLECTOR_TOKEN;
+  if (!cracha && !ehMaquina && !ehColetor) return json({ erro: "Entre no sistema.", semSessao: true }, 401);
 
   let body: any;
   try {
@@ -348,6 +350,9 @@ Deno.serve(async (req: Request) => {
     return json({ erro: "JSON inválido" }, 400);
   }
   const action = body?.action as string;
+  if (ehColetor && (!['ping','raw','listar','importarMes'].includes(action) ||
+      (body.recurso && !['contas-pagar','contas-receber','conta-bancaria'].includes(body.recurso) && !/^ordem-servico\/numero\/\d+$/.test(body.recurso))))
+    return json({erro:'A credencial da coleta não permite esta ação ou recurso.'},403);
 
   try {
     if (action === "salvarConfig") {

@@ -36,6 +36,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const TOKEN = Deno.env.get("DRE_TOKEN") ?? "";
+const COLLECTOR_TOKEN = Deno.env.get("DRE_COLLECTOR_TOKEN") ?? "";
 const JWT_SECRET = Deno.env.get("EQUIPE_JWT_SECRET") ?? "";
 const BUCKET = "dre-arquivos";
 
@@ -158,13 +159,16 @@ Deno.serve(async (req: Request) => {
   }
   const token = req.headers.get("x-token") ?? body.token;
   const ehMaquina = !!TOKEN && token === TOKEN;
-  if (!cracha && !ehMaquina) {
+  const ehColetor = !!COLLECTOR_TOKEN && req.headers.get("x-token") === COLLECTOR_TOKEN;
+  if (!cracha && !ehMaquina && !ehColetor) {
     return json({ erro: "Entre no sistema.", semSessao: true }, 401);
   }
+  if (ehColetor && !['ping','list','getCfg','upsert'].includes(body.action))
+    return json({erro:'A credencial da coleta não permite esta ação.'},403);
 
   try {
     let papel = ehMaquina ? "admin" : "edicao";
-    if (!ehMaquina) {
+    if (!ehMaquina && !ehColetor) {
       const {data,error}=await sb.from("dre_config_global").select("config").eq("id",true).maybeSingle();
       if(error) return json({erro:"Não foi possível conferir permissões."},503);
       papel = data?.config?.permissoes?.[String(cracha.sub)] ||
@@ -198,6 +202,7 @@ Deno.serve(async (req: Request) => {
       // Comparação atômica de versão: o relógio do cliente não decide quem ganha.
       case "upsert": {
         const reg = body.registro;
+        if (ehColetor && reg?.origem !== 'erp') return json({erro:'A coleta só grava registros do ERP.'},403);
         if (!reg || !/^[A-Za-z0-9_/-]{1,80}$/.test(String(reg.id || "")) ||
             !/^[A-Za-zçÇ]{3}\w*\/\d{4}$/.test(String(reg.label || "")) ||
             !Array.isArray(reg.cells) || reg.cells.length > 10000) return json({erro:"Registro mensal inválido."},400);
@@ -209,6 +214,8 @@ Deno.serve(async (req: Request) => {
         }
         if (!codes.has("1") || !codes.has("2")) return json({erro:"Totais 1 e 2 obrigatórios."},400);
         const id = String(reg.id), atual = await getReg(id);
+        if (ehColetor && atual && atual.registro.origem !== 'erp')
+          return json({erro:'Mês importado ou manual preservado.'},403);
         const op = String(body.operacaoId || "").slice(0,160);
         if (op && atual?.registro?._operacaoId === op) return json({ok:true,registro:atual.registro});
         const base = body.baseAtualizadoEm;
@@ -216,7 +223,7 @@ Deno.serve(async (req: Request) => {
           return json({conflito:true,servidor:atual.registro},409);
         if (!atual && base) return json({conflito:true,servidor:null},409);
         const salvo = {...reg,id,atualizadoEm:new Date().toISOString(),_operacaoId:op,
-          alteradoPor:ehMaquina?"coletor":String(cracha.sub),baseAtualizadoEm:undefined};
+          alteradoPor:ehMaquina||ehColetor?"coletor":String(cracha.sub),baseAtualizadoEm:undefined};
         const linha = {colecao:"os",id,registro:salvo,atualizado_em:salvo.atualizadoEm};
         const res = atual
           ? await sb.from("dre_registros").update(linha).eq("colecao","os").eq("id",id).eq("atualizado_em",atual.atualizado_em).select("registro")
