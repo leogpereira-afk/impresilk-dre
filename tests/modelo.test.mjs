@@ -1,0 +1,15 @@
+import fs from 'node:fs';import vm from 'node:vm';import {test} from 'node:test';import assert from 'node:assert/strict';
+const file=new URL('../financeiro.js',import.meta.url);const ctx={};vm.createContext(ctx);if(fs.existsSync(file))vm.runInContext(fs.readFileSync(file,'utf8'),ctx);const F=ctx.DREFinancas||{};
+const rec=(cells={},extra={})=>({label:'Ago/2026',origem:'erp',atualizadoEm:'2026-08-10T16:00:00Z',cells:Object.entries(cells).map(([code,value])=>({code,value,name:code})),...extra});
+test('mês antigo coletado antes do fim é parcial',()=>assert.equal(F.qualidade?.(rec({'1':100}),new Date('2026-09-09')).estado,'parcial'));
+test('sem registro é ausência de dados, nunca zero financeiro',()=>assert.equal(F.qualidade?.(null,new Date('2026-09-09'))?.estado,'sem-dados'));
+test('entrada não identificada é separada de empréstimo',()=>{const v=F.resumo?.(rec({'1':150,'1.1':100,'1.4':30,'1.7':20,'2':80}));assert.equal(v?.emprestimos,30);assert.equal(v?.naoIdentificadas,20);assert.equal(v?.variacao,70);});
+test('sem saldo inicial não se calcula saldo disponível',()=>assert.equal(F.projecao?.({saldo:null,movimentos:[],inicio:'2026-09-09'})?.disponivel,false));
+test('projeção aplica vencimentos e conserva centavos',()=>{const r=F.projecao?.({saldo:1000,movimentos:[{id:'1',data:'2026-09-10',tipo:'saida',valor:1200},{id:'2',data:'2026-09-17',tipo:'entrada',valor:400}],inicio:'2026-09-09',semanas:2});assert.equal(r?.minimo,-200);assert.equal(r?.final,200);assert.equal(r?.primeiroAperto,'2026-09-10');});
+test('mês parcial não é comparável a completo',()=>{assert.equal(F.comparacao?.(rec({'1':100}),rec({'1':200},{label:'Jul/2026'}),new Date('2026-09-09'))?.permitida,false);});
+test('resíduo de conta pai aparece no detalhamento',()=>{const r=F.residuos?.(rec({'1':100,'1.1':90}));assert.equal(r?.find(x=>x.code==='1')?.value,10);});
+test('margem acumulada usa razão dos totais',()=>assert.equal(F.margemAcumulada?.([{receita:100,resultado:50},{receita:900,resultado:90}]),.14));
+test('empresas de escopos distintos não são comparadas',()=>{const q={estado:'aguardando-conferencia',ate:'2026-08-31',escopo:'compõe DRE',regra:'v2'};assert.equal(F.comparacao(rec({}, {company:'A',qualidade:q}),rec({}, {company:'B',qualidade:q})).permitida,false);});
+test('transferência entre empresas não vira custo operacional',()=>{const r=F.resumo(rec({'2':100,'2.18':80}));assert.equal(r.transferencias,80);assert.equal(r.pagamentosOperacionais,20);});
+test('saldo já abaixo da reserva é sinalizado no primeiro dia',()=>{const r=F.projecao({saldo:10,reserva:50,movimentos:[],inicio:'2026-09-09'});assert.equal(r.primeiroAperto,'2026-09-09');});
+test('coleta com contrato da API ainda não validado não libera comparação',()=>{const r=rec({}, {qualidade:{estado:'aguardando-conferencia',ate:'2026-08-31',apiContratoValidado:false}});assert.equal(F.qualidade(r).comparavel,false);});

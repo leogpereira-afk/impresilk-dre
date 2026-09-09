@@ -21,33 +21,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Trava contra a regressão que já voltou três vezes (v46, v61/62, v63/64):
-      # o CACHE do sw.js sobe e o ?v= do index.html fica para trás. Quando isso
-      # acontece o Service Worker pré-carrega arquivos que a página nunca pede,
-      # e quem abre offline (ou com cache HTTP quente) vê tela velha. Aqui o
-      # deploy PARA antes de publicar o descasamento.
-      - name: Versão do sw.js tem que bater com a do index.html
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verificar regras e sincronização
         run: |
-          SW=$(sed -n "s/.*app-shell-v\([0-9]*\).*/\1/p" sw.js | head -1)
-          HTML=$(grep -o '?v=[0-9]\+' index.html | sed 's/?v=//' | sort -u)
-          echo "sw.js  → v$SW"
-          echo "index  → $(echo $HTML | tr '\n' ' ')"
-          if [ -z "$SW" ]; then echo "::error::não achei o CACHE em sw.js"; exit 1; fi
-          if [ "$(echo "$HTML" | wc -l)" -ne 1 ] || [ "$HTML" != "$SW" ]; then
-            echo "::error::sw.js está em v$SW e o index.html pede $(echo $HTML | tr '\n' ' ') — suba os dois JUNTOS"
-            exit 1
-          fi
-          echo "✓ os dois em v$SW"
-
-      - name: Separar os arquivos do site
-        run: |
-          mkdir -p dist
-          rsync -a ./ dist/ \
-            --exclude dist/ --exclude .git/ --exclude .github/ \
-            --exclude netlify/ --exclude supabase/ --exclude node_modules/ \
-            --exclude package.json --exclude netlify.toml --exclude extract.py \
-            --exclude data.js.bak
-          ls dist
+          python3 -m unittest discover -s tests -v
+          node --disable-warning=ExperimentalWarning --test tests/*.test.mjs
+      - name: Montar somente os arquivos públicos
+        run: python3 scripts/build_site.py dist
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

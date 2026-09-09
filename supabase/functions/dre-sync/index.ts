@@ -85,9 +85,10 @@ const json = (body: unknown, status = 200) =>
   });
 
 async function getReg(id: string): Promise<any | null> {
-  const { data } = await sb.from("dre_registros").select("registro")
+  const { data, error } = await sb.from("dre_registros").select("registro,atualizado_em")
     .eq("colecao", "os").eq("id", id).maybeSingle();
-  return data?.registro ?? null;
+  if (error) throw new Error("Falha ao conferir a versão do registro.");
+  return data ?? null;
 }
 
 const b64ParaBytes = (b64: string) =>
@@ -162,6 +163,17 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    let papel = ehMaquina ? "admin" : "edicao";
+    if (!ehMaquina) {
+      const {data,error}=await sb.from("dre_config_global").select("config").eq("id",true).maybeSingle();
+      if(error) return json({erro:"Não foi possível conferir permissões."},503);
+      papel = data?.config?.permissoes?.[String(cracha.sub)] ||
+        (["admin","master","direcao"].includes(String(cracha.papel)) ? "admin" : "edicao");
+    }
+    const permissoes={leitura:true,edicao:["edicao","admin"].includes(papel),admin:papel==="admin"};
+    if(body.action === "permissions") return json({ok:true,permissoes});
+    if(["upsert","putPhoto"].includes(body.action) && !permissoes.edicao) return json({erro:"Sem permissão de edição."},403);
+    if(["setCfg","delete"].includes(body.action) && !permissoes.admin) return json({erro:"Ação administrativa restrita."},403);
     switch (body.action as string) {
       case "ping":
         return json({ ok: true, ts: new Date().toISOString() });
@@ -183,43 +195,64 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      // Conflito por timestamp: servidor mais novo devolve {conflito, servidor}.
+      // Comparação atômica de versão: o relógio do cliente não decide quem ganha.
       case "upsert": {
         const reg = body.registro;
-        if (!reg || reg.id == null) return json({ erro: "registro.id obrigatório" }, 400);
-        const id = String(reg.id);
-        const atual = await getReg(id);
-        if (atual?.atualizadoEm && reg.atualizadoEm &&
-            new Date(atual.atualizadoEm).getTime() > new Date(reg.atualizadoEm).getTime()) {
-          return json({ conflito: true, servidor: atual });
+        if (!reg || !/^[A-Za-z0-9_/-]{1,80}$/.test(String(reg.id || "")) ||
+            !/^[A-Za-zçÇ]{3}\w*\/\d{4}$/.test(String(reg.label || "")) ||
+            !Array.isArray(reg.cells) || reg.cells.length > 10000) return json({erro:"Registro mensal inválido."},400);
+        const codes = new Set<string>();
+        for (const c of reg.cells) {
+          if (!/^\d+(\.\d+)*$/.test(String(c.code)) || codes.has(c.code) || typeof c.value !== "number" || !Number.isFinite(c.value))
+            return json({erro:"Conta duplicada ou valor inválido."},400);
+          codes.add(c.code);
         }
-        // Carimba atualizadoEm NO SERVIDOR, como o original fazia.
-        const salvo = { ...reg, id, atualizadoEm: new Date().toISOString() };
-        const { error } = await sb.from("dre_registros").upsert(
-          { colecao: "os", id, registro: salvo, atualizado_em: salvo.atualizadoEm },
-          { onConflict: "colecao,id" });
-        if (error) throw new Error(error.message);
-        return json({ ok: true, registro: salvo });
+        if (!codes.has("1") || !codes.has("2")) return json({erro:"Totais 1 e 2 obrigatórios."},400);
+        const id = String(reg.id), atual = await getReg(id);
+        const op = String(body.operacaoId || "").slice(0,160);
+        if (op && atual?.registro?._operacaoId === op) return json({ok:true,registro:atual.registro});
+        const base = body.baseAtualizadoEm;
+        if (atual && (!base || new Date(base).getTime() !== new Date(atual.registro.atualizadoEm).getTime()))
+          return json({conflito:true,servidor:atual.registro},409);
+        if (!atual && base) return json({conflito:true,servidor:null},409);
+        const salvo = {...reg,id,atualizadoEm:new Date().toISOString(),_operacaoId:op,
+          alteradoPor:ehMaquina?"coletor":String(cracha.sub),baseAtualizadoEm:undefined};
+        const linha = {colecao:"os",id,registro:salvo,atualizado_em:salvo.atualizadoEm};
+        const res = atual
+          ? await sb.from("dre_registros").update(linha).eq("colecao","os").eq("id",id).eq("atualizado_em",atual.atualizado_em).select("registro")
+          : await sb.from("dre_registros").insert(linha).select("registro");
+        if (res.error?.code === "23505" || (!res.error && !res.data?.length)) {
+          const novo = await getReg(id); return json({conflito:true,servidor:novo?.registro||null},409);
+        }
+        if (res.error) throw new Error("Gravação não concluída.");
+        return json({ok:true,registro:salvo});
       }
 
       case "delete": {
         const id = String(body.id ?? "");
         if (!id) return json({ erro: "id obrigatório" }, 400);
-        await sb.from("dre_registros").delete().eq("colecao", "os").eq("id", id);
+        const { error } = await sb.from("dre_registros").delete().eq("colecao", "os").eq("id", id);
+        if (error) throw new Error("Exclusão não concluída.");
         return json({ ok: true });
       }
 
       case "getCfg": {
-        const { data } = await sb.from("dre_config_global").select("config").eq("id", true).maybeSingle();
-        return json({ ok: true, cfg: data?.config ?? {} });
+        const { data, error } = await sb.from("dre_config_global").select("config,atualizado_em").eq("id", true).maybeSingle();
+        if (error) throw new Error("Configuração não pôde ser lida.");
+        const cfg = {...(data?.config || {})}; if (!permissoes.admin) delete cfg.permissoes;
+        return json({ ok: true, cfg, atualizadoEm:data?.atualizado_em||null });
       }
 
       case "setCfg": {
-        const { error } = await sb.from("dre_config_global").upsert(
-          { id: true, config: body.cfg ?? {}, atualizado_em: new Date().toISOString() },
-          { onConflict: "id" });
-        if (error) throw new Error(error.message);
-        return json({ ok: true });
+        const {data:atual,error:readError}=await sb.from("dre_config_global").select("config,atualizado_em").eq("id",true).maybeSingle();
+        if(readError) throw new Error("Configuração indisponível.");
+        if(atual && body.baseAtualizadoEm !== atual.atualizado_em) return json({conflito:true},409);
+        const linha={id:true,config:body.cfg||{},atualizado_em:new Date().toISOString()};
+        const r=atual?await sb.from("dre_config_global").update(linha).eq("id",true).eq("atualizado_em",atual.atualizado_em).select("id")
+          :await sb.from("dre_config_global").insert(linha).select("id");
+        if(r.error?.code === "23505" || (!r.error && !r.data?.length)) return json({conflito:true},409);
+        if(r.error) throw new Error("Configuração não salva.");
+        return json({ok:true,atualizadoEm:linha.atualizado_em});
       }
 
       case "putPhoto": {
