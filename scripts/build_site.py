@@ -3,7 +3,7 @@
 from pathlib import Path
 import argparse,re,shutil
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('index.html','styles.css','app.js','financeiro.js','config.js','auth.js','sw.js','data.js','logo.png','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png')
+FILES=('index.html','styles.css','app.js','financeiro.js','graficos.js','config.js','auth.js','sw.js','data.js','logo.png','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png')
 def build(destination):
     sw=(ROOT/'sw.js').read_text();html=(ROOT/'index.html').read_text()
     version=re.search(r"const CACHE = 'dre-shell-v(\d+)'",sw).group(1)

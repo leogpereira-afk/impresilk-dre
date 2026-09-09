@@ -48,5 +48,41 @@ var DREFinancas = (() => {
     let total=cents(saldo);for(const f of filas){total+=f.entradas-f.saidas;f.saldo=reais(total);f.entradas=reais(f.entradas);f.saidas=reais(f.saidas);}
     return {disponivel:true,semanas:filas,minimo:reais(minimo),final:reais(atual),primeiroAperto};
   }
-  return {periodo,qualidade,resumo,comparacao,residuos,margemAcumulada,projecao};
+  function valorConta(reg,code){
+    const c=reg?.cells?.find(c=>c.code===code);
+    return !c || c.value==null || c.value==='' || !Number.isFinite(Number(c.value)) ? null : reais(cents(c.value));
+  }
+  // Partição da árvore: só o descendente mais próximo entra em cada nível.
+  // Diferenças permanecem explícitas, inclusive negativas; não se distribuem valores.
+  function composicao(reg,code='2'){
+    const cells=(reg?.cells||[]).filter(c=>c.code.startsWith(code+'.'));
+    const codes=new Set(cells.map(c=>c.code));
+    const itens=cells.filter(c=>{
+      let p=c.code.slice(0,c.code.lastIndexOf('.'));
+      while(p!==code && p.includes('.')){if(codes.has(p))return false;p=p.slice(0,p.lastIndexOf('.'));}
+      return true;
+    }).map(c=>({code:c.code,name:c.name,value:valorConta(reg,c.code)}));
+    const total=valorConta(reg,code),incompleta=itens.some(c=>c.value==null);
+    if(total!=null && !incompleta){
+      const diff=cents(total)-itens.reduce((n,c)=>n+cents(c.value),0);
+      if(diff)itens.push({code:code+'~residuo',name:'Sem detalhamento / diferença',value:reais(diff),residuo:true});
+    }
+    return {total,itens,incompleta};
+  }
+  function serieAnual(records,label,code){
+    const year=String(label).split('/')[1];
+    return meses.map(m=>{
+      const label=m+'/'+year,reg=records.find(r=>r.label.toLowerCase()===label.toLowerCase())||null;
+      const name=reg?.cells?.find(c=>c.code===code)?.name||null;
+      return {label,reg,name,value:valorConta(reg,code),qualidade:qualidade(reg)};
+    });
+  }
+  function compararConta(a,b,code){
+    const atual=valorConta(a,code),anterior=valorConta(b,code),ca=a?.cells?.find(c=>c.code===code),cb=b?.cells?.find(c=>c.code===code);
+    const mesmaOrigem=(a?.origem||'planilha')===(b?.origem||'planilha');
+    const permitida=comparacao(a,b).permitida && atual!=null && anterior!=null && ca.name===cb.name && (mesmaOrigem||code.split('.').length<=2);
+    const delta=permitida?reais(cents(atual)-cents(anterior)):null;
+    return {permitida,atual,anterior,delta,percentual:permitida&&anterior>0?delta/anterior*100:null};
+  }
+  return {periodo,qualidade,resumo,comparacao,residuos,margemAcumulada,projecao,valorConta,composicao,serieAnual,compararConta};
 })();
