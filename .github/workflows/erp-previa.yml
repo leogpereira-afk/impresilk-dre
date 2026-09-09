@@ -1,50 +1,41 @@
 name: DRE do ERP (Mubisys)
-
-# Lê o mês corrente do Mubisys e grava o MÊS OFICIAL do painel (a planilha
-# .xlsx foi aposentada em 01/08/2026) + a prévia com diagnóstico
-# (cfg.previaERP: totais por dia, por empresa, pendências de classificação).
-#
-# Proteções que vivem no scripts/erp_previa.py — não remover sem ler lá:
-#   * mês sem lançamento NÃO vira registro (o dia 1º de madrugada gravava um
-#     mês vazio e o painel abria zerado);
-#   * mês com origem "planilha" nunca é reescrito sem --forcar;
-#   * a parcela do Banco do Nordeste é separada pela descrição em
-#     máquinas/veículo/capital de giro — sem isso R$ 23 mil/mês caem em
-#     "Custos da Operação".
-#
-# Por que não usa a ação importarMes do servidor: ela só soma títulos que têm
-# plano de contas, e receita OPERACIONAL nunca tem (no Mubisys a venda é
-# classificada pela Ordem de Serviço, não pelo título). A receita por produto
-# sai do rateio do valor recebido entre os itens da OS.
-
 on:
   schedule:
-    # 3x ao dia: o painel acompanha o mês em andamento sem esperar amanhã.
-    # Até o dia 7 cada rodada também reconsolida o mês anterior (retroativos).
-    - cron: '0 9,15,21 * * *'   # 06:00, 12:00 e 18:00 em Brasília
-  workflow_dispatch: {}
-
+    - cron: '0 9,15,21 * * *'
+  workflow_dispatch:
+    inputs:
+      mes:
+        description: 'Mês opcional (AAAA-MM); vazio revisa anterior e atual'
+        type: string
+        default: ''
+      publicar:
+        description: 'Gravar os meses ERP após os controles (planilhas preservadas)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
 concurrency:
   group: erp-previa
-  cancel-in-progress: true
-
+  cancel-in-progress: false
 jobs:
   previa:
+    # Ativar somente após credencial e coleta em simulação conferidas.
+    if: github.event_name == 'workflow_dispatch' || vars.DRE_SYNC_ENABLED == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-
-      # Cache das Ordens de Serviço. Uma OS entregue não muda mais, então só as
-      # OS novas do dia são buscadas — sem isto o robô refaz ~250 chamadas por
-      # execução e o Mubisys responde devagar (segundos por OS).
-      - name: Cache das Ordens de Serviço
-        uses: actions/cache@v4
-        with:
-          path: .cache
-          key: os-cache-${{ github.run_id }}
-          restore-keys: os-cache-
-
-      - name: Ler o mês corrente do ERP e gravar o mês oficial + prévia
+      - name: Validar cálculos antes da coleta
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Atualizar os períodos com proteção de concorrência
         env:
           TZ: America/Sao_Paulo
-        run: python3 scripts/erp_previa.py
+          DRE_MACHINE_TOKEN: ${{ secrets.DRE_MACHINE_TOKEN }}
+          DRE_PUBLISH: ${{ github.event_name == 'schedule' && '1' || inputs.publicar && '1' || '0' }}
+          DRE_MES: ${{ inputs.mes }}
+        run: |
+          if [ -n "$DRE_MES" ]; then
+            python3 scripts/erp_previa.py "$DRE_MES"
+          else
+            python3 scripts/erp_previa.py
+          fi
