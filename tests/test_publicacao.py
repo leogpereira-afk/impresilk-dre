@@ -6,7 +6,7 @@ class PacoteTest(unittest.TestCase):
     def test_publica_so_lista_explicita_sem_banco_ou_snapshot(self):
         with tempfile.TemporaryDirectory() as d:
             build_site.build(d)
-            files={p.name for p in Path(d).iterdir()}
+            files={p.relative_to(d).as_posix() for p in Path(d).rglob('*') if p.is_file()}
             self.assertEqual(files,set(build_site.FILES))
             self.assertNotIn('scripts',files)
             self.assertNotIn('tests',files)

@@ -3,7 +3,7 @@
 from pathlib import Path
 import argparse,re,shutil
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('index.html','styles.css','app.js','financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','config.js','auth.js','sw.js','data.js','logo.png','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png','inter-variable.woff2','inter-OFL.txt')
+FILES=('cfo-modelo.js','cfo.js','cfo.css','pdf-cfo.js','vendor/jspdf.umd.min.js','vendor/jspdf.plugin.autotable.min.js','vendor/jspdf-LICENSE.txt','vendor/autotable-LICENSE.txt','index.html','styles.css','app.js','financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','config.js','auth.js','sw.js','data.js','logo.png','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png','inter-variable.woff2','inter-OFL.txt')
 def build(destination):
     sw=(ROOT/'sw.js').read_text();html=(ROOT/'index.html').read_text()
     version=re.search(r"const CACHE = 'dre-shell-v(\d+)'",sw).group(1)
@@ -12,7 +12,9 @@ def build(destination):
     dest=Path(destination);dest.mkdir(parents=True,exist_ok=True)
     # Não apagar arquivos desconhecidos: usar sempre pasta vazia para o pacote.
     if any(dest.iterdir()):raise ValueError('Use uma pasta vazia para gerar o site')
-    for name in FILES:shutil.copyfile(ROOT/name,dest/name)
+    for name in FILES:
+        (dest/name).parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(ROOT/name,dest/name)
     print('Pacote público validado: %d arquivos, versão %s.'%(len(FILES),version))
 if __name__=='__main__':
     parser=argparse.ArgumentParser();parser.add_argument('destination');args=parser.parse_args();build(args.destination)

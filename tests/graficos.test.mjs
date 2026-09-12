@@ -3,7 +3,7 @@ function view(){
  const elements={exportCosts:{}};
  const c={document:{addEventListener(){},querySelectorAll:()=>[],getElementById:id=>elements[id]},localStorage:{getItem:()=>null},navigator:{onLine:true}};
  vm.createContext(c);
- for(const f of ['financeiro.js','graficos.js','app.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c);
+ for(const f of ['financeiro.js','graficos.js','cfo-modelo.js','cfo.js','pdf-cfo.js','app.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c);
  vm.runInContext(`state.periodo='Ago/2026';state.records=[{label:'Jul/2026',cells:[{code:'1',name:'Entradas',value:100},{code:'2',name:'Saídas',value:60},{code:'2.5',name:'Fixas',value:60},{code:'2.5.3',name:'Cemig',value:0}]},{label:'Ago/2026',cells:[{code:'1',name:'Entradas',value:200},{code:'2',name:'Saídas',value:210},{code:'2.5',name:'Fixas',value:210}]}];state.D={accounts:[]};`,c);
  return {c,elements};
 }
