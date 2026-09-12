@@ -52,6 +52,9 @@ class CaixaTest(unittest.TestCase):
 if __name__=='__main__': unittest.main()
 
 class RotinaTest(unittest.TestCase):
+    def test_mes_atual_consulta_somente_ate_hoje(self):
+        self.assertEqual(previa.fim_consulta(datetime.date(2026,9,1),datetime.date(2026,9,30),datetime.date(2026,9,12)),datetime.date(2026,9,12))
+        self.assertEqual(previa.fim_consulta(datetime.date(2026,8,1),datetime.date(2026,8,31),datetime.date(2026,9,12)),datetime.date(2026,8,31))
     def test_timeout_em_resposta_parcial_divide_janela_sem_perder_titulos(self):
         calls=[]
         def api(fn,payload):

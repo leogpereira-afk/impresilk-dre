@@ -65,6 +65,11 @@ def fatias(ini, fim, dias=7):
         d = b + datetime.timedelta(days=1)
     return out
 
+def fim_consulta(ini, fim_mes, hoje=None):
+    """Não consulta datas futuras; o ERP responde 404 fora do período já ocorrido."""
+    hoje = hoje or datetime.date.today()
+    return min(fim_mes, hoje) if ini <= hoje else fim_mes
+
 def valor_na_janela(t, ini, fim):
     """valor_na_janela: processa dados recebidos da origem autenticada."""
     from decimal import Decimal, ROUND_HALF_UP
@@ -236,8 +241,9 @@ def main(on_month=None):
 
 def processar(ini):
     fim = (ini + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
+    fim_coleta = fim_consulta(ini, fim)
     label = f"{PT[ini.month - 1]}/{ini.year}"
-    si, sf = ini.isoformat(), fim.isoformat()
+    si, sf = ini.isoformat(), fim_coleta.isoformat()
     execucao_id = os.environ.get("GITHUB_RUN_ID") or str(uuid.uuid4())
     print(f"lendo {label} ({si} → {sf})")
 
