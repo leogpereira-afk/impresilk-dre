@@ -264,8 +264,8 @@ def processar(ini):
     if not isinstance(regras_privadas,dict) or regras_privadas.get("versao") != 1:
         raise RuntimeError("Configuração privada de classificação não validada; nada foi gravado.")
 
-    pagar = coletar("contas-pagar", ini, fim)
-    receber = coletar("contas-receber", ini, fim)
+    pagar = coletar("contas-pagar", ini, fim_coleta)
+    receber = coletar("contas-receber", ini, fim_coleta)
     na_dre = lambda L: [t for t in L if str(t.get("compoe_dre", "")).lower() == "sim"]
     pagar, receber = na_dre(pagar), na_dre(receber)
 
