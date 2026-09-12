@@ -3,7 +3,7 @@
 // ▶ A cada mudança nos arquivos, SUBA o número do CACHE (v1 → v2 → …). No
 //   evento "activate" apagamos todo cache com nome diferente, o que força os
 //   aparelhos a baixarem a versão nova (evita ficar preso em arquivos antigos).
-const CACHE = 'dre-shell-v71';
+const CACHE = 'dre-shell-v72';
 
 // O MESMO número precisa estar no ?v= dos <link>/<script> do index.html. O
 // Service Worker só manda no que passa por ele; o cache HTTP do navegador é
@@ -18,6 +18,7 @@ const SHELL = [
   './',
   './index.html',
   `./app.js?v=${V}`,
+  `./coleta-ui.js?v=${V}`,
   `./cfo-modelo.js?v=${V}`,
   `./cfo.js?v=${V}`,
   `./pdf-cfo.js?v=${V}`,

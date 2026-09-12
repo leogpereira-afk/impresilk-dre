@@ -218,7 +218,7 @@ def buscar_os(recebimentos, orcamento_s=1500):
     return {n:o for n,o in cache.items() if isinstance(o,dict) and "_erro" not in o
             and time.time() - float(o.get("_dreConsultadoEm") or 0) <= 6 * 3600}
 
-def main():
+def main(on_month=None):
     hoje = datetime.date.today()
     arg_mes = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
     if arg_mes:
@@ -230,7 +230,9 @@ def main():
 
         alvos.insert(0, (corrente - datetime.timedelta(days=1)).replace(day=1))
     for ini in alvos:
-        processar(ini)
+        resultado = processar(ini)
+        if on_month:
+            on_month(resultado)
 
 def processar(ini):
     fim = (ini + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
@@ -362,11 +364,13 @@ def processar(ini):
     if abs(valores.get("1",0)-rec_total) > .011 or abs(valores.get("2",0)-desp_total) > .011:
         raise RuntimeError("Os totais de controle não fecham; nada foi gravado.")
 
+    estado = 'simulado'
     if "--dry" in sys.argv or os.environ.get("DRE_PUBLISH") != "1":
         print("(--dry: não gravou nada no servidor)")
     elif not (receber or pagar):
 
         print(f"NÃO gravei {label}: nenhum lançamento no período ainda.")
+        estado = 'vazio'
     else:
 
         antigo = next((r for r in meses_servidor if r.get("id") == registro["id"]), None)
@@ -374,6 +378,7 @@ def processar(ini):
             print(f"NÃO gravei {label}: já existe e veio da planilha "
                   f"(atualizado em {antigo.get('atualizadoEm')}). "
                   f"Use --forcar para substituir.")
+            estado = 'preservado'
         else:
             registro["atualizadoEm"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
             r = call("dre-sync", {"action": "upsert", "registro": registro, "baseAtualizadoEm":(antigo or {}).get("atualizadoEm"), "operacaoId":execucao_id+":"+registro["id"]}, 90)
@@ -383,11 +388,13 @@ def processar(ini):
                 raise RuntimeError("Gravação não confirmada pelo servidor.")
             else:
                 print(f"mês {label} gravado do ERP ({len(registro['cells'])} contas)")
+                estado = 'gravado'
 
     d = previa["diag"]
     print(f"Conferência: {d['titulosReceita']} títulos de receita; {d['titulosDespesa']} de despesa; "
           f"{d['contas']} contas; {diag_os['rateados']}/{diag_os['titulos']} títulos rateados; "
           f"{len(registro['pendencias'])} pendências. Valores comerciais omitidos do log.")
+    return {'label': label, 'estado': estado}
 
 if __name__ == "__main__":
     main()

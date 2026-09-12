@@ -1,7 +1,9 @@
 name: DRE do ERP (Mubisys)
 on:
   schedule:
-    - cron: '0 9,15,21 * * *'
+    # Checagem leve da fila. O servidor libera a coleta às 06h/12h/18h (São Paulo)
+    # ou quando o botão solicita. O GitHub pode atrasar os horários programados.
+    - cron: '*/10 * * * *'
   workflow_dispatch:
     inputs:
       mes:
@@ -35,7 +37,7 @@ jobs:
           DRE_MES: ${{ inputs.mes }}
         run: |
           if [ -n "$DRE_MES" ]; then
-            python3 scripts/erp_previa.py "$DRE_MES"
+            python3 scripts/erp_rotina.py "$DRE_MES"
           else
-            python3 scripts/erp_previa.py
+            python3 scripts/erp_rotina.py
           fi

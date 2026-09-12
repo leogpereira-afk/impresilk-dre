@@ -32,6 +32,7 @@
 // ============================================================================
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { coleta } from "./coleta.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -163,7 +164,7 @@ Deno.serve(async (req: Request) => {
   if (!cracha && !ehMaquina && !ehColetor) {
     return json({ erro: "Entre no sistema.", semSessao: true }, 401);
   }
-  if (ehColetor && !['ping','list','getCfg','upsert'].includes(body.action))
+  if (ehColetor && !['ping','list','getCfg','upsert','coletaStatus','coletaIniciar','coletaConcluir'].includes(body.action))
     return json({erro:'A credencial da coleta não permite esta ação.'},403);
 
   try {
@@ -175,6 +176,25 @@ Deno.serve(async (req: Request) => {
         (["admin","master","direcao"].includes(String(cracha.papel)) ? "admin" : "edicao");
     }
     const permissoes={leitura:true,edicao:["edicao","admin"].includes(papel),admin:papel==="admin"};
+    if (['coletaStatus','solicitarColeta','coletaIniciar','coletaConcluir'].includes(body.action)) {
+      const resposta = await coleta(body, {configured:!!COLLECTOR_TOKEN, editor:permissoes.edicao && !ehColetor, collector:ehColetor}, {
+        read: async () => {
+          const {data,error} = await sb.from('dre_meta').select('valor,atualizado_em').eq('chave','coleta').maybeSingle();
+          if(error) throw new Error('Não foi possível consultar a rotina.');
+          return data ? {valor:data.valor,version:data.atualizado_em} : null;
+        },
+        save: async (valor:any, version:any) => {
+          const stamp = Math.max(Date.now(),version ? Date.parse(version)+1 : 0);
+          const row = {chave:'coleta',valor,atualizado_em:new Date(stamp).toISOString()};
+          const res = version === null ? await sb.from('dre_meta').insert(row).select('chave')
+            : await sb.from('dre_meta').update(row).eq('chave','coleta').eq('atualizado_em',version).select('chave');
+          if(res.error?.code === '23505') return false;
+          if(res.error) throw new Error('Não foi possível registrar a solicitação.');
+          return !!res.data?.length;
+        }
+      });
+      return json(resposta.body,resposta.code);
+    }
     if(body.action === "permissions") return json({ok:true,permissoes});
     if(["upsert","putPhoto"].includes(body.action) && !permissoes.edicao) return json({erro:"Sem permissão de edição."},403);
     if(["setCfg","delete"].includes(body.action) && !permissoes.admin) return json({erro:"Ação administrativa restrita."},403);
