@@ -52,6 +52,11 @@ class CaixaTest(unittest.TestCase):
 if __name__=='__main__': unittest.main()
 
 class RotinaTest(unittest.TestCase):
+    def test_resposta_parcial_transitoria_repete_antes_de_dividir_janela(self):
+        respostas=[{'ok':True,'parcial':True,'diagnostico':{'motivo':'http','http':404},'itens':[]},
+                   {'ok':True,'parcial':False,'itens':[{'id':7}]}]
+        with patch.object(previa,'call',side_effect=respostas),patch.object(previa.time,'sleep'),patch('builtins.print'):
+            self.assertEqual(previa.coletar('contas-pagar',datetime.date(2026,9,1),datetime.date(2026,9,1)),[{'id':7}])
     def test_mes_atual_consulta_somente_ate_hoje(self):
         self.assertEqual(previa.fim_consulta(datetime.date(2026,9,1),datetime.date(2026,9,30),datetime.date(2026,9,12)),datetime.date(2026,9,12))
         self.assertEqual(previa.fim_consulta(datetime.date(2026,8,1),datetime.date(2026,8,31),datetime.date(2026,9,12)),datetime.date(2026,8,31))
@@ -65,7 +70,8 @@ class RotinaTest(unittest.TestCase):
         with patch.object(previa,'call',side_effect=api),patch.object(previa.time,'sleep'),patch('builtins.print'):
             r=previa.coletar('contas-pagar',datetime.date(2026,8,1),datetime.date(2026,8,2))
         self.assertEqual([t['id'] for t in r],['2026-08-01','2026-08-02'])
-        self.assertEqual(calls,[('2026-08-01','2026-08-02'),('2026-08-01','2026-08-01'),('2026-08-02','2026-08-02')])
+        self.assertEqual(calls,[('2026-08-01','2026-08-02')]*3+
+                               [('2026-08-01','2026-08-01'),('2026-08-02','2026-08-02')])
     def test_sem_regras_privadas_interrompe_antes_de_consultar_erp(self):
         with patch.object(previa,'call',return_value={'ok':True,'cfg':{}}),patch.object(previa,'coletar') as collect,patch('builtins.print'):
             with self.assertRaisesRegex(RuntimeError,'Configuração privada'):

@@ -133,19 +133,29 @@ def coletar(recurso, ini, fim):
     vistos = {}
 
     def buscar(a, b, nivel=0):
-        try:
-            r = call("dre-financas", {
-                "action": "listar", "recurso": recurso, "status": "PAGO",
-                "filtrodata": "PAGAMENTO",
-                "datainicial": a.isoformat(), "datafinal": b.isoformat(),
-            })
+        r = None
+        for tentativa in range(3):
+            try:
+                r = call("dre-financas", {
+                    "action": "listar", "recurso": recurso, "status": "PAGO",
+                    "filtrodata": "PAGAMENTO",
+                    "datainicial": a.isoformat(), "datafinal": b.isoformat(),
+                })
+            except JanelaGrande:
+                r = {"ok": True, "parcial": True, "diagnostico": {"motivo": "tempo-ou-rede"}}
             diag = r.get("diagnostico") or {}
-            if r.get("parcial") and (diag.get("motivo") in ("tempo-ou-rede", "orcamento-esgotado")
-                    or (diag.get("motivo") == "http" and diag.get("http") in (502,504))):
-                raise JanelaGrande("A origem não concluiu a janela no prazo.")
-        except JanelaGrande:
+            completa = r.get("ok") is True and not r.get("parcial") and isinstance(r.get("itens"), list)
+            if completa:
+                break
+            if tentativa < 2:
+                print(f"  janela {a} → {b} incompleta; repetindo consulta", flush=True)
+                time.sleep(5 * (tentativa + 1))
+        diag = (r or {}).get("diagnostico") or {}
+        expansiva = diag.get("motivo") in ("tempo-ou-rede", "orcamento-esgotado") or (
+            diag.get("motivo") == "http" and diag.get("http") in (502, 504))
+        if not completa and expansiva:
             if a >= b:
-                raise
+                raise RuntimeError("Coleta incompleta; última versão preservada.")
             meio = a + (b - a) // 2
             print(f"  janela {a} → {b} estourou o tempo; partindo ao meio", flush=True)
             buscar(a, meio, nivel + 1)
