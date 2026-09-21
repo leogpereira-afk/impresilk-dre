@@ -221,3 +221,139 @@ function formularioMetas(){
   salvarMetas(ano,{receita:num('receita'),custos:num('custos'),caixa:num('caixa')});
   $$('detailDialog').close();render();toast('Metas de '+ano+' salvas neste aparelho.');};
 }
+
+/* ── PEÇAS DE RELATÓRIO ──────────────────────────────────────────────────
+   Primitivas usadas pelos relatórios do DRE. Todas em SVG escrito à mão:
+   a CSP do site bloqueia CDN, então não há biblioteca de gráfico.         */
+
+/* Mini-gráfico de 12 meses para caber DENTRO da linha da tabela. Mês ausente
+   não vira zero: o traço interrompe e volta quando o dado volta. */
+function miniSerie(valores,opts={}){
+ const W=opts.w||96,H=opts.h||24,vals=valores.filter(v=>v!=null&&Number.isFinite(v));
+ if(vals.length<2)return `<span class="mini-vazio" aria-hidden="true">—</span>`;
+ const alto=Math.max(...vals,0),baixo=Math.min(...vals,0),faixa=(alto-baixo)||1;
+ const x=i=>i*(W-2)/(valores.length-1)+1, y=v=>H-2-((v-baixo)/faixa)*(H-4);
+ let d='',aberto=false;
+ valores.forEach((v,i)=>{
+  if(v==null){aberto=false;return;}
+  d+=(aberto?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)+' ';aberto=true;
+ });
+ const ult=valores.map((v,i)=>[v,i]).filter(([v])=>v!=null).pop();
+ const zero=baixo<0&&alto>0?`<line x1="1" y1="${y(0).toFixed(1)}" x2="${W-1}" y2="${y(0).toFixed(1)}" class="mini-zero"/>`:'';
+ return `<svg class="mini-serie ${opts.tom||''}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${zero}<path d="${d.trim()}"/><circle cx="${x(ult[1]).toFixed(1)}" cy="${y(ult[0]).toFixed(1)}" r="1.9"/></svg>`;
+}
+
+/* Barras empilhadas 100%: responde "a ESTRUTURA do gasto mudou?", que o valor
+   absoluto não responde — num mês de faturamento maior tudo sobe junto. */
+function graficoEstrutura(meses,grupos,label){
+ const cores=['var(--cost-0)','var(--cost-1)','var(--cost-2)','var(--cost-3)','var(--cost-4)','var(--muted)'];
+ const legenda=`<div class="chart-legend">${grupos.map((g,i)=>`<span><i style="--serie:${cores[i%cores.length]}"></i>${esc(g.nome)}</span>`).join('')}</div>`;
+ return `${legenda}<div class="chart-scroll" tabindex="0" role="region" aria-label="${esc(label)}"><div class="estrutura-chart">${meses.map(m=>{
+  const total=grupos.reduce((n,g)=>n+(m.valores[g.id]||0),0);
+  if(!total)return `<div class="estrutura-col vazia"><span class="estrutura-barra"><i class="sem-dado">—</i></span><span class="chart-month">${esc(m.label.split('/')[0])}</span></div>`;
+  return `<div class="estrutura-col ${m.label===state.periodo?'chosen':''}"><span class="estrutura-barra">${grupos.map((g,i)=>{
+   const v=m.valores[g.id]||0,pct=v/total*100;
+   return pct<0.6?'':`<i style="--serie:${cores[i%cores.length]};height:${pct.toFixed(2)}%" title="${esc(m.label+' · '+g.nome+': '+pct.toFixed(1)+'% · '+money(v))}"></i>`;
+  }).join('')}</span><span class="chart-month">${esc(m.label.split('/')[0])}</span></div>`;
+ }).join('')}</div></div><p class="chart-foot">Cada coluna soma 100% das saídas daquele mês. Fatia menor que 0,6% não é desenhada. — significa mês sem dado.</p>`;
+}
+
+/* Linhas sobrepostas para percentuais (margem, peso de grupo no tempo). */
+function graficoLinhas(meses,series,label,sufixo='%'){
+ const W=760,H=230,PL=44,PR=14,PT=14,PB=30;
+ const vals=meses.flatMap(m=>series.map(s=>m.valores[s.id])).filter(v=>v!=null&&Number.isFinite(v));
+ if(!vals.length)return '<p class="empty">Sem dado suficiente para a série.</p>';
+ let alto=Math.max(...vals),baixo=Math.min(...vals,0);
+ const folga=(alto-baixo)*.1||1;alto+=folga;baixo-=folga;
+ const x=i=>PL+i*(W-PL-PR)/Math.max(1,meses.length-1), y=v=>PT+(alto-v)/(alto-baixo)*(H-PT-PB);
+ const passoBruto=(alto-baixo)/4,ordem=10**Math.floor(Math.log10(Math.abs(passoBruto)||1));
+ const passo=([1,2,2.5,5,10].find(n=>n*ordem>=passoBruto)||10)*ordem;
+ const marcas=[];for(let v=Math.ceil(baixo/passo)*passo;v<=alto;v+=passo)marcas.push(v);
+ const caminho=s=>{let d='',ab=false;meses.forEach((m,i)=>{const v=m.valores[s.id];if(v==null){ab=false;return;}d+=(ab?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)+' ';ab=true;});return d.trim();};
+ return `<div class="chart-legend">${series.map(s=>`<span><i style="--serie:${s.cor}"></i>${esc(s.nome)}</span>`).join('')}</div>
+  <div class="chart-scroll" tabindex="0" role="region" aria-label="${esc(label)}"><svg class="linhas-chart" viewBox="0 0 ${W} ${H}">
+   ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="linhas-grade"/><text x="${PL-6}" y="${y(v)+3}" class="linhas-eixo">${esc(v.toLocaleString('pt-BR',{maximumFractionDigits:1})+sufixo)}</text>`).join('')}
+   ${series.map(s=>`<path d="${caminho(s)}" class="linhas-path" style="--serie:${s.cor}"/>`).join('')}
+   ${series.map(s=>meses.map((m,i)=>m.valores[s.id]==null?'':`<circle cx="${x(i)}" cy="${y(m.valores[s.id])}" r="${m.label===state.periodo?4:2.4}" style="--serie:${s.cor}" class="linhas-ponto"><title>${esc(m.label+' · '+s.nome+': '+m.valores[s.id].toLocaleString('pt-BR',{maximumFractionDigits:1})+sufixo)}</title></circle>`).join('')).join('')}
+   ${meses.map((m,i)=>`<text x="${x(i)}" y="${H-10}" class="linhas-mes">${esc(m.label.split('/')[0])}</text>`).join('')}
+  </svg></div><p class="chart-foot">Mês sem dado interrompe a linha — não é tratado como zero.</p>`;
+}
+
+/* ── RELATÓRIOS DO DRE ───────────────────────────────────────────────────
+   Três leituras que a matriz de 12 colunas não dá:
+   1. a ESTRUTURA do gasto mudou? (empilhado 100%)
+   2. cada grupo pesa mais ou menos que antes? (linhas em %)
+   3. como este mês se compara com os meses já fechados? (régua)
+
+   Ano contra ano NÃO entra: a base começa em Dez/2025, então só dezembro
+   teria par. Mostrar uma coluna de "vs ano anterior" cheia de "—" seria pior
+   que não mostrar. Volta sozinho quando houver 12 meses de histórico.       */
+function gruposDeSaida(reg,limite=5){
+ const comp=F.composicao(reg,'2');
+ const itens=comp.itens.filter(x=>x.value!=null&&x.value>0).sort((a,b)=>b.value-a.value);
+ const topo=itens.slice(0,limite).map(x=>({id:x.code,nome:x.name}));
+ return {topo,temResto:itens.length>limite};
+}
+function relatorioEstrutura(){
+ const ano=state.periodo.split('/')[1];
+ const base=state.records.find(r=>r.label===state.periodo)||[...state.records].reverse()[0];
+ if(!base)return '';
+ const {topo,temResto}=gruposDeSaida(base);
+ const grupos=[...topo,...(temResto?[{id:'~outros',nome:'Demais grupos'}]:[])];
+ const meses=F.serieAnual(state.records,state.periodo,'2').map(m=>{
+  const valores={};
+  if(m.reg){
+   const total=F.valorConta(m.reg,'2')||0;let somados=0;
+   for(const g of topo){const v=F.valorConta(m.reg,g.id);if(v!=null&&v>0){valores[g.id]=v;somados+=v;}}
+   if(temResto&&total>somados)valores['~outros']=total-somados;
+  }
+  return {label:m.label,valores};
+ });
+ return painelGrafico('A estrutura do gasto mudou?',`${ano} · cada mês em 100% — proporção de cada grupo nas saídas`,
+  graficoEstrutura(meses,grupos,'Estrutura das saídas por mês')+
+  `<p class="hint">Em mês de faturamento maior tudo sobe junto; aqui só muda o que mudou de <b>proporção</b>. Os grupos são os cinco maiores de ${esc(base.label)}.</p>`);
+}
+function relatorioPeso(){
+ const ano=state.periodo.split('/')[1];
+ const base=state.records.find(r=>r.label===state.periodo)||[...state.records].reverse()[0];
+ if(!base)return '';
+ const {topo}=gruposDeSaida(base,4);
+ const cores=['var(--cost-0)','var(--cost-1)','var(--cost-2)','var(--cost-3)'];
+ const series=topo.map((g,i)=>({id:g.id,nome:g.nome,cor:cores[i%cores.length]}));
+ const meses=F.serieAnual(state.records,state.periodo,'2').map(m=>{
+  const valores={},total=m.reg?F.valorConta(m.reg,'2'):null;
+  for(const g of topo){const v=m.reg?F.valorConta(m.reg,g.id):null;valores[g.id]=(v!=null&&total)?v/total*100:null;}
+  return {label:m.label,valores};
+ });
+ return painelGrafico('Quanto cada grupo pesa nas saídas',`${ano} · percentual sobre o total de saídas de cada mês`,
+  graficoLinhas(meses,series,'Peso de cada grupo nas saídas','%')+
+  `<p class="hint">Linha subindo = o grupo passou a consumir uma fatia maior do que sai, mesmo que o valor em reais tenha caído.</p>`);
+}
+function relatorioRegua(){
+ const atual=state.records.find(r=>r.label===state.periodo);
+ if(!atual)return '';
+ const fechados=state.records.filter(r=>r.label!==state.periodo&&F.qualidade(r).comparavel);
+ if(fechados.length<3)return painelGrafico('Este mês contra os meses fechados','Referência interna',
+  `<p class="empty">São necessários pelo menos 3 meses com cobertura conferida para formar a referência. Hoje há ${fechados.length}.</p>`);
+ const linha=(rot,code,custo)=>{
+  const v=F.valorConta(atual,code);
+  const hist=fechados.map(r=>F.valorConta(r,code)).filter(x=>x!=null);
+  if(v==null||!hist.length)return '';
+  const media=hist.reduce((a,b)=>a+b,0)/hist.length;
+  const min=Math.min(...hist),max=Math.max(...hist),faixa=(max-min)||1;
+  const pos=Math.max(0,Math.min(100,(v-min)/faixa*100));
+  const posMedia=Math.max(0,Math.min(100,(media-min)/faixa*100));
+  const dif=v-media,acima=dif>0;
+  const tom=dif===0?'':(acima!==custo?'delta-bom':'delta-ruim');
+  return `<div class="regua-linha"><div class="regua-topo"><span>${esc(rot)}</span><b class="${tom}">${acima?'▲':'▼'} ${esc(money(Math.abs(dif)))} ${acima?'acima':'abaixo'} da média</b></div>
+   <div class="regua-trilho"><i class="regua-media" style="left:${posMedia.toFixed(1)}%"></i><i class="regua-ponto ${tom}" style="left:${pos.toFixed(1)}%"></i></div>
+   <div class="regua-pes"><span>mín ${esc(money(min))}</span><span>média ${esc(money(media))}</span><span>máx ${esc(money(max))}</span></div></div>`;
+ };
+ return painelGrafico('Este mês contra os meses já fechados',`${esc(state.periodo)} · referência dos ${fechados.length} meses com cobertura conferida`,
+  linha('Recebimentos','1',false)+linha('Pagamentos','2',true)+
+  `<p class="hint">Substitui o comparativo com o ano anterior, que ainda não existe: a base começa em ${esc([...state.records].sort((a,b)=>monthSortKey(a.label)-monthSortKey(b.label))[0]?.label||'—')}. Meses sem cobertura conferida ficam fora da referência.</p>`);
+}
+function relatoriosDRE(){
+ return `<div class="section-heading"><div><p class="eyebrow">RELATÓRIOS</p><h2>Comparativos do ano</h2></div></div>`+
+  relatorioRegua()+relatorioEstrutura()+relatorioPeso();
+}

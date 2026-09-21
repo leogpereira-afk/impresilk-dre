@@ -27,7 +27,53 @@ function dadosDRE(){
  return {competencia,cols,ate,valores,soma,mesmoEscopo:escopos.size<=1,linhas:(competencia?DREModelo.linhas:linhasCaixa).filter(r=>dreUI.detalhar||r.tipo!=='detail')};
 }
 function statusCompetencia(c){return !c?'Não preenchido':c.estado==='preenchido'?'Preenchido · a validar':'Preenchimento parcial';}
-function tabelaDRE(d){return `<div class="dre-table-wrap" tabindex="0" role="region" aria-label="Demonstrativo mensal. Role para acompanhar os meses."><table class="dre-table"><caption>${d.competencia?'DRE por competência':'Demonstrativo gerencial de caixa'} · ${esc(state.periodo.split('/')[1])} · valores em R$ · — = não apurado</caption><thead><tr><th scope="col">Conta / resultado</th>${d.cols.map(x=>`<th scope="col" class="num ${x.label===state.periodo?'selected-month':''}"><button data-period="${esc(x.label)}">${esc(x.label)}</button><small>${esc(d.competencia?statusCompetencia(x.comp):F.qualidade(x.reg).rotulo)}</small></th>`).join('')}<th scope="col" class="num">Acumulado<small>Jan até ${esc(state.periodo.split('/')[0])}</small></th></tr></thead><tbody>${d.linhas.map(r=>`<tr class="dre-row-${r.tipo}"><th scope="row"><span>${esc(r.nome)}</span><button class="term-help" data-term="${esc(r.termo)}" aria-label="Entender ${esc(r.termo)}">?</button></th>${d.valores.map((v,i)=>`<td class="num ${d.cols[i].label===state.periodo?'selected-month':''} ${v[r.id]<0?'neg':''}"><button class="cfo-value" data-cfo-rubrica="${esc(r.id)}" data-cfo-period="${esc(d.cols[i].label)}" data-cfo-base="${d.competencia?'competencia':'caixa'}" aria-label="Analisar ${esc(r.nome)} em ${esc(d.cols[i].label)}">${valorDRE(v[r.id],r.tipo==='ratio')}</button></td>`).join('')}<td class="num dre-accumulated"><button class="cfo-value" data-cfo-acumulado="${esc(r.id)}" aria-label="Analisar acumulado de ${esc(r.nome)}">${valorDRE(d.soma[r.id],r.tipo==='ratio')}</button></td></tr>`).join('')}</tbody></table></div>`;}
+
+/* ── COMPARATIVO NA PRÓPRIA LINHA ────────────────────────────────────────
+   A matriz mostrava 12 números e nada mais: sem peso, sem direção e sem
+   desenho. Aqui cada rubrica ganha, na mesma linha, o traço dos 12 meses, o
+   peso sobre a base do mês e a variação contra o mês anterior.
+
+   O peso usa como base a RECEITA (competência) ou o total de entradas/saídas
+   do próprio lado (caixa) — comparar uma saída com a receita daria um
+   percentual sem significado na base gerencial.
+
+   A variação só aparece quando os dois meses são comparáveis: escopo,
+   cobertura e critério iguais. Fora disso fica "—" em vez de um número que
+   parece medida e não é. */
+function baseDoPeso(d,i,r){
+ if(d.competencia)return d.valores[i].liquida;
+ const saida=['saidas','pagamentosOperacionais','socios','parcelasAtivos','dividas','transferencias','investimentos','pendentes'];
+ return saida.includes(r.id)?d.valores[i].saidas:d.valores[i].entradas;
+}
+function celulaComparativo(d,r){
+ const i=d.ate-1,serie=d.valores.slice(0,d.ate).map(v=>v[r.id]??null);
+ const atual=d.valores[i]?.[r.id]??null,anterior=i>0?(d.valores[i-1]?.[r.id]??null):null;
+ // rubricas que já SÃO percentual não recebem peso nem valor em reais
+ const ratio=r.tipo==='ratio';
+ // "100% do mês" na própria linha-base é ruído; variação do caixa dividida
+ // pela receita também não mede nada. Nesses casos o peso é omitido.
+ const semPeso=ratio||['entradas','saidas','variacao','bruta','liquida'].includes(r.id)||r.tipo==='total';
+ const base=semPeso?null:baseDoPeso(d,i,r);
+ const peso=!semPeso&&atual!=null&&base?Math.abs(atual/base*100):null;
+ let comparavel=atual!=null&&anterior!=null;
+ if(comparavel&&!d.competencia){
+  const a=d.cols[i]?.reg,b=d.cols[i-1]?.reg;
+  comparavel=!!a&&!!b&&F.comparacao(a,b).permitida;
+ }
+ const delta=comparavel?Math.round((atual-anterior)*100)/100:null;
+ const pct=comparavel&&anterior?delta/Math.abs(anterior)*100:null;
+ // custo subindo é má notícia; recebimento subindo, boa
+ const custo=/saida|pagamento|custo|despesa|deducoes|divida|socio|parcela|tributo|financeiras/i.test(r.id+' '+r.nome);
+ const tom=delta==null||delta===0?'':((delta>0)!==custo?'delta-bom':'delta-ruim');
+ const seta=delta==null?'':delta>0?'▲':delta<0?'▼':'■';
+ const tomLinha=delta==null||delta===0?'':((delta>0)!==custo?'cai':'sobe');
+ return `<td class="num col-relatorio"><div class="dre-compare">
+  ${miniSerie(serie,{tom:tomLinha})}
+  <b>${delta==null?'<span class="muted">sem comparação</span>':`<span class="${tom}">${seta} ${esc(ratio?delta.toLocaleString('pt-BR',{maximumFractionDigits:1})+' p.p.':money(delta))}${pct!=null&&!ratio?' · '+(pct>0?'+':'')+pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':''}</span>`}</b>
+  ${peso!=null?`<span>${peso.toLocaleString('pt-BR',{maximumFractionDigits:1})}% do mês</span>`:''}
+ </div></td>`;
+}
+function tabelaDRE(d){return `<div class="dre-table-wrap" tabindex="0" role="region" aria-label="Demonstrativo mensal. Role para acompanhar os meses."><table class="dre-table"><caption>${d.competencia?'DRE por competência':'Demonstrativo gerencial de caixa'} · ${esc(state.periodo.split('/')[1])} · valores em R$ · — = não apurado</caption><thead><tr><th scope="col">Conta / resultado</th><th scope="col" class="num col-relatorio">12 meses<small>e vs mês anterior</small></th>${d.cols.map(x=>`<th scope="col" class="num ${x.label===state.periodo?'selected-month':''}"><button data-period="${esc(x.label)}">${esc(x.label)}</button><small>${esc(d.competencia?statusCompetencia(x.comp):F.qualidade(x.reg).rotulo)}</small></th>`).join('')}<th scope="col" class="num">Acumulado<small>Jan até ${esc(state.periodo.split('/')[0])}</small></th></tr></thead><tbody>${d.linhas.map(r=>`<tr class="dre-row-${r.tipo}"><th scope="row"><span>${esc(r.nome)}</span><button class="term-help" data-term="${esc(r.termo)}" aria-label="Entender ${esc(r.termo)}">?</button></th>${celulaComparativo(d,r)}${d.valores.map((v,i)=>`<td class="num ${d.cols[i].label===state.periodo?'selected-month':''} ${v[r.id]<0?'neg':''}"><button class="cfo-value" data-cfo-rubrica="${esc(r.id)}" data-cfo-period="${esc(d.cols[i].label)}" data-cfo-base="${d.competencia?'competencia':'caixa'}" aria-label="Analisar ${esc(r.nome)} em ${esc(d.cols[i].label)}">${valorDRE(v[r.id],r.tipo==='ratio')}</button></td>`).join('')}<td class="num dre-accumulated"><button class="cfo-value" data-cfo-acumulado="${esc(r.id)}" aria-label="Analisar acumulado de ${esc(r.nome)}">${valorDRE(d.soma[r.id],r.tipo==='ratio')}</button></td></tr>`).join('')}</tbody></table></div>`;}
 function renderDRE(){
  const d=dadosDRE(),atual=d.cols.find(x=>x.label===state.periodo),calc=atual?d.valores[d.cols.indexOf(atual)]:{};
  const controls=`<div class="dre-controls"><div class="dre-switch" role="group" aria-label="Regime do demonstrativo"><button data-dre-base="caixa" aria-pressed="${!d.competencia}">🏦 Gerencial de caixa</button><button data-dre-base="competencia" aria-pressed="${d.competencia}">📑 Por competência</button></div><div class="actions"><button id="dreCSV">↓ Planilha CSV</button><button id="drePrint">Imprimir / PDF</button></div></div>`;
@@ -35,7 +81,7 @@ function renderDRE(){
  const cards=d.competencia?`<div class="cards finance-kpis">${metricRubricaCFO('liquida','Receita líquida',calc.liquida,state.periodo)}${metricRubricaCFO('liquido','Lucro / prejuízo líquido',calc.liquido,'Após financeiro e tributos')}${metricRubricaCFO('margemLiquida','Margem líquida',calc.margemLiquida,'Lucro líquido ÷ receita líquida')}</div>`:resumoMovimento(atual?.reg);
  const dadosNota=d.competencia?'Campos não preenchidos impedem os subtotais que dependem deles. Zero deve ser confirmado como zero ou não aplicável. EBITDA usa as operações continuadas e soma de volta a depreciação e amortização já incluídas nos custos e despesas.':'Os totais conservam a classificação de cada mês. Abra as rubricas para ver a decomposição. Meses parciais e mudanças de classificação exigem conferência antes de comparar.';
  const chart=d.competencia&&!d.valores.some(v=>v.liquida!=null||v.liquido!=null)?painelGrafico('Receita líquida e resultado ao longo do ano','Gráfico por competência','<p class="empty">O gráfico será preenchido conforme as receitas e os resultados mensais forem apurados.</p>'):d.competencia?painelGrafico('Receita líquida e resultado ao longo do ano','Valores por competência informados; mês vazio permanece sem barra.',graficoBarras(d.cols.map((x,i)=>({label:x.label,reg:x.comp,qualidade:{comparavel:false,rotulo:statusCompetencia(x.comp)},receita:d.valores[i].liquida,resultado:d.valores[i].liquido})),[{chave:'receita',nome:'Receita líquida',cor:'var(--chart-in)'},{chave:'resultado',nome:'Lucro / prejuízo',cor:'var(--chart-cost)'}],'Receita e resultado por competência')):graficoEvolucao();
- return controls+`<div class="dre-period-control"><label>Mês de referência<input id="drePeriodo" type="month" min="2000-01" max="2100-12" value="${state.periodo.split('/')[1]}-${String(PT_MON.indexOf(state.periodo.split('/')[0])+1).padStart(2,'0')}"></label></div>`+intro+cards+painelGrafico(d.competencia?'Demonstração do resultado':'Demonstrativo de caixa',`Janeiro a dezembro · acumulado até ${state.periodo}`,`<div class="actions"><label class="check-label"><input id="dreDetalhar" type="checkbox" ${dreUI.detalhar?'checked':''}>Abrir rubricas detalhadas</label><button id="dreMesAtual">Ir à coluna de ${esc(state.periodo)}</button></div>${tabelaDRE(d)}<p class="hint">${dadosNota}</p><p class="hint">O acumulado fica sem valor quando falta algum mês ou os escopos diferem. Meses parciais continuam parciais no acumulado. ${d.mesmoEscopo?'':'Há empresas ou critérios diferentes neste ano.'}</p>`)+chart+(atual?.comp?.notas?card('Notas de '+state.periodo,`<p class="preserve-lines">${esc(atual.comp.notas)}</p>`,false):'');
+ return controls+`<div class="dre-period-control"><label>Mês de referência<input id="drePeriodo" type="month" min="2000-01" max="2100-12" value="${state.periodo.split('/')[1]}-${String(PT_MON.indexOf(state.periodo.split('/')[0])+1).padStart(2,'0')}"></label></div>`+intro+cards+painelGrafico(d.competencia?'Demonstração do resultado':'Demonstrativo de caixa',`Janeiro a dezembro · acumulado até ${state.periodo}`,`<div class="actions"><label class="check-label"><input id="dreDetalhar" type="checkbox" ${dreUI.detalhar?'checked':''}>Abrir rubricas detalhadas</label><button id="dreMesAtual">Ir à coluna de ${esc(state.periodo)}</button></div>${tabelaDRE(d)}<p class="hint">${dadosNota}</p><p class="hint">O acumulado fica sem valor quando falta algum mês ou os escopos diferem. Meses parciais continuam parciais no acumulado. ${d.mesmoEscopo?'':'Há empresas ou critérios diferentes neste ano.'}</p>`)+chart+(d.competencia?'':relatoriosDRE())+(atual?.comp?.notas?card('Notas de '+state.periodo,`<p class="preserve-lines">${esc(atual.comp.notas)}</p>`,false):'');
 }
 function wireDRE(){
  if($$('drePeriodo'))$$('drePeriodo').onchange=e=>{if(!e.target.validity.valid||!e.target.value)return;const [y,m]=e.target.value.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;render();};

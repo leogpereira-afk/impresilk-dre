@@ -88,3 +88,56 @@ body.dark .cost-table-wrap,body.dark .chart-scroll,body.dark .table-scroll,body.
 .delta-neutro{color:var(--muted)}
 body.dark .delta-bom{color:#3ddc97}
 body.dark .delta-ruim{color:#f0708f}
+
+/* ── PEÇAS DE RELATÓRIO ──────────────────────────────────────────────── */
+.mini-serie{width:96px;height:24px;overflow:visible;vertical-align:middle}
+.mini-serie path{fill:none;stroke:var(--blue);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+.mini-serie circle{fill:var(--blue)}
+.mini-serie.sobe path,.mini-serie.sobe circle{stroke:var(--red,#c8384d);fill:var(--red,#c8384d)}
+.mini-serie.cai path,.mini-serie.cai circle{stroke:var(--green,#0f8a5f);fill:var(--green,#0f8a5f)}
+.mini-serie .mini-zero{stroke:var(--line);stroke-width:1;stroke-dasharray:2 2}
+.mini-vazio{color:var(--muted);font-size:11px}
+body.dark .mini-serie.sobe path,body.dark .mini-serie.sobe circle{stroke:#f0708f;fill:#f0708f}
+body.dark .mini-serie.cai path,body.dark .mini-serie.cai circle{stroke:#3ddc97;fill:#3ddc97}
+
+.estrutura-chart{display:flex;gap:8px;align-items:flex-end;min-width:520px;padding:6px 0 0}
+.estrutura-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:34px}
+.estrutura-barra{display:flex;flex-direction:column-reverse;width:100%;height:190px;border-radius:5px;overflow:hidden;background:var(--line)}
+.estrutura-barra i{display:block;width:100%;background:var(--serie)}
+.estrutura-col.chosen .estrutura-barra{outline:2px solid var(--blue);outline-offset:2px}
+.estrutura-col.vazia .estrutura-barra{background:transparent;border:1px dashed var(--line);align-items:center;justify-content:center}
+.estrutura-barra .sem-dado{color:var(--muted);font-size:11px;font-style:normal;align-self:center}
+
+.linhas-chart{width:100%;min-width:620px;height:auto;display:block}
+.linhas-grade{stroke:var(--line);stroke-width:1}
+.linhas-eixo{fill:var(--muted);font:10px/1 var(--font-ui);text-anchor:end}
+.linhas-mes{fill:var(--muted);font:10px/1 var(--font-ui);text-anchor:middle}
+.linhas-path{fill:none;stroke:var(--serie);stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
+.linhas-ponto{fill:var(--serie);stroke:var(--surface);stroke-width:1.2}
+
+/* coluna de comparativo dentro da matriz do DRE */
+.dre-table .dre-compare{white-space:nowrap;font-size:11px;color:var(--muted)}
+.dre-table .dre-compare b{display:block;font-size:12px;font-weight:650}
+.dre-table .dre-compare .delta-bom{color:var(--green,#0f8a5f)}
+.dre-table .dre-compare .delta-ruim{color:var(--red,#c8384d)}
+body.dark .dre-table .dre-compare .delta-bom{color:#3ddc97}
+body.dark .dre-table .dre-compare .delta-ruim{color:#f0708f}
+.dre-table th.col-relatorio,.dre-table td.col-relatorio{
+ background:var(--selected);position:sticky;left:265px;z-index:3;
+ min-width:190px;width:190px;box-shadow:1px 0 var(--line)
+}
+.dre-table thead th.col-relatorio{z-index:5}
+.dre-table .dre-compare{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+
+/* régua: onde o mês cai dentro da faixa dos meses fechados */
+.regua-linha{margin:0 0 22px}
+.regua-topo{display:flex;justify-content:space-between;gap:16px;align-items:baseline;font-size:13px;margin-bottom:8px}
+.regua-topo b{font-weight:650;font-size:13px}
+.regua-trilho{position:relative;height:8px;border-radius:99px;background:linear-gradient(90deg,var(--line),var(--selected),var(--line))}
+.regua-media{position:absolute;top:-4px;width:2px;height:16px;background:var(--muted);transform:translateX(-1px)}
+.regua-ponto{position:absolute;top:-4px;width:16px;height:16px;border-radius:50%;background:var(--blue);border:2px solid var(--surface);transform:translateX(-8px);box-shadow:0 1px 4px #0003}
+.regua-ponto.delta-bom{background:var(--green,#0f8a5f)}
+.regua-ponto.delta-ruim{background:var(--red,#c8384d)}
+body.dark .regua-ponto.delta-bom{background:#3ddc97}
+body.dark .regua-ponto.delta-ruim{background:#f0708f}
+.regua-pes{display:flex;justify-content:space-between;margin-top:7px;font-size:11px;color:var(--muted)}
