@@ -332,9 +332,13 @@ function relatorioPeso(){
 function relatorioRegua(){
  const atual=state.records.find(r=>r.label===state.periodo);
  if(!atual)return '';
- const fechados=state.records.filter(r=>r.label!==state.periodo&&F.qualidade(r).comparavel);
+ // Referência = mês coletado até o último dia e não expirado. NÃO exige o
+ // contrato da API validado: o coletor grava false em todo mês, e exigir isso
+ // deixava a régua com zero meses para sempre.
+ const fechados=F.mesesDeReferencia(state.records).filter(r=>r.label!==state.periodo);
+ const semValidacao=fechados.some(r=>!F.qualidade(r).comparavel);
  if(fechados.length<3)return painelGrafico('Este mês contra os meses fechados','Referência interna',
-  `<p class="empty">São necessários pelo menos 3 meses com cobertura conferida para formar a referência. Hoje há ${fechados.length}.</p>`);
+  `<p class="empty">São necessários pelo menos 3 meses coletados até o último dia para formar a referência. Hoje há ${fechados.length}.</p>`);
  const linha=(rot,code,custo)=>{
   const v=F.valorConta(atual,code);
   const hist=fechados.map(r=>F.valorConta(r,code)).filter(x=>x!=null);
@@ -349,9 +353,10 @@ function relatorioRegua(){
    <div class="regua-trilho"><i class="regua-media" style="left:${posMedia.toFixed(1)}%"></i><i class="regua-ponto ${tom}" style="left:${pos.toFixed(1)}%"></i></div>
    <div class="regua-pes"><span>mín ${esc(money(min))}</span><span>média ${esc(money(media))}</span><span>máx ${esc(money(max))}</span></div></div>`;
  };
- return painelGrafico('Este mês contra os meses já fechados',`${esc(state.periodo)} · referência dos ${fechados.length} meses com cobertura conferida`,
+ return painelGrafico('Este mês contra os meses já fechados',`${esc(state.periodo)} · referência dos ${fechados.length} meses coletados até o último dia`,
   linha('Recebimentos','1',false)+linha('Pagamentos','2',true)+
-  `<p class="hint">Substitui o comparativo com o ano anterior, que ainda não existe: a base começa em ${esc([...state.records].sort((a,b)=>monthSortKey(a.label)-monthSortKey(b.label))[0]?.label||'—')}. Meses sem cobertura conferida ficam fora da referência.</p>`);
+  `<p class="hint">Entram os meses coletados até o último dia. Substitui o comparativo com o ano anterior, que ainda não existe: a base começa em ${esc([...state.records].sort((a,b)=>monthSortKey(a.label)-monthSortKey(b.label))[0]?.label||'—')}.</p>`+
+  (semValidacao?`<p class="hint marca-aviso">* A cobertura da coleta ainda não foi validada nestes meses. Os valores estão na tela e a referência é útil, mas confira antes de decidir.</p>`:''));
 }
 function relatoriosDRE(){
  return `<div class="section-heading"><div><p class="eyebrow">RELATÓRIOS</p><h2>Comparativos do ano</h2></div></div>`+

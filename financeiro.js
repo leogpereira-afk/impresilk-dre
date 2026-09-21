@@ -84,5 +84,34 @@ var DREFinancas = (() => {
     const delta=permitida?reais(cents(atual)-cents(anterior)):null;
     return {permitida,atual,anterior,delta,percentual:permitida&&anterior>0?delta/anterior*100:null};
   }
-  return {periodo,qualidade,resumo,comparacao,residuos,margemAcumulada,projecao,valorConta,composicao,serieAnual,compararConta};
+  // COMPARAÇÃO COM RESSALVA — separa o que IMPEDE de comparar do que só exige
+  // conferência. O coletor grava apiContratoValidado:false em todo mês (ver
+  // scripts/erp_previa.py), e qualidade().comparavel exige que seja diferente
+  // de false: na prática NENHUM mês do ERP é "comparável". Usar aquele porteiro
+  // como liga/desliga deixava a coluna de comparativo inteira em "sem
+  // comparação" e a régua de referência com zero meses, para sempre.
+  //
+  // A convenção da casa já é outra: graficoBarras MOSTRA o valor e marca com *
+  // e hachura quando a cobertura não foi validada. Aqui é o mesmo contrato.
+  // O bloqueio duro continua de pé: empresa, base ou critério diferentes não
+  // se comparam de jeito nenhum, e qualidade().comparavel permanece intocado.
+  function comparavelComRessalva(a,b,agora=new Date()){
+    if(!a||!b)return {pode:false,ressalva:false,motivo:'Falta um dos períodos.'};
+    const mesmoEscopo=a.company===b.company&&a.basis===b.basis
+      &&a.qualidade?.escopo===b.qualidade?.escopo&&a.qualidade?.regra===b.qualidade?.regra;
+    if(!mesmoEscopo)return {pode:false,ressalva:false,motivo:'Empresas ou critérios diferentes entre os dois períodos.'};
+    const qa=qualidade(a,agora),qb=qualidade(b,agora);
+    const ressalva=!qa.comparavel||!qb.comparavel;
+    return {pode:true,ressalva,
+      motivo:ressalva?'Cobertura ainda não validada nos dois meses — confira antes de decidir.':'Mesmo escopo e cobertura registrada.'};
+  }
+  // Meses que servem de REFERÊNCIA: coletados até o último dia e não expirados.
+  // Não exige o contrato da API validado, pelo mesmo motivo acima.
+  function mesesDeReferencia(records,agora=new Date()){
+    return (records||[]).filter(r=>{
+      const per=periodo(r.label),q=qualidade(r,agora);
+      return !!per&&!!q.corte&&q.corte>=per.ate&&!['parcial','desatualizado','sem-dados'].includes(q.estado);
+    });
+  }
+  return {periodo,qualidade,resumo,comparacao,residuos,margemAcumulada,projecao,valorConta,composicao,serieAnual,compararConta,comparavelComRessalva,mesesDeReferencia};
 })();

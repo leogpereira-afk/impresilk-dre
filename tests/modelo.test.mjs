@@ -52,3 +52,20 @@ test('comparação não converte mês parcial, conta ausente ou base zero em per
  assert.equal(F.compararConta(a,rec({},extra),'2').delta,null);
  assert.equal(F.compararConta(a,rec({'2':10}),'2').delta,null);
 });
+const q2=(extra={})=>({estado:'aguardando-conferencia',ate:'2026-08-31',escopo:'compõe DRE',regra:'v2',apiContratoValidado:false,...extra});
+test('cobertura não validada vira ressalva, não bloqueio de comparação',()=>{
+ const a=rec({'1':100},{qualidade:q2()}),b=rec({'1':80},{label:'Jul/2026',qualidade:q2({ate:'2026-07-31'})});
+ const c=F.comparavelComRessalva?.(a,b,new Date('2026-09-09'));
+ assert.equal(c?.pode,true);assert.equal(c?.ressalva,true);
+ assert.equal(F.qualidade(a,new Date('2026-09-09')).comparavel,false);
+});
+test('empresas diferentes continuam sem comparação',()=>{
+ const a=rec({'1':100},{company:'A',qualidade:q2()}),b=rec({'1':80},{company:'B',label:'Jul/2026',qualidade:q2()});
+ assert.equal(F.comparavelComRessalva?.(a,b,new Date('2026-09-09'))?.pode,false);
+});
+test('referência aceita mês coletado até o fim mesmo sem contrato validado',()=>{
+ const cheio=rec({'1':100},{label:'Jul/2026',qualidade:q2({ate:'2026-07-31',coletadoEm:'2026-08-01T10:00:00Z'})});
+ const meio=rec({'1':50},{label:'Ago/2026',qualidade:q2({ate:'2026-08-10',coletadoEm:'2026-08-10T10:00:00Z'})});
+ const r=F.mesesDeReferencia?.([cheio,meio],new Date('2026-09-09'))||[];
+ assert.equal(r.length,1);assert.equal(r[0].label,'Jul/2026');
+});

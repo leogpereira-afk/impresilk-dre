@@ -141,3 +141,5 @@ body.dark .dre-table .dre-compare .delta-ruim{color:#f0708f}
 body.dark .regua-ponto.delta-bom{background:#3ddc97}
 body.dark .regua-ponto.delta-ruim{background:#f0708f}
 .regua-pes{display:flex;justify-content:space-between;margin-top:7px;font-size:11px;color:var(--muted)}
+.marca-conferir{color:var(--amber);font-weight:700;margin-left:3px}
+.marca-aviso{color:var(--amber)}

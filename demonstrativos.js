@@ -55,10 +55,14 @@ function celulaComparativo(d,r){
  const semPeso=ratio||['entradas','saidas','variacao','bruta','liquida'].includes(r.id)||r.tipo==='total';
  const base=semPeso?null:baseDoPeso(d,i,r);
  const peso=!semPeso&&atual!=null&&base?Math.abs(atual/base*100):null;
- let comparavel=atual!=null&&anterior!=null;
+ // Não usar qualidade().comparavel como liga/desliga: o coletor grava
+ // apiContratoValidado:false em todo mês e a coluna inteira ficava em "sem
+ // comparação". Aqui o bloqueio duro (empresa/base/critério) continua, e a
+ // cobertura não validada vira o asterisco que o resto do painel já usa.
+ let comparavel=atual!=null&&anterior!=null,ressalva=false;
  if(comparavel&&!d.competencia){
-  const a=d.cols[i]?.reg,b=d.cols[i-1]?.reg;
-  comparavel=!!a&&!!b&&F.comparacao(a,b).permitida;
+  const a=d.cols[i]?.reg,b=d.cols[i-1]?.reg,c=F.comparavelComRessalva(a,b);
+  comparavel=c.pode;ressalva=c.ressalva;
  }
  const delta=comparavel?Math.round((atual-anterior)*100)/100:null;
  const pct=comparavel&&anterior?delta/Math.abs(anterior)*100:null;
@@ -69,7 +73,7 @@ function celulaComparativo(d,r){
  const tomLinha=delta==null||delta===0?'':((delta>0)!==custo?'cai':'sobe');
  return `<td class="num col-relatorio"><div class="dre-compare">
   ${miniSerie(serie,{tom:tomLinha})}
-  <b>${delta==null?'<span class="muted">sem comparação</span>':`<span class="${tom}">${seta} ${esc(ratio?delta.toLocaleString('pt-BR',{maximumFractionDigits:1})+' p.p.':money(delta))}${pct!=null&&!ratio?' · '+(pct>0?'+':'')+pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':''}</span>`}</b>
+  <b>${delta==null?'<span class="muted">sem comparação</span>':`<span class="${tom}" ${ressalva?'title="Cobertura ainda não validada nos dois meses — confira antes de decidir."':''}>${seta} ${esc(ratio?delta.toLocaleString('pt-BR',{maximumFractionDigits:1})+' p.p.':money(delta))}${pct!=null&&!ratio?' · '+(pct>0?'+':'')+pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':''}${ressalva?'<b class="marca-conferir" aria-label="cobertura a conferir">*</b>':''}</span>`}</b>
   ${peso!=null?`<span>${peso.toLocaleString('pt-BR',{maximumFractionDigits:1})}% do mês</span>`:''}
  </div></td>`;
 }
