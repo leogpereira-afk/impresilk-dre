@@ -22,21 +22,35 @@ var DRECFO = (() => {
   const value=caixa[id]?(existe?DREFinancas.resumo(reg)[id]:null):DREFinancas.valorConta(reg,id);
   return {id,value,partes,formula:terms.map(([c,s],i)=>(s<0?'− ':i?'+ ':'')+c).join(' '),ausentes:partes.filter(p=>p.value==null).length};
  }
- function pergunta(nome){
-  const n=normal(nome);
+ // Medido em 21/09: 9 das 17 linhas caíam no texto genérico, entre elas o 4º e
+ // o 5º maiores grupos. "Societárias" não casava com /socio/ por uma letra
+ // ("societarias"), e não havia regra para imposto, cartão, limpeza,
+ // administrativo, segurança do trabalho, investimento nem para o resíduo.
+ // Uma coluna que repete o mesmo parágrafo não ajuda a decidir nada.
+ function pergunta(nome,code){
+  const n=normal(nome),c=String(code||'');
+  if(c.endsWith('~residuo')||/sem detalhamento|diferenca/.test(n))return 'Este valor está no total e não no detalhamento. Localizar o lançamento feito direto na conta-pai antes de distribuir qualquer parte dele.';
   if(/material|insumo|tinta|lona|vinil|acrilico|acm/.test(n))return 'Conferir consumo por O.S., perdas de corte e impressão, compras para estoque e materiais retrabalhados. Pagamento de compra não mede o custo consumido.';
-  if(/funcionario|pessoal|salario|folha/.test(n))return 'Conferir horas produtivas, horas extras, instalação e retrabalho por O.S.; o total pago não mede produtividade sozinho.';
-  if(/terceir|instal|veiculo|frete|combust/.test(n))return 'Conferir deslocamentos, montagem e terceiros por O.S. e separar entrega prevista de retorno por retrabalho.';
+  if(/funcionario|pessoal|salario|folha|rescis|ferias|fgts/.test(n))return 'Conferir horas produtivas, horas extras, instalação e retrabalho por O.S.; o total pago não mede produtividade sozinho.';
+  if(/seguranca|epi|ocupacion/.test(n))return 'Separar exame ocupacional, EPI e treinamento. Conferir se a variação acompanha a entrada de gente nova ou um vencimento coletivo.';
+  if(/terceir|instal|veiculo|frete|combust|pedagio/.test(n))return 'Conferir deslocamentos, montagem e terceiros por O.S. e separar entrega prevista de retorno por retrabalho.';
   if(/maquina|equipamento|manutenc/.test(n))return 'Separar manutenção, compra de equipamento e parcela de financiamento; comparar paradas e horas produtivas antes de decidir.';
-  if(/banc|juro|divida|emprest/.test(n))return 'Abrir contratos e separar principal, juros, tarifas e antecipação de recebíveis antes de avaliar o custo financeiro.';
-  if(/socio|arrendamento/.test(n))return 'Separar pró-labore, distribuição, mútuos e arrendamento conforme contratos. Saída para sócio não tem uma única natureza contábil.';
-  if(/energia|cemig|agua|copasa/.test(n))return 'Comparar consumo físico, tarifa e dias de produção. O valor pago isolado não identifica a causa de aumento.';
+  if(/cartao|fatura/.test(n))return 'Fatura sem rateio entra no custo sem dizer de que centro é. Abrir a fatura e lançar cada compra na sua conta, nem que seja por grupo.';
+  if(/banc|juro|divida|emprest|antecip|tarifa/.test(n))return 'Abrir contratos e separar principal, juros, tarifas e antecipação de recebíveis antes de avaliar o custo financeiro.';
+  if(/socie|socio|arrendamento|retirada|prolabore|pro-labore/.test(n))return 'Separar pró-labore, distribuição, mútuos e arrendamento conforme contratos. Saída para sócio não tem uma única natureza contábil.';
+  if(/imposto|tributo|das|darf|issqn|simples|inss/.test(n))return 'Separar o que incide sobre a venda do que incide sobre a folha e sobre o lucro. Conferir a receita dos últimos 12 meses contra a faixa do Simples.';
+  if(/energia|cemig|agua|copasa|saneamento/.test(n))return 'Comparar consumo físico, tarifa e dias de produção. O valor pago isolado não identifica a causa de aumento.';
+  if(/fixa|aluguel|condominio|internet|telefone/.test(n))return 'Conferir contratos, reajuste e meses com duas competências pagas juntas. Despesa fixa que varia costuma ter data de pagamento fora do lugar.';
+  if(/administrat|escritorio|contabil|juridic|advog/.test(n))return 'Conferir o que é recorrente de estrutura e o que foi serviço pontual. Honorário eventual não deve virar base de comparação mensal.';
+  if(/limpeza|copa|higien/.test(n))return 'Conferir se houve compra de estoque no mês. Material de limpeza comprado em volume distorce a comparação com o mês anterior.';
+  if(/investimento|imobilizado|obra/.test(n))return 'Confirmar se é compra de bem ou manutenção. Bem comprado vira patrimônio e não deveria ser lido como custo do mês.';
+  if(/publicid|publicit|marketing|divulg|brinde/.test(n))return 'Separar campanha pontual de patrocínio recorrente e verificar o retorno em orçamentos e O.S. abertas no período.';
   return 'Conferir os lançamentos, datas e documentos; identificar recorrência, gastos excepcionais e vínculo com as ordens de serviço.';
  }
  function analise(reg,anterior){
   const f=DREFinancas,q=f.qualidade(reg),e=f.valorConta(reg,'1'),s=f.valorConta(reg,'2');
   const comp=f.composicao(reg,'2');
-  const ranking=comp.itens.filter(x=>x.value!=null&&x.value!==0).map(x=>({...x,peso:s>0&&!comp.incompleta?x.value/s*100:null,pergunta:pergunta(x.name)})).sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
+  const ranking=comp.itens.filter(x=>x.value!=null&&x.value!==0).map(x=>({...x,peso:s>0&&!comp.incompleta?x.value/s*100:null,pergunta:pergunta(x.name,x.code)})).sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
   const variacoes=ranking.filter(x=>!x.residuo).map(x=>({...x,...f.compararConta(reg,anterior,x.code)})).filter(x=>x.permitida&&x.delta!==0).sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta));
   const residual=comp.itens.find(x=>x.residuo)?.value||0;
   return {q,entradas:e,saidas:s,variacao:e!=null&&s!=null?soma([e,-s]):null,ranking,variacoes,residual,incompleta:comp.incompleta,comparavel:f.comparacao(reg,anterior).permitida,

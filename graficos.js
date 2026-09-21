@@ -50,7 +50,14 @@ function comparativoMovimento(reg){
  if(!state.comparar)return '';
  const other=state.records.find(r=>r.label===state.comparar),cmp=F.comparacao(reg,other);
  if(!cmp.permitida)return `<div class="comparison-strip"><span>Comparação com <b>${esc(state.comparar)}</b>: diferenças automáticas aguardam conferência da cobertura e dos critérios.</span><button data-go="conferencia">Conferir →</button></div>`;
- return `<div class="comparison-strip"><span>Diferença para <b>${esc(state.comparar)}</b></span><span>Entradas <b>${valorTexto(F.compararConta(reg,other,'1').delta)}</b></span><span>Saídas <b>${valorTexto(F.compararConta(reg,other,'2').delta)}</b></span><span>Variação <b>${money(cmp.delta)}</b></span></div>`;
+ // Número sem direção não é leitura: a seta mostra para onde foi e a cor diz
+ // se aquilo é boa notícia (entrada subindo é bom; saída subindo, não).
+ const seta=(v,subirEhBom)=>{
+  if(v==null)return '<b>Não informado</b>';
+  const dir=v>0?'▲':v<0?'▼':'■',bom=v===0?'neutro':(v>0)===subirEhBom?'bom':'ruim';
+  return `<b class="delta-${bom}">${dir} ${esc(money(v))}</b>`;
+ };
+ return `<div class="comparison-strip"><span>Diferença para <b>${esc(state.comparar)}</b></span><span>Entradas ${seta(F.compararConta(reg,other,'1').delta,true)}</span><span>Saídas ${seta(F.compararConta(reg,other,'2').delta,false)}</span><span>Variação ${seta(cmp.delta,true)}</span></div>`;
 }
 function graficoPonte(reg){
  const e=F.valorConta(reg,'1'),s=F.valorConta(reg,'2');
@@ -104,4 +111,113 @@ function wireGraficos(){
   const out=[['Conta','Despesa',...cols.map(c=>c.label)],['','Cobertura',...cols.map(c=>c.qualidade.rotulo)],...linhasCustos().flatMap(c=>[[c.code,c.name,...cols.map(x=>{const v=F.valorConta(x.reg,c.code);return v==null?'Não informado':v.toFixed(2).replace('.',',');})],[c.code,'Nome original',...cols.map(x=>nomeConta(x.reg,c.code)||'Não informado')]])];
   download('despesas-'+state.periodo.split('/')[1]+'.csv','\ufeff'+out.map(row=>row.map(csvCell).join(';')).join('\n'),'text/csv');
  };
+}
+
+/* ── RITMO DO ANO ────────────────────────────────────────────────────────
+   Três painéis no modelo pedido pelo Leonardo: a curva ACUMULADA do ano
+   contra uma linha de referência, e a cor dizendo de que lado da linha o
+   acumulado está. Responde "vou bater a meta / vou estourar o limite" —
+   pergunta que o valor mensal isolado não responde.
+
+   Honestidade do acumulado: mês sem dado NÃO vira zero. A curva PARA no
+   último mês conhecido; os meses seguintes ficam vazios. Somar o que não foi
+   coletado inventaria economia que não existe.
+
+   As metas ficam no aparelho (localStorage), como a projeção de 13 semanas:
+   gravar na nuvem exige permissão de administração, que nem todo acesso tem.  */
+const METAS_KEY='dre_metas_ano';
+function metasAno(ano){
+ let todas={};try{todas=JSON.parse(localStorage.getItem(METAS_KEY))||{};}catch(_){}
+ return {receita:null,custos:null,caixa:0,...(todas[ano]||{})};
+}
+function salvarMetas(ano,metas){
+ let todas={};try{todas=JSON.parse(localStorage.getItem(METAS_KEY))||{};}catch(_){}
+ todas[ano]={...todas[ano],...metas};
+ try{localStorage.setItem(METAS_KEY,JSON.stringify(todas));}catch(_){}
+}
+// Acumulado mês a mês. Para no primeiro mês ausente e devolve até onde foi.
+function acumularAno(code){
+ const serie=F.serieAnual(state.records,state.periodo,code);
+ let soma=0,parou=false;
+ return serie.map(x=>{
+  const v=code==='variacao'?(F.valorConta(x.reg,'1')!=null&&F.valorConta(x.reg,'2')!=null?F.valorConta(x.reg,'1')-F.valorConta(x.reg,'2'):null):x.value;
+  if(parou||v==null){parou=true;return {...x,mes:v,acumulado:null};}
+  soma=Math.round((soma+v)*100)/100;
+  return {...x,mes:v,acumulado:soma};
+ });
+}
+/* A cor NÃO compara o acumulado com a meta do ano inteiro: em agosto ninguém
+   bateu a meta de dezembro, e pintar a receita de vermelho por isso seria
+   mentira. A comparação é com o RITMO — a fatia da meta que já deveria ter
+   sido cumprida até aquele mês. A linha tracejada clara marca o destino do
+   ano; a pontilhada fraca, o ritmo necessário. */
+function painelRitmo({titulo,tipo,pontos,referencia,rotuloRef,bomAcima}){
+ const W=300,H=210,PL=46,PR=12,PT=16,PB=34;
+ const vals=pontos.map(p=>p.acumulado).filter(v=>v!=null);
+ if(!vals.length)return `<div class="ritmo-painel ${tipo}"><h3>${esc(titulo)}</h3><p class="ritmo-vazio">Sem dado coletado neste ano.</p></div>`;
+ const cand=[...vals,referencia,0].filter(v=>v!=null&&Number.isFinite(v));
+ let alto=Math.max(...cand),baixo=Math.min(...cand);
+ if(alto===baixo){alto+=1;baixo-=1;}
+ const folga=(alto-baixo)*.12;alto+=folga;baixo-=folga;
+ const x=i=>PL+i*(W-PL-PR)/11, y=v=>PT+(alto-v)/(alto-baixo)*(H-PT-PB);
+ // 4 marcas de eixo, arredondadas para número legível
+ const passoBruto=(alto-baixo)/4,ordem=10**Math.floor(Math.log10(Math.abs(passoBruto)||1));
+ const passo=([1,2,2.5,5,10].find(n=>n*ordem>=passoBruto)||10)*ordem;
+ const marcas=[];for(let v=Math.ceil(baixo/passo)*passo;v<=alto;v+=passo)marcas.push(v);
+ const ritmoDe=i=>referencia==null?null:referencia*(i+1)/12;
+ const ladoBom=(v,i)=>{const alvo=ritmoDe(i);return alvo==null?true:(bomAcima?v>=alvo:v<=alvo);};
+ const segs=[];
+ for(let i=1;i<pontos.length;i++){
+  const a=pontos[i-1],b=pontos[i];
+  if(a.acumulado==null||b.acumulado==null)continue;
+  segs.push(`<line x1="${x(i-1)}" y1="${y(a.acumulado)}" x2="${x(i)}" y2="${y(b.acumulado)}" class="ritmo-linha ${ladoBom(b.acumulado,i)?'bom':'ruim'}"/>`);
+ }
+ const ult=pontos.filter(p=>p.acumulado!=null).pop();
+ return `<div class="ritmo-painel ${tipo}">
+  <h3>${esc(titulo)}</h3>
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(titulo)}: acumulado do ano até ${esc(ult.label)}, ${money(ult.acumulado)}${referencia!=null?', referência '+money(referencia):''}">
+   ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="ritmo-grade"/><text x="${PL-6}" y="${y(v)+3}" class="ritmo-eixo">${esc(compacto(v))}</text>`).join('')}
+   ${referencia!=null?`<line x1="${x(0)}" y1="${y(ritmoDe(0))}" x2="${x(11)}" y2="${y(referencia)}" class="ritmo-ritmo"/>`:''}
+   ${referencia!=null?`<line x1="${PL}" y1="${y(referencia)}" x2="${W-PR}" y2="${y(referencia)}" class="ritmo-ref"/>`:''}
+   ${segs.join('')}
+   ${pontos.map((p,i)=>p.acumulado==null?'':`<circle cx="${x(i)}" cy="${y(p.acumulado)}" r="${p.label===state.periodo?4:2.6}" class="ritmo-ponto ${ladoBom(p.acumulado,i)?'bom':'ruim'} ${p.qualidade.comparavel?'':'aconferir'}"><title>${esc(p.label)} · acumulado ${money(p.acumulado)}${p.qualidade.comparavel?'':' · cobertura a conferir'}</title></circle>`).join('')}
+   ${pontos.map((p,i)=>i%2?'':`<text x="${x(i)}" y="${H-14}" class="ritmo-mes">${esc(p.label.split('/')[0])}</text>`).join('')}
+  </svg>
+  <div class="ritmo-rodape">
+   <span><b>${money(ult.acumulado)}</b> acumulado até ${esc(ult.label)}</span>
+   ${(()=>{const i=pontos.findIndex(p=>p===ult),alvo=ritmoDe(i);
+     if(alvo==null)return '<span class="ritmo-legenda">Defina a referência para acompanhar o ritmo</span>';
+     const ok=bomAcima?ult.acumulado>=alvo:ult.acumulado<=alvo;
+     return `<span class="ritmo-situacao ${ok?'bom':'ruim'}">${ok?'No ritmo':'Fora do ritmo'} · esperado ${money(alvo)} até aqui</span>`;})()}
+   <span class="ritmo-legenda"><i class="ref"></i>${esc(rotuloRef)} do ano${referencia!=null?' · '+money(referencia):' não definida'}</span>
+  </div>
+ </div>`;
+}
+function graficoRitmoAno(){
+ const ano=state.periodo.split('/')[1],metas=metasAno(ano);
+ const rec=acumularAno('1'),des=acumularAno('2'),cx=acumularAno('variacao');
+ const painel=(t,tp,p,ref,rot,bom)=>painelRitmo({titulo:t,tipo:tp,pontos:p,referencia:ref,rotuloRef:rot,bomAcima:bom});
+ const definiu=metas.receita!=null||metas.custos!=null;
+ return painelGrafico('Ritmo do ano',`${ano} · acumulado mês a mês contra a referência`,
+  `<div class="ritmo-grid">
+    ${painel('RECEITA','receita',rec,metas.receita,'Meta',true)}
+    ${painel('CUSTOS','custos',des,metas.custos,'Limite',false)}
+    ${painel('CAIXA','caixa',cx,metas.caixa,'Projeção',true)}
+   </div>
+   <p class="chart-foot">A curva soma os meses já coletados. <b>Mês sem dado interrompe a linha</b> — não é tratado como zero. Ponto vazado indica cobertura a conferir.</p>
+   ${definiu?'':'<p class="hint">Defina a meta de receita e o limite de custos para as linhas tracejadas aparecerem. Sem elas, os painéis mostram só o acumulado.</p>'}`,
+  `<button id="ritmoMetas">${definiu?'Ajustar metas':'Definir metas do ano'}</button>`);
+}
+function formularioMetas(){
+ const ano=state.periodo.split('/')[1],m=metasAno(ano);
+ dialog('Metas de '+ano,`<form id="metasForm"><p>Valores do ano inteiro. Ficam guardados <b>neste aparelho</b>, como a projeção de 13 semanas — não vão para a nuvem nem alteram o Mubisys.</p>
+  <label>Meta de receita no ano (R$)<input name="receita" type="number" step="0.01" min="0" value="${m.receita??''}" placeholder="Ex.: 5000000"></label>
+  <label>Limite de custos no ano (R$)<input name="custos" type="number" step="0.01" min="0" value="${m.custos??''}" placeholder="Ex.: 4500000"></label>
+  <label>Caixa acumulado desejado (R$)<input name="caixa" type="number" step="0.01" value="${m.caixa??0}"></label>
+  <p class="hint">Deixe em branco para não mostrar a linha tracejada daquele painel.</p>
+  <button class="primary" type="submit">Salvar metas</button></form>`);
+ $$('metasForm').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);
+  const num=k=>{const v=f.get(k);return v===''||v==null?null:Number(v);};
+  salvarMetas(ano,{receita:num('receita'),custos:num('custos'),caixa:num('caixa')});
+  $$('detailDialog').close();render();toast('Metas de '+ano+' salvas neste aparelho.');};
 }

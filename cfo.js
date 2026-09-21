@@ -6,7 +6,12 @@ function botaoConta(code,label,periodo=state.periodo){return `<button class="cfo
 function cfoResumo(reg){
  const a=DRECFO.analise(reg,state.records.find(x=>x.label===state.comparar));
  const frase=a.variacao==null?'Primeiro, complete a leitura do período.':a.variacao<0?'As saídas registradas superaram as entradas.':'As entradas registradas cobriram as saídas.';
- return `<section class="cfo-intro"><div><p class="eyebrow">LEITURA CFO · ${esc(state.periodo)}</p><h2>${frase}</h2><p>${a.variacao==null?'Abra um mês disponível ou confira a atualização da base.':`Diferença de <b>${money(a.variacao)}</b> no caixa considerado. ${a.q.comparavel?'Consulte a composição antes de decidir.':'Este período exige conferência; a leitura não representa um mês fechado.'}`}</p></div>${state.view==='cfo'?'<button class="primary" data-account="2">Abrir composição das saídas →</button>':'<button class="primary" data-go="cfo">Investigar os números →</button>'}</section>`;
+ // As pendências do mês ficavam atrás de um "+" no rodapé da Visão geral.
+ // Pagamento em duplicidade não pode depender de alguém abrir um acordeão.
+ const pend=reg?.pendencias||[];
+ const valorPend=pend.reduce((n,p)=>n+(Number(p.valor)||0),0);
+ const aviso=pend.length?`<button class="cfo-pendencias" data-go="conferencia"><b>${pend.length} ${pend.length===1?'pendência':'pendências'} para revisar</b>${valorPend?` · ${esc(money(valorPend))} em jogo`:''} <span>Ver na Conferência →</span></button>`:'';
+ return `<section class="cfo-intro"><div><p class="eyebrow">LEITURA CFO · ${esc(state.periodo)}</p><h2>${frase}</h2><p>${a.variacao==null?'Abra um mês disponível ou confira a atualização da base.':`Diferença de <b>${money(a.variacao)}</b> no caixa considerado. ${a.q.comparavel?'Consulte a composição antes de decidir.':'Este período exige conferência; a leitura não representa um mês fechado.'}`}</p>${aviso}</div>${state.view==='cfo'?'<button class="primary" data-account="2">Abrir composição das saídas →</button>':'<button class="primary" data-go="cfo">Investigar os números →</button>'}</section>`;
 }
 function renderCFO(reg){
  const a=DRECFO.analise(reg,state.records.find(x=>x.label===state.comparar));
