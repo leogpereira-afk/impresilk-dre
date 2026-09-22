@@ -416,13 +416,17 @@ function cascataRubricas(reg){
  // maiores compromissos fixos escondidos num degrau só de R$ 358 mil. Só saem
  // se a conta EXISTIR no mês — conta ausente não vira zero, fica dentro do
  // resto, senão a cascata deixaria de fechar.
- const pessoas=F.valorConta(reg,'2.1'),impostos=F.valorConta(reg,'2.4');
- const resto=r.pagamentosOperacionais-(pessoas||0)-(impostos||0);
+ // A ordem segue como o dono conta a história: recebi, gastei com material,
+ // com gente e com imposto, sobrou o resto da operação — e só depois saem
+ // sócio, parcela e dívida.
+ const abrir=[['2.12','Materiais','Materiais e Insumos'],['2.1','Pessoas','Despesas Funcionários'],['2.4','Impostos','Despesas Impostos']]
+   .map(([code,curto,padrao])=>({code,curto,padrao,v:F.valorConta(reg,code)}))
+   .filter(x=>x.v!=null);
+ const resto=r.pagamentosOperacionais-abrir.reduce((n,x)=>n+x.v,0);
  const passos=[
   {id:'entradas',nome:'(+) Recebimentos considerados',curto:'Recebeu',v:r.entradas,tipo:'in'},
-  ...(pessoas!=null?[{id:'2.1',nome:'(−) Pessoas · '+(contaConhecida('2.1')||'Despesas Funcionários'),curto:'Pessoas',v:-pessoas,tipo:'out'}]:[]),
-  ...(impostos!=null?[{id:'2.4',nome:'(−) Impostos · '+(contaConhecida('2.4')||'Despesas Impostos'),curto:'Impostos',v:-impostos,tipo:'out'}]:[]),
-  {id:'pagamentosOperacionais',nome:(pessoas!=null||impostos!=null)?'(−) Demais pagamentos da operação':'(−) Pagamentos da operação',curto:(pessoas!=null||impostos!=null)?'Resto oper.':'Operação',v:-resto,tipo:'out'},
+  ...abrir.map(x=>({id:x.code,nome:'(−) '+x.curto+' · '+(contaConhecida(x.code)||x.padrao),curto:x.curto,v:-x.v,tipo:'out'})),
+  {id:'pagamentosOperacionais',nome:abrir.length?'(−) Demais pagamentos da operação':'(−) Pagamentos da operação',curto:abrir.length?'Resto oper.':'Operação',v:-resto,tipo:'out'},
   {id:'socios',nome:'(−) Sócios e arrendamento',curto:'Sócios',v:-r.socios,tipo:'out'},
   {id:'parcelasAtivos',nome:'(−) Parcelas de ativos',curto:'Parcelas',v:-r.parcelasAtivos,tipo:'out'},
   {id:'dividas',nome:'(−) Dívidas classificadas',curto:'Dívidas',v:-r.dividas,tipo:'out'},
@@ -430,7 +434,7 @@ function cascataRubricas(reg){
   {id:'investimentos',nome:'(−) Investimentos classificados',curto:'Máquinas',v:-r.investimentos,tipo:'out'},
   {id:'pendentes',nome:'(−) Saídas sem detalhamento',curto:'Sem detalhe',v:-r.pendentes,tipo:'out'},
  ];
- const W=980,H=300,PL=58,PR=14,PT=18,PB=76;
+ const W=1140,H=300,PL=58,PR=14,PT=18,PB=76;
  let cur=0;const barras=[];
  for(const p of passos){const de=cur;cur=Math.round(cur*100+Math.round(p.v*100))/100;barras.push({...p,de,ate:cur});}
  barras.push({id:'variacao',nome:'(=) Variação do caixa',curto:'Sobrou',v:cur,tipo:'net',de:0,ate:cur});
