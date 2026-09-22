@@ -204,3 +204,5 @@ body.dark .regua-ponto.delta-ruim{background:#f0708f}
 .cobertura-legenda i.cob.ausente{background:transparent;border:1px dashed var(--line)}
 .casc-rot.in{fill:#3ddc97}
 .casc-rot.net{fill:#7cb0ff;font-weight:700}
+.cfo-cauda th,.cfo-cauda td{color:var(--muted)}
+.cfo-cauda th small{display:block;font-weight:400}
