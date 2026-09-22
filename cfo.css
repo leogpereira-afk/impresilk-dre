@@ -23,8 +23,11 @@
 /* em CUSTOS ficar abaixo do limite é a boa notícia */
 .ritmo-painel.custos .ritmo-linha.bom,.ritmo-painel.custos .ritmo-ponto.bom{stroke:#3ddc97;fill:#3ddc97}
 .ritmo-painel h3{
- position:relative;margin:0 0 10px;text-align:center;font-size:12px;font-weight:700;
- letter-spacing:.16em;color:#f4f8ff;
+ position:relative;margin:0 0 10px;min-height:3.1em;text-align:center;font-size:12px;
+ font-weight:700;letter-spacing:.16em;color:#f4f8ff;
+}
+.ritmo-nota{
+ position:relative;margin:2px 0 0;font-size:10px;line-height:1.45;color:#ffffff8c;
 }
 .ritmo-painel svg{position:relative;display:block;width:100%;height:auto}
 .ritmo-grade{stroke:#ffffff12;stroke-width:1}
@@ -47,7 +50,7 @@
 .ritmo-legenda{display:flex;align-items:center;gap:6px}
 .ritmo-legenda .ref{width:16px;height:0;border-top:1.4px dashed #ffffffb0;flex:none}
 .ritmo-vazio{position:relative;color:#ffffff8c;font-size:12px;text-align:center;padding:48px 0}
-@media (max-width:900px){.ritmo-grid{grid-template-columns:1fr}}
+@media (max-width:900px){.ritmo-grid{grid-template-columns:1fr}.ritmo-painel h3{min-height:0}}
 /* diagonal = ritmo necessário; horizontal = destino do ano */
 .ritmo-ritmo{stroke:#ffffff45;stroke-width:1;stroke-dasharray:2 3}
 .ritmo-situacao{font-weight:650}

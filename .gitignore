@@ -32,3 +32,6 @@ dist/
 # Materiais de auditoria e servidor de revisão permanecem locais.
 /IMPLEMENTACAO.md
 /scripts/preview_local.py
+
+# Harness de verificação local (contém o razão mensal — nunca versionar)
+_v_*.html

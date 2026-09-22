@@ -1,7 +1,8 @@
 /* Gráficos e exploração por conta. Somente leitura dos registros mensais. */
 const custoUI={grupo:'2.5',conta:'2.5.3',busca:''};
 const valorTexto=v=>v==null?'Não informado':money(v);
-const compacto=v=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(v);
+// v===0 tambem captura -0 (Math.ceil(-0.25) devolve -0, e Intl imprime "-0").
+const compacto=v=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(v===0?0:v);
 const nomeConta=(reg,code)=>reg?.cells?.find(c=>c.code===code)?.name;
 function contaConhecida(code){return nomeConta(regAtual(),code)||[...state.records].reverse().map(r=>nomeConta(r,code)).find(Boolean)||code;}
 function movimentosDoAno(){
@@ -126,9 +127,21 @@ function wireGraficos(){
    As metas ficam no aparelho (localStorage), como a projeção de 13 semanas:
    gravar na nuvem exige permissão de administração, que nem todo acesso tem.  */
 const METAS_KEY='dre_metas_ano';
+// O titulo de cada painel nomeia uma conta inteira, e a conta inteira tem mais
+// coisa do que o nome sugere. Uma string so, usada no painel e no formulario.
+const COMPOE={
+ entradas:'Conta 1 inteira: recebimentos da operação, empréstimos, rendimentos e entradas a identificar. Não é só venda.',
+ saidas:'Conta 2 inteira: pagamentos da operação, sócios e arrendamento, parcelas de ativos, dívidas, transferências entre empresas, investimentos e cartão sem detalhe.',
+ diferenca:'Conta 1 menos conta 2. Não é lucro nem saldo em banco.',
+};
 function metasAno(ano){
  let todas={};try{todas=JSON.parse(localStorage.getItem(METAS_KEY))||{};}catch(_){}
- return {receita:null,custos:null,caixa:0,...(todas[ano]||{})};
+ if(!todas.semAlvoZero){
+  Object.values(todas).forEach(m=>{if(m&&typeof m==='object'&&m.caixa===0)m.caixa=null;});
+  todas.semAlvoZero=true;
+  try{localStorage.setItem(METAS_KEY,JSON.stringify(todas));}catch(_){}
+ }
+ return {receita:null,custos:null,caixa:null,...(todas[ano]||{})};
 }
 function salvarMetas(ano,metas){
  let todas={};try{todas=JSON.parse(localStorage.getItem(METAS_KEY))||{};}catch(_){}
@@ -151,10 +164,10 @@ function acumularAno(code){
    mentira. A comparação é com o RITMO — a fatia da meta que já deveria ter
    sido cumprida até aquele mês. A linha tracejada clara marca o destino do
    ano; a pontilhada fraca, o ritmo necessário. */
-function painelRitmo({titulo,tipo,pontos,referencia,rotuloRef,bomAcima}){
+function painelRitmo({titulo,tipo,pontos,referencia,rotuloRef,bomAcima,nota}){
  const W=300,H=210,PL=46,PR=12,PT=16,PB=34;
  const vals=pontos.map(p=>p.acumulado).filter(v=>v!=null);
- if(!vals.length)return `<div class="ritmo-painel ${tipo}"><h3>${esc(titulo)}</h3><p class="ritmo-vazio">Sem dado coletado neste ano.</p></div>`;
+ if(!vals.length)return `<div class="ritmo-painel ${tipo}"><h3>${esc(titulo)}</h3>${nota?`<p class="ritmo-nota">${esc(nota)}</p>`:''}<p class="ritmo-vazio">Sem dado coletado neste ano.</p></div>`;
  const cand=[...vals,referencia,0].filter(v=>v!=null&&Number.isFinite(v));
  let alto=Math.max(...cand),baixo=Math.min(...cand);
  if(alto===baixo){alto+=1;baixo-=1;}
@@ -189,31 +202,33 @@ function painelRitmo({titulo,tipo,pontos,referencia,rotuloRef,bomAcima}){
      if(alvo==null)return '<span class="ritmo-legenda">Defina a referência para acompanhar o ritmo</span>';
      const ok=bomAcima?ult.acumulado>=alvo:ult.acumulado<=alvo;
      return `<span class="ritmo-situacao ${ok?'bom':'ruim'}">${ok?'No ritmo':'Fora do ritmo'} · esperado ${money(alvo)} até aqui</span>`;})()}
-   <span class="ritmo-legenda"><i class="ref"></i>${esc(rotuloRef)} do ano${referencia!=null?' · '+money(referencia):' não definida'}</span>
+   <span class="ritmo-legenda"><i class="ref"></i>${esc(rotuloRef)} do ano${referencia!=null?' · '+money(referencia):' — você ainda não definiu'}</span>
+   ${nota?`<span class="ritmo-nota">${esc(nota)}</span>`:''}
   </div>
  </div>`;
 }
 function graficoRitmoAno(){
  const ano=state.periodo.split('/')[1],metas=metasAno(ano);
  const rec=acumularAno('1'),des=acumularAno('2'),cx=acumularAno('variacao');
- const painel=(t,tp,p,ref,rot,bom)=>painelRitmo({titulo:t,tipo:tp,pontos:p,referencia:ref,rotuloRef:rot,bomAcima:bom});
- const definiu=metas.receita!=null||metas.custos!=null;
+ const painel=(t,tp,p,ref,rot,bom,nota)=>painelRitmo({titulo:t,tipo:tp,pontos:p,referencia:ref,rotuloRef:rot,bomAcima:bom,nota});
+ const definiu=metas.receita!=null||metas.custos!=null||metas.caixa!=null;
+ const faltaAlguma=metas.receita==null||metas.custos==null||metas.caixa==null;
  return painelGrafico('Ritmo do ano',`${ano} · acumulado mês a mês contra a referência`,
   `<div class="ritmo-grid">
-    ${painel('RECEITA','receita',rec,metas.receita,'Meta',true)}
-    ${painel('CUSTOS','custos',des,metas.custos,'Limite',false)}
-    ${painel('CAIXA','caixa',cx,metas.caixa,'Projeção',true)}
+    ${painel('TUDO QUE ENTROU','receita',rec,metas.receita,'Meta',true,COMPOE.entradas)}
+    ${painel('TUDO QUE SAIU','custos',des,metas.custos,'Limite',false,COMPOE.saidas)}
+    ${painel('ENTRADAS MENOS SAÍDAS','caixa',cx,metas.caixa,'Alvo',true,COMPOE.diferenca)}
    </div>
    <p class="chart-foot">A curva soma os meses já coletados. <b>Mês sem dado interrompe a linha</b> — não é tratado como zero. Ponto vazado indica cobertura a conferir.</p>
-   ${definiu?'':'<p class="hint">Defina a meta de receita e o limite de custos para as linhas tracejadas aparecerem. Sem elas, os painéis mostram só o acumulado.</p>'}`,
+   ${faltaAlguma?'<p class="hint">Defina a meta de entradas, o limite de saídas e o alvo da diferença para as linhas tracejadas aparecerem. Painel sem referência mostra só o acumulado.</p>':''}`,
   `<button id="ritmoMetas">${definiu?'Ajustar metas':'Definir metas do ano'}</button>`);
 }
 function formularioMetas(){
  const ano=state.periodo.split('/')[1],m=metasAno(ano);
  dialog('Metas de '+ano,`<form id="metasForm"><p>Valores do ano inteiro. Ficam guardados <b>neste aparelho</b>, como a projeção de 13 semanas — não vão para a nuvem nem alteram o Mubisys.</p>
-  <label>Meta de receita no ano (R$)<input name="receita" type="number" step="0.01" min="0" value="${m.receita??''}" placeholder="Ex.: 5000000"></label>
-  <label>Limite de custos no ano (R$)<input name="custos" type="number" step="0.01" min="0" value="${m.custos??''}" placeholder="Ex.: 4500000"></label>
-  <label>Caixa acumulado desejado (R$)<input name="caixa" type="number" step="0.01" value="${m.caixa??0}"></label>
+  <label>Meta de entradas no ano (R$)<input name="receita" type="number" step="0.01" min="0" value="${m.receita??''}" placeholder="Ex.: 5000000"><small>${COMPOE.entradas}</small></label>
+  <label>Limite de saídas no ano (R$)<input name="custos" type="number" step="0.01" min="0" value="${m.custos??''}" placeholder="Ex.: 4500000"><small>${COMPOE.saidas}</small></label>
+  <label>Alvo de entradas menos saídas no ano (R$)<input name="caixa" type="number" step="0.01" value="${m.caixa??''}" placeholder="Ex.: 180000"><small>${COMPOE.diferenca}</small></label>
   <p class="hint">Deixe em branco para não mostrar a linha tracejada daquele painel.</p>
   <button class="primary" type="submit">Salvar metas</button></form>`);
  $$('metasForm').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);
