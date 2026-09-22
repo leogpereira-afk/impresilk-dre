@@ -412,9 +412,17 @@ function cascataRubricas(reg){
  if(!reg||F.valorConta(reg,'1')==null||F.valorConta(reg,'2')==null)
   return painelGrafico(tit,sub,`<p class="empty">${esc(state.periodo)} ainda não foi coletado — a cascata precisa do total de entradas e do total de saídas do mês.</p>`);
  const r=F.resumo(reg);
+ // Pessoas e impostos saem do bolo "Pagamentos da operação": eram os dois
+ // maiores compromissos fixos escondidos num degrau só de R$ 358 mil. Só saem
+ // se a conta EXISTIR no mês — conta ausente não vira zero, fica dentro do
+ // resto, senão a cascata deixaria de fechar.
+ const pessoas=F.valorConta(reg,'2.1'),impostos=F.valorConta(reg,'2.4');
+ const resto=r.pagamentosOperacionais-(pessoas||0)-(impostos||0);
  const passos=[
   {id:'entradas',nome:'(+) Recebimentos considerados',curto:'Recebeu',v:r.entradas,tipo:'in'},
-  {id:'pagamentosOperacionais',nome:'(−) Pagamentos da operação',curto:'Operação',v:-r.pagamentosOperacionais,tipo:'out'},
+  ...(pessoas!=null?[{id:'2.1',nome:'(−) Pessoas · '+(contaConhecida('2.1')||'Despesas Funcionários'),curto:'Pessoas',v:-pessoas,tipo:'out'}]:[]),
+  ...(impostos!=null?[{id:'2.4',nome:'(−) Impostos · '+(contaConhecida('2.4')||'Despesas Impostos'),curto:'Impostos',v:-impostos,tipo:'out'}]:[]),
+  {id:'pagamentosOperacionais',nome:(pessoas!=null||impostos!=null)?'(−) Demais pagamentos da operação':'(−) Pagamentos da operação',curto:(pessoas!=null||impostos!=null)?'Resto oper.':'Operação',v:-resto,tipo:'out'},
   {id:'socios',nome:'(−) Sócios e arrendamento',curto:'Sócios',v:-r.socios,tipo:'out'},
   {id:'parcelasAtivos',nome:'(−) Parcelas de ativos',curto:'Parcelas',v:-r.parcelasAtivos,tipo:'out'},
   {id:'dividas',nome:'(−) Dívidas classificadas',curto:'Dívidas',v:-r.dividas,tipo:'out'},
