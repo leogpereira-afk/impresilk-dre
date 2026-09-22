@@ -50,10 +50,11 @@ var DRECFO = (() => {
  function analise(reg,anterior){
   const f=DREFinancas,q=f.qualidade(reg),e=f.valorConta(reg,'1'),s=f.valorConta(reg,'2');
   const comp=f.composicao(reg,'2');
+  const comp2=f.comparacao(reg,anterior);
   const ranking=comp.itens.filter(x=>x.value!=null&&x.value!==0).map(x=>({...x,peso:s>0&&!comp.incompleta?x.value/s*100:null,pergunta:pergunta(x.name,x.code)})).sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
   const variacoes=ranking.filter(x=>!x.residuo).map(x=>({...x,...f.compararConta(reg,anterior,x.code)})).filter(x=>x.permitida&&x.delta!==0).sort((a,b)=>Math.abs(b.delta)-Math.abs(a.delta));
   const residual=comp.itens.find(x=>x.residuo)?.value||0;
-  return {q,entradas:e,saidas:s,variacao:e!=null&&s!=null?soma([e,-s]):null,ranking,variacoes,residual,incompleta:comp.incompleta,comparavel:f.comparacao(reg,anterior).permitida,
+  return {q,entradas:e,saidas:s,variacao:e!=null&&s!=null?soma([e,-s]):null,ranking,variacoes,residual,incompleta:comp.incompleta,comparavel:comp2.permitida,comp:comp2,
    maiores:ranking.filter(x=>x.value>0).slice(0,3),concentracao:s>0&&!comp.incompleta?soma(ranking.filter(x=>x.value>0).slice(0,3).map(x=>x.value))/s*100:null};
  }
  function origem(reg,code){
