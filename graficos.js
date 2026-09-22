@@ -359,6 +359,145 @@ function relatorioRegua(){
   (semValidacao?`<p class="hint marca-aviso">* A cobertura da coleta ainda não foi validada nestes meses. Os valores estão na tela e a referência é útil, mas confira antes de decidir.</p>`:''));
 }
 function relatoriosDRE(){
+ const reg=state.records.find(r=>r.label===state.periodo)||null;
  return `<div class="section-heading"><div><p class="eyebrow">RELATÓRIOS</p><h2>Comparativos do ano</h2></div></div>`+
-  relatorioRegua()+relatorioEstrutura()+relatorioPeso();
+  faixaCobertura()+cascataRubricas(reg)+blocosDoCaixa()+relatorioRegua()+relatorioEstrutura()+relatorioPeso();
+}
+
+/* ── 1. FAIXA DE COBERTURA ───────────────────────────────────────────────
+   Antes de qualquer comparativo, a pergunta é "dá para confiar nisto?".
+   Doze quadradinhos dizem de relance quais meses foram coletados até o fim,
+   quais ainda estão correndo e quais faltam. Mês ausente fica vazado: nunca
+   vira quadradinho cinza com cara de "ok". */
+function faixaCobertura(){
+ const ano=state.periodo.split('/')[1];
+ const meses=PT_MON.map((m,i)=>{
+  const label=m+'/'+ano,reg=state.records.find(r=>monthSortKey(r.label)===Number(ano)*12+i)||null;
+  const q=F.qualidade(reg),per=F.periodo(label);
+  const ateOFim=!!reg&&!!q.corte&&!!per&&q.corte>=per.ate;
+  let classe='ausente';
+  if(reg){
+   if(q.estado==='parcial')classe='parcial';
+   else if(q.estado==='desatualizado')classe='atrasado';
+   else classe=ateOFim?(q.comparavel?'validado':'coletado'):'parcial';
+  }
+  return {label,m,reg,q,classe,ateOFim};
+ });
+ const completos=meses.filter(x=>x.ateOFim).length;
+ const validados=meses.filter(x=>x.classe==='validado').length;
+ const escopos=new Set(meses.filter(x=>x.reg).map(x=>JSON.stringify([x.reg.company,x.reg.basis,x.reg.qualidade?.escopo,x.reg.qualidade?.regra])));
+ return `<section class="cobertura-card">
+  <div class="cobertura-topo"><div><h3>Dá para confiar nestes comparativos?</h3>
+   <p>${esc(ano)} · como está a coleta de cada um dos doze meses</p></div>
+   <div class="cobertura-conta"><b>${completos} de 12</b><span>meses coletados até o último dia</span></div></div>
+  <div class="cobertura-faixa">${meses.map(x=>`<button class="cob ${x.classe}" data-period="${esc(x.label)}" ${x.reg?'':'disabled'}
+    title="${esc(x.label+' · '+x.q.rotulo+' — '+x.q.mensagem)}"><i></i><span>${esc(x.m[0])}</span></button>`).join('')}</div>
+  <div class="cobertura-legenda">
+   <span><i class="cob validado"></i>coletado e validado</span>
+   <span><i class="cob coletado"></i>coletado, cobertura a conferir</span>
+   <span><i class="cob parcial"></i>mês ainda correndo</span>
+   <span><i class="cob ausente"></i>sem coleta</span></div>
+  ${validados===0&&completos>0?`<p class="hint marca-aviso">Nenhum mês teve a cobertura da coleta validada ainda. Os valores estão na tela e os comparativos funcionam, marcados com <b>*</b> — confira antes de decidir.</p>`:''}
+  ${escopos.size>1?`<p class="hint marca-aviso">Há empresas ou critérios diferentes neste ano; os meses não formam uma série única.</p>`:''}
+ </section>`;
+}
+
+/* ── 2. CASCATA DO MÊS, NAS RUBRICAS DO PRÓPRIO DRE ──────────────────────
+   Nove degraus com os MESMOS nomes das linhas da tabela acima. Fecha por
+   construção: entradas − as sete saídas = variação (identidade garantida
+   por F.resumo, que define pagamentosOperacionais como o que sobra).
+   O cursor acumula em CENTAVOS para o último degrau bater no centavo.     */
+function cascataRubricas(reg){
+ const tit='Entrou, saiu, sobrou — por onde passou',sub=`${esc(state.periodo)} · os mesmos degraus da coluna deste mês na tabela acima`;
+ if(!reg||F.valorConta(reg,'1')==null||F.valorConta(reg,'2')==null)
+  return painelGrafico(tit,sub,`<p class="empty">${esc(state.periodo)} ainda não foi coletado — a cascata precisa do total de entradas e do total de saídas do mês.</p>`);
+ const r=F.resumo(reg);
+ const passos=[
+  {id:'entradas',nome:'(+) Recebimentos considerados',curto:'Recebeu',v:r.entradas,tipo:'in'},
+  {id:'pagamentosOperacionais',nome:'(−) Pagamentos da operação',curto:'Operação',v:-r.pagamentosOperacionais,tipo:'out'},
+  {id:'socios',nome:'(−) Sócios e arrendamento',curto:'Sócios',v:-r.socios,tipo:'out'},
+  {id:'parcelasAtivos',nome:'(−) Parcelas de ativos',curto:'Parcelas',v:-r.parcelasAtivos,tipo:'out'},
+  {id:'dividas',nome:'(−) Dívidas classificadas',curto:'Dívidas',v:-r.dividas,tipo:'out'},
+  {id:'transferencias',nome:'(−) Transferências entre empresas',curto:'Transfer.',v:-r.transferencias,tipo:'out'},
+  {id:'investimentos',nome:'(−) Investimentos classificados',curto:'Máquinas',v:-r.investimentos,tipo:'out'},
+  {id:'pendentes',nome:'(−) Saídas sem detalhamento',curto:'Sem detalhe',v:-r.pendentes,tipo:'out'},
+ ];
+ const W=980,H=300,PL=58,PR=14,PT=18,PB=76;
+ let cur=0;const barras=[];
+ for(const p of passos){const de=cur;cur=Math.round(cur*100+Math.round(p.v*100))/100;barras.push({...p,de,ate:cur});}
+ barras.push({id:'variacao',nome:'(=) Variação do caixa',curto:'Sobrou',v:cur,tipo:'net',de:0,ate:cur});
+ const todos=barras.flatMap(b=>[b.de,b.ate]).concat(0);
+ let alto=Math.max(...todos),baixo=Math.min(...todos);
+ const folga=(alto-baixo)*.1||1;alto+=folga;baixo-=folga;
+ const n=barras.length,larg=(W-PL-PR)/n*0.62,passoX=(W-PL-PR)/n;
+ const x=i=>PL+i*passoX+(passoX-larg)/2, y=v=>PT+(alto-v)/(alto-baixo)*(H-PT-PB);
+ const bruto=(alto-baixo)/4,ordem=10**Math.floor(Math.log10(Math.abs(bruto)||1));
+ const pe=([1,2,2.5,5,10].find(k=>k*ordem>=bruto)||10)*ordem;
+ const marcas=[];for(let v=Math.ceil(baixo/pe)*pe;v<=alto;v+=pe)marcas.push(v);
+ return painelGrafico(tit,sub,`<div class="painel-escuro"><div class="chart-scroll" tabindex="0" role="region" aria-label="Cascata do mês">
+  <svg class="cascata-svg" viewBox="0 0 ${W} ${H}">
+   ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="casc-grade"/><text x="${PL-7}" y="${y(v)+3}" class="casc-eixo">${esc(compacto(v))}</text>`).join('')}
+   <line x1="${PL}" y1="${y(0)}" x2="${W-PR}" y2="${y(0)}" class="casc-zero"/>
+   ${barras.map((b,i)=>{
+     const topo=Math.max(b.de,b.ate),base=Math.min(b.de,b.ate);
+     const altura=Math.max(2,Math.abs(y(base)-y(topo)));
+     const lig=i>0&&i<barras.length-1?`<line x1="${(x(i-1)+larg).toFixed(1)}" y1="${y(barras[i-1].ate).toFixed(1)}" x2="${x(i).toFixed(1)}" y2="${y(b.de).toFixed(1)}" class="casc-lig"/>`:'';
+     return `${lig}<g class="casc-barra ${b.tipo}"><rect x="${x(i).toFixed(1)}" y="${y(topo).toFixed(1)}" width="${larg.toFixed(1)}" height="${altura.toFixed(1)}" rx="2"><title>${esc(b.nome+': '+money(b.v))}</title></rect>
+      <text x="${(x(i)+larg/2).toFixed(1)}" y="${(y(topo)-6).toFixed(1)}" class="casc-valor">${esc(Math.abs(b.v)<0.5?'0':compacto(b.v))}</text></g>`;
+   }).join('')}
+   ${barras.map((b,i)=>`<text x="${(x(i)+larg/2).toFixed(1)}" y="${H-PB+18}" class="casc-rot ${b.tipo}">${esc(b.curto)}</text>`).join('')}
+  </svg></div>
+  <div class="casc-rodape"><b class="${cur<0?'ruim':'bom'}">${esc(money(cur))}</b><span>é a VARIAÇÃO do caixa do mês — não é lucro e não é saldo em banco</span></div></div>
+  <details class="chart-data"><summary>Ver os valores do gráfico</summary><div class="table-scroll"><table><tbody>${barras.map(b=>`<tr><td>${esc(b.nome)}</td><td class="num">${esc(money(b.v))}</td></tr>`).join('')}</tbody></table></div></details>
+  ${r.emprestimos>0?`<p class="hint">Entraram <b>${esc(money(r.emprestimos))}</b> de empréstimo neste mês: dinheiro de banco também entra no primeiro degrau.</p>`:''}`);
+}
+
+/* ── 3. OS TRÊS BLOCOS QUE MEXERAM O CAIXA ───────────────────────────────
+   Barras COM SINAL: o que a operação sobrou acima do zero, o que sócio e
+   dívida levaram abaixo. Responde "o mês foi salvo pela operação ou por
+   empréstimo?", que o total de entradas não responde.                      */
+function blocosDoCaixa(){
+ const ano=state.periodo.split('/')[1];
+ const meses=PT_MON.map((m,i)=>{
+  const label=m+'/'+ano,reg=state.records.find(r=>monthSortKey(r.label)===Number(ano)*12+i)||null;
+  if(!reg||F.valorConta(reg,'1')==null||F.valorConta(reg,'2')==null)return {label,m,vazio:true};
+  const r=F.resumo(reg);
+  return {label,m,vazio:false,
+   operacao:r.saldoOperacional,
+   socios:-(r.socios+r.parcelasAtivos+r.investimentos),
+   divida:r.emprestimos+r.rendimentos+r.naoIdentificadas+r.outrasEntradas-(r.dividas+r.transferencias+r.pendentes),
+   variacao:r.variacao};
+ });
+ const W=980,H=300,PL=58,PR=14,PT=18,PB=40;
+ const series=[{id:'operacao',nome:'Sobra da operação',cor:'#3ddc97'},{id:'socios',nome:'Sócios, ativos e investimento',cor:'#c2a6e7'},{id:'divida',nome:'Empréstimo e outros',cor:'#f3ae7f'}];
+ const comDado=meses.filter(x=>!x.vazio);
+ if(!comDado.length)return painelGrafico('O que mexeu o caixa em cada mês',ano,'<p class="empty">Nenhum mês coletado neste ano.</p>');
+ const somaPos=x=>series.reduce((n,s)=>n+Math.max(0,x[s.id]||0),0),somaNeg=x=>series.reduce((n,s)=>n+Math.min(0,x[s.id]||0),0);
+ let alto=Math.max(0,...comDado.map(somaPos)),baixo=Math.min(0,...comDado.map(somaNeg));
+ const folga=(alto-baixo)*.08||1;alto+=folga;baixo-=folga;
+ const passoX=(W-PL-PR)/12,larg=passoX*0.6;
+ const x=i=>PL+i*passoX+(passoX-larg)/2, y=v=>PT+(alto-v)/(alto-baixo)*(H-PT-PB);
+ const bruto=(alto-baixo)/4,ordem=10**Math.floor(Math.log10(Math.abs(bruto)||1));
+ const pe=([1,2,2.5,5,10].find(k=>k*ordem>=bruto)||10)*ordem;
+ const marcas=[];for(let v=Math.ceil(baixo/pe)*pe;v<=alto;v+=pe)marcas.push(v);
+ return painelGrafico('O que mexeu o caixa em cada mês',`${ano} · a operação sobrou acima do zero; sócio e dívida puxam abaixo`,
+  `<div class="painel-escuro"><div class="chart-legend escuro">${series.map(s=>`<span><i style="--serie:${s.cor}"></i>${esc(s.nome)}</span>`).join('')}<span><i class="pt-var"></i>Variação do mês</span></div>
+  <div class="chart-scroll" tabindex="0" role="region" aria-label="Blocos que mexeram o caixa"><svg class="blocos-svg" viewBox="0 0 ${W} ${H}">
+   ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="casc-grade"/><text x="${PL-7}" y="${y(v)+3}" class="casc-eixo">${esc(compacto(v))}</text>`).join('')}
+   <line x1="${PL}" y1="${y(0)}" x2="${W-PR}" y2="${y(0)}" class="casc-zero"/>
+   ${meses.map((m,i)=>{
+     if(m.vazio)return `<text x="${(x(i)+larg/2).toFixed(1)}" y="${y(0)-6}" class="casc-vazio">—</text>`;
+     let cimaAcc=0,baixoAcc=0,out='';
+     for(const s of series){
+      const v=m[s.id]||0;if(!v)continue;
+      const de=v>0?cimaAcc:baixoAcc,ate=de+v;
+      if(v>0)cimaAcc=ate;else baixoAcc=ate;
+      const topo=Math.max(de,ate);
+      out+=`<rect x="${x(i).toFixed(1)}" y="${y(topo).toFixed(1)}" width="${larg.toFixed(1)}" height="${Math.max(1.5,Math.abs(y(de)-y(ate))).toFixed(1)}" fill="${s.cor}" rx="1.5"><title>${esc(m.label+' · '+s.nome+': '+money(v))}</title></rect>`;
+     }
+     return out+`<circle cx="${(x(i)+larg/2).toFixed(1)}" cy="${y(m.variacao).toFixed(1)}" r="3.4" class="pt-variacao"><title>${esc(m.label+' · variação do mês: '+money(m.variacao))}</title></circle>`;
+   }).join('')}
+   ${meses.map((m,i)=>`<text x="${(x(i)+larg/2).toFixed(1)}" y="${H-14}" class="casc-rot ${m.label===state.periodo?'atual':''}">${esc(m.m)}</text>`).join('')}
+  </svg></div></div>
+  <p class="chart-foot">O ponto branco é a variação do mês: quando ele fica acima do zero e as barras verdes são pequenas, quem segurou o caixa foi empréstimo, não a operação. — significa mês sem coleta.</p>`);
 }

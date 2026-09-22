@@ -143,3 +143,64 @@ body.dark .regua-ponto.delta-ruim{background:#f0708f}
 .regua-pes{display:flex;justify-content:space-between;margin-top:7px;font-size:11px;color:var(--muted)}
 .marca-conferir{color:var(--amber);font-weight:700;margin-left:3px}
 .marca-aviso{color:var(--amber)}
+
+/* ── PAINEL ESCURO ───────────────────────────────────────────────────────
+   Mesmo fundo do "Ritmo do ano", no modelo que o Leonardo trouxe: escuro
+   mesmo no tema claro. A figura ganha contraste contra os cards brancos e a
+   leitura vira "de que lado do zero isto está". */
+.painel-escuro{
+ position:relative;border-radius:14px;padding:16px 14px 12px;overflow:hidden;
+ background:#0b0f16;border:1px solid #1d2635;color:#e8eef7;margin-top:4px;
+}
+.painel-escuro:before{content:'';position:absolute;inset:0;pointer-events:none;
+ background:radial-gradient(120% 70% at 50% 100%,#12b76a1f 0%,transparent 72%)}
+.painel-escuro .chart-scroll{position:relative;background:none}
+.cascata-svg,.blocos-svg{width:100%;min-width:760px;height:auto;display:block}
+.casc-grade{stroke:#ffffff12;stroke-width:1}
+.casc-zero{stroke:#ffffff66;stroke-width:1.2}
+.casc-eixo{fill:#ffffff8c;font:10px/1 var(--font-ui);text-anchor:end}
+.casc-rot{fill:#ffffff85;font:10px/1 var(--font-ui);text-anchor:middle}
+.casc-rot.atual{fill:#fff;font-weight:700}
+.casc-valor{fill:#ffffffb5;font:9.5px/1 var(--font-ui);text-anchor:middle}
+.casc-vazio{fill:#ffffff55;font:11px/1 var(--font-ui);text-anchor:middle}
+.casc-lig{stroke:#ffffff40;stroke-width:1;stroke-dasharray:3 3}
+.casc-barra.in rect{fill:#3ddc97}
+.casc-barra.out rect{fill:#f0708f}
+.casc-barra.net rect{fill:#7cb0ff}
+.pt-variacao{fill:#fff;stroke:#0b0f16;stroke-width:1.4}
+.chart-legend.escuro{position:relative;color:#ffffffb5}
+.chart-legend.escuro .pt-var{width:9px;height:9px;border-radius:50%;background:#fff;display:inline-block}
+.casc-rodape{position:relative;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;color:#ffffffa8}
+.casc-rodape b{font-size:18px;font-weight:650;color:#3ddc97}
+.casc-rodape b.ruim{color:#f0708f}
+
+/* ── FAIXA DE COBERTURA ─────────────────────────────────────────────── */
+.cobertura-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0 0 20px}
+.cobertura-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap;margin-bottom:14px}
+.cobertura-topo h3{margin:0 0 3px;font-size:16px;font-weight:650}
+.cobertura-topo p{margin:0;color:var(--muted);font-size:12px}
+.cobertura-conta{text-align:right}
+.cobertura-conta b{display:block;font-size:20px;font-weight:650}
+.cobertura-conta span{font-size:11px;color:var(--muted)}
+.cobertura-faixa{display:flex;gap:6px}
+.cobertura-faixa .cob{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;background:none;border:0;padding:0;min-height:auto;cursor:pointer}
+.cobertura-faixa .cob[disabled]{cursor:default}
+.cobertura-faixa .cob span{font-size:10px;color:var(--muted)}
+.cob i{display:block;width:100%;height:26px;border-radius:5px;background:var(--line)}
+.cob.validado i{background:var(--chart-in)}
+.cob.coletado i{background:var(--chart-in);opacity:.55;
+ background-image:repeating-linear-gradient(45deg,#fff3 0 3px,transparent 3px 6px)}
+.cob.parcial i{background:linear-gradient(to top,var(--amber) 50%,var(--line) 50%)}
+.cob.atrasado i{background:var(--amber);background-image:repeating-linear-gradient(45deg,#fff5 0 3px,transparent 3px 6px)}
+.cob.ausente i{background:transparent;border:1px dashed var(--line)}
+.cobertura-legenda{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;font-size:11px;color:var(--muted);align-items:center}
+.cobertura-legenda span{display:flex;align-items:center;gap:6px}
+.cobertura-legenda i.cob{width:18px;height:11px;border-radius:3px;flex:none}
+@media (max-width:640px){.cobertura-faixa{gap:3px}.cob i{height:20px}.cobertura-legenda{gap:10px}}
+/* a legenda usa o próprio <i> como amostra: as regras acima pintam um filho */
+.cobertura-legenda i.cob.validado{background:var(--chart-in)}
+.cobertura-legenda i.cob.coletado{background:var(--chart-in);opacity:.55;background-image:repeating-linear-gradient(45deg,#fff3 0 3px,transparent 3px 6px)}
+.cobertura-legenda i.cob.parcial{background:linear-gradient(to top,var(--amber) 50%,var(--line) 50%)}
+.cobertura-legenda i.cob.ausente{background:transparent;border:1px dashed var(--line)}
+.casc-rot.in{fill:#3ddc97}
+.casc-rot.net{fill:#7cb0ff;font-weight:700}
