@@ -411,7 +411,7 @@ function relatorioRegua(){
 function relatoriosDRE(){
  const reg=state.records.find(r=>r.label===state.periodo)||null;
  return `<div class="section-heading"><div><p class="eyebrow">RELATÓRIOS</p><h2>Comparativos do ano</h2></div></div>`+
-  faixaCobertura()+cascataRubricas(reg)+blocosDoCaixa()+relatorioRegua()+relatorioEstrutura()+relatorioPeso();
+  cascataRubricas(reg)+blocosDoCaixa()+relatorioRegua()+relatorioEstrutura()+relatorioPeso();
 }
 
 /* ── 1. FAIXA DE COBERTURA ───────────────────────────────────────────────
