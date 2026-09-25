@@ -78,3 +78,37 @@ test('CSV: número negativo sai como número; fórmula continua neutralizada', (
  assert.equal(c.run("celulaCSV('=HYPERLINK(1)')"),`"'=HYPERLINK(1)"`);
  assert.equal(c.run("celulaCSV('-cmd')"),`"'-cmd"`);
 });
+
+/* Mais dois defeitos da mesma revisão, nos "Comparativos do ano": a coluna
+   de um mês que "somava 100%" só com os grupos do mês-base, e a saída sem
+   detalhamento que aparecia como empréstimo/dívida. */
+test('estrutura: a coluna de cada mês fecha com a conta 2 dele, não com os grupos do mês-base', () => {
+ const c=view();
+ // Set/2026 parcial só tem Funcionários e Materiais; Ago/2026 tem também Impostos e Fixas.
+ c.run(`var nomes={'2.1':'Funcionários','2.12':'Materiais','2.4':'Impostos','2.5':'Fixas'};
+  var celN=o=>cel(o).map(x=>({...x,name:nomes[x.code]||x.name}));
+  state.records=[erp('Ago/2026','2026-08-31',celN({'2':1000,'2.1':100,'2.12':100,'2.4':300,'2.5':500})),
+   erp('Set/2026','2026-09-24',celN({'2':300,'2.1':200,'2.12':100}),{estado:'parcial'})];state.periodo='Set/2026';`);
+ const html=c.run('relatorioEstrutura()');
+ const ago=Object.fromEntries([...html.matchAll(/title="Ago\/2026 · ([^:"]+): ([\d.]+)%/g)].map(m=>[m[1],Number(m[2])]));
+ assert.equal(ago['Funcionários'],10,'era 50%: a base da coluna não pode ser só Funcionários + Materiais');
+ assert.equal(ago['Materiais'],10);
+ // Impostos (30%) e Fixas (50%) não são grupos do mês-base: entram em "Demais grupos", não somem
+ const impostosEFixas=(ago['Impostos']||0)+(ago['Fixas']||0)+(ago['Demais grupos']||0);
+ assert.equal(impostosEFixas,80);
+ assert.equal(Math.round(Object.values(ago).reduce((a,b)=>a+b,0)),100,'cada coluna soma 100% das saídas daquele mês');
+ assert.match(html,/Demais grupos<\/span>/,'"Demais grupos" tem de estar na legenda mesmo com o mês-base tendo menos de cinco grupos');
+});
+
+test('caixa: saída sem detalhamento (2.99) não vira empréstimo nem dívida', () => {
+ const c=view();
+ c.run(`state.records=[erp('Jul/2026','2026-07-31',cel({'1':1000,'1.1':1000,'2':1000,'2.5':600,'2.99':400}))];state.periodo='Ago/2026';`);
+ const html=c.run('blocosDoCaixa()');
+ const jul=Object.fromEntries([...html.matchAll(/<title>Jul\/2026 · ([^:<]+): ([^<]+)<\/title>/g)].map(m=>[m[1],m[2]]));
+ assert.deepEqual(Object.keys(jul).filter(k=>/Empréstimo/.test(k)),[],'mês sem empréstimo nem dívida não pode ter barra de empréstimo');
+ // \s: o Intl põe espaço NÃO separável entre "R$" e o número
+ assert.match(jul['Sem detalhamento'],/^-R\$\s400,00$/);
+ assert.match(jul['Sobra da operação'],/^R\$\s400,00$/);
+ assert.match(jul['variação do mês'],/^R\$\s0,00$/,'as barras continuam somando a variação do mês');
+ assert.doesNotMatch(texto(html),/Empréstimo e outros/);
+});

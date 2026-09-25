@@ -278,18 +278,26 @@ function miniSerie(valores,opts={}){
 }
 
 /* Barras empilhadas 100%: responde "a ESTRUTURA do gasto mudou?", que o valor
-   absoluto não responde — num mês de faturamento maior tudo sobe junto. */
+   absoluto não responde — num mês de faturamento maior tudo sobe junto.
+   A base da coluna é m.total (a conta '2' do mês), não a soma do que foi
+   desenhado: somar só os grupos escolhidos fazia qualquer par de grupos virar
+   "100%". "Demais grupos" sai sempre em cinza (--muted), qualquer que seja a
+   posição, para não se passar por um grupo de verdade. */
 function graficoEstrutura(meses,grupos,label){
- const cores=['var(--cost-0)','var(--cost-1)','var(--cost-2)','var(--cost-3)','var(--cost-4)','var(--muted)'];
- const legenda=`<div class="chart-legend">${grupos.map((g,i)=>`<span><i style="--serie:${cores[i%cores.length]}"></i>${esc(g.nome)}</span>`).join('')}</div>`;
+ const cores=['var(--cost-0)','var(--cost-1)','var(--cost-2)','var(--cost-3)','var(--cost-4)'];
+ const cor=(g,i)=>g.id==='~outros'?'var(--muted)':cores[i%cores.length];
+ const legenda=`<div class="chart-legend">${grupos.map((g,i)=>`<span><i style="--serie:${cor(g,i)}"></i>${esc(g.nome)}</span>`).join('')}</div>`;
  return `${legenda}<div class="chart-scroll" tabindex="0" role="region" aria-label="${esc(label)}"><div class="estrutura-chart">${meses.map(m=>{
-  const total=grupos.reduce((n,g)=>n+(m.valores[g.id]||0),0);
-  if(!total)return `<div class="estrutura-col vazia"><span class="estrutura-barra"><i class="sem-dado">—</i></span><span class="chart-month">${esc(m.label.split('/')[0])}</span></div>`;
+  const soma=grupos.reduce((n,g)=>n+(m.valores[g.id]||0),0);
+  // Estorno (valor negativo) fora dos grupos desenhados pode fazer os grupos
+  // passarem da conta '2'; aí a coluna se mede pela soma para não vazar.
+  const total=m.total==null?soma:Math.max(m.total,soma);
+  if(!(total>0))return `<div class="estrutura-col vazia"><span class="estrutura-barra"><i class="sem-dado">—</i></span><span class="chart-month">${esc(m.label.split('/')[0])}</span></div>`;
   return `<div class="estrutura-col ${m.label===state.periodo?'chosen':''}"><span class="estrutura-barra">${grupos.map((g,i)=>{
    const v=m.valores[g.id]||0,pct=v/total*100;
-   return pct<0.6?'':`<i style="--serie:${cores[i%cores.length]};height:${pct.toFixed(2)}%" title="${esc(m.label+' · '+g.nome+': '+pct.toFixed(1)+'% · '+money(v))}"></i>`;
+   return pct<0.6?'':`<i style="--serie:${cor(g,i)};height:${pct.toFixed(2)}%" title="${esc(m.label+' · '+g.nome+': '+pct.toFixed(1)+'% · '+money(v))}"></i>`;
   }).join('')}</span><span class="chart-month">${esc(m.label.split('/')[0])}</span></div>`;
- }).join('')}</div></div><p class="chart-foot">Cada coluna soma 100% das saídas daquele mês. Fatia menor que 0,6% não é desenhada. — significa mês sem dado.</p>`;
+ }).join('')}</div></div><p class="chart-foot">Cada coluna soma 100% das saídas (conta 2) daquele mês: o que não está nos grupos da legenda entra em Demais grupos. Fatia menor que 0,6% não é desenhada. — significa mês sem dado.</p>`;
 }
 
 /* Linhas sobrepostas para percentuais (margem, peso de grupo no tempo). */
@@ -322,30 +330,43 @@ function graficoLinhas(meses,series,label,sufixo='%'){
    Ano contra ano NÃO entra: a base começa em Dez/2025, então só dezembro
    teria par. Mostrar uma coluna de "vs ano anterior" cheia de "—" seria pior
    que não mostrar. Volta sozinho quando houver 12 meses de histórico.       */
+/* Só escolhe QUAIS grupos ganham cor, olhando o mês-base. Não diz nada sobre
+   o que sobra nos outros meses: isso é conta de cada coluna (relatorioEstrutura).
+   O resíduo da composição ("Sem detalhamento / diferença") não tem conta própria
+   para ler mês a mês — se entrasse aqui, viraria legenda sem barra; o valor dele
+   já cai em "Demais grupos". */
 function gruposDeSaida(reg,limite=5){
  const comp=F.composicao(reg,'2');
- const itens=comp.itens.filter(x=>x.value!=null&&x.value>0).sort((a,b)=>b.value-a.value);
- const topo=itens.slice(0,limite).map(x=>({id:x.code,nome:x.name}));
- return {topo,temResto:itens.length>limite};
+ const itens=comp.itens.filter(x=>!x.residuo&&x.value!=null&&x.value>0).sort((a,b)=>b.value-a.value);
+ return {topo:itens.slice(0,limite).map(x=>({id:x.code,nome:x.name}))};
 }
+/* Cada coluna fecha com a conta '2' DAQUELE mês. Antes a coluna era a soma dos
+   grupos do mês-base e "Demais grupos" só existia se o mês-base tivesse mais de
+   cinco grupos. Caso real da revisão: Set/2026 parcial (só Funcionários e
+   Materiais) como base, e Ago/2026 saiu 50% / 50% quando o real era 10% / 10% —
+   Impostos (30%) e Fixas (50%) sumiram da coluna, e o rodapé ainda afirmava
+   "100% das saídas". Agora o que não couber nos grupos desenhados vai para
+   "Demais grupos" em qualquer mês que tenha sobra (> R$ 0,05, abaixo disso é
+   arredondamento). Mês sem conta '2' continua sem coluna: sem dado não é zero. */
 function relatorioEstrutura(){
  const ano=state.periodo.split('/')[1];
  const base=state.records.find(r=>r.label===state.periodo)||[...state.records].reverse()[0];
  if(!base)return '';
- const {topo,temResto}=gruposDeSaida(base);
- const grupos=[...topo,...(temResto?[{id:'~outros',nome:'Demais grupos'}]:[])];
+ const {topo}=gruposDeSaida(base);
+ let temResto=false;
  const meses=F.serieAnual(state.records,state.periodo,'2').map(m=>{
-  const valores={};
-  if(m.reg){
-   const total=F.valorConta(m.reg,'2')||0;let somados=0;
-   for(const g of topo){const v=F.valorConta(m.reg,g.id);if(v!=null&&v>0){valores[g.id]=v;somados+=v;}}
-   if(temResto&&total>somados)valores['~outros']=total-somados;
-  }
-  return {label:m.label,valores};
+  const valores={},total=m.reg?F.valorConta(m.reg,'2'):null;
+  if(total==null)return {label:m.label,valores,total:null};
+  let somados=0;
+  for(const g of topo){const v=F.valorConta(m.reg,g.id);if(v!=null&&v>0){valores[g.id]=v;somados+=v;}}
+  const resto=Math.round((total-somados)*100)/100;
+  if(resto>0.05){valores['~outros']=resto;temResto=true;}
+  return {label:m.label,valores,total};
  });
+ const grupos=[...topo,...(temResto?[{id:'~outros',nome:'Demais grupos'}]:[])];
  return painelGrafico('A estrutura do gasto mudou?',`${ano} · cada mês em 100% — proporção de cada grupo nas saídas`,
   graficoEstrutura(meses,grupos,'Estrutura das saídas por mês')+
-  `<p class="hint">Em mês de faturamento maior tudo sobe junto; aqui só muda o que mudou de <b>proporção</b>. Os grupos são os cinco maiores de ${esc(base.label)}.</p>`);
+  `<p class="hint">Em mês de faturamento maior tudo sobe junto; aqui só muda o que mudou de <b>proporção</b>. Os grupos são os maiores de ${esc(base.label)} (até cinco)${temResto?'; o restante das saídas de cada mês entra em <b>Demais grupos</b>':''}.</p>`);
 }
 function relatorioPeso(){
  const ano=state.periodo.split('/')[1];
@@ -514,12 +535,22 @@ function cascataRubricas(reg){
   ${r.emprestimos>0?`<p class="hint">Entraram <b>${esc(money(r.emprestimos))}</b> de empréstimo neste mês: dinheiro de banco também entra no primeiro degrau.</p>`:''}`);
 }
 
-/* ── 3. OS TRÊS BLOCOS QUE MEXERAM O CAIXA ───────────────────────────────
+/* ── 3. OS BLOCOS QUE MEXERAM O CAIXA ────────────────────────────────────
    Barras COM SINAL: o que a operação sobrou acima do zero, o que sócio e
    dívida levaram abaixo. Responde "o mês foi salvo pela operação ou por
-   empréstimo?", que o total de entradas não responde.                      */
+   empréstimo?", que o total de entradas não responde.
+   O que o ERP não classificou tem barra PRÓPRIA, cinza. Antes ia junto com
+   empréstimo ("Empréstimo e outros"): R$ 400 de Saídas sem detalhamento
+   (2.99) num mês sem empréstimo nenhum apareciam como "Empréstimo e outros:
+   −R$ 400", e o rodapé mandava ler isso como dívida. Cinza não é dívida nem
+   empréstimo até alguém classificar. As quatro barras continuam somando a
+   variação do mês (o ponto branco).
+   As cores são fixas porque o painel é escuro nos dois temas (.painel-escuro,
+   fundo #0b0f16 também fora do body.dark); o cinza foi escolhido para ler
+   bem contra esse fundo e não se confundir com o ponto branco.             */
 function blocosDoCaixa(){
  const ano=state.periodo.split('/')[1];
+ const centavos=n=>Math.round(n*100)/100;
  const meses=PT_MON.map((m,i)=>{
   const label=m+'/'+ano,reg=state.records.find(r=>monthSortKey(r.label)===Number(ano)*12+i)||null;
   if(!reg||F.valorConta(reg,'1')==null||F.valorConta(reg,'2')==null)return {label,m,vazio:true};
@@ -527,11 +558,12 @@ function blocosDoCaixa(){
   return {label,m,vazio:false,
    operacao:r.saldoOperacional,
    socios:-(r.socios+r.parcelasAtivos+r.investimentos),
-   divida:r.emprestimos+r.rendimentos+r.naoIdentificadas+r.outrasEntradas-(r.dividas+r.transferencias+r.pendentes),
+   divida:centavos(r.emprestimos+r.rendimentos-r.dividas),
+   semDetalhe:centavos(r.naoIdentificadas+r.outrasEntradas-(r.pendentes+r.transferencias)),
    variacao:r.variacao};
  });
  const W=980,H=300,PL=58,PR=14,PT=18,PB=40;
- const series=[{id:'operacao',nome:'Sobra da operação',cor:'#3ddc97'},{id:'socios',nome:'Sócios, ativos e investimento',cor:'#c2a6e7'},{id:'divida',nome:'Empréstimo e outros',cor:'#f3ae7f'}];
+ const series=[{id:'operacao',nome:'Sobra da operação',cor:'#3ddc97'},{id:'socios',nome:'Sócios, ativos e investimento',cor:'#c2a6e7'},{id:'divida',nome:'Empréstimo e dívida',cor:'#f3ae7f'},{id:'semDetalhe',nome:'Sem detalhamento',cor:'#8e98aa'}];
  const comDado=meses.filter(x=>!x.vazio);
  if(!comDado.length)return painelGrafico('O que mexeu o caixa em cada mês',ano,'<p class="empty">Nenhum mês coletado neste ano.</p>');
  const somaPos=x=>series.reduce((n,s)=>n+Math.max(0,x[s.id]||0),0),somaNeg=x=>series.reduce((n,s)=>n+Math.min(0,x[s.id]||0),0);
@@ -542,7 +574,7 @@ function blocosDoCaixa(){
  const bruto=(alto-baixo)/4,ordem=10**Math.floor(Math.log10(Math.abs(bruto)||1));
  const pe=([1,2,2.5,5,10].find(k=>k*ordem>=bruto)||10)*ordem;
  const marcas=[];for(let v=Math.ceil(baixo/pe)*pe;v<=alto;v+=pe)marcas.push(v);
- return painelGrafico('O que mexeu o caixa em cada mês',`${ano} · a operação sobrou acima do zero; sócio e dívida puxam abaixo`,
+ return painelGrafico('O que mexeu o caixa em cada mês',`${ano} · a operação sobrou acima do zero; sócio e dívida puxam abaixo; cinza é o que o ERP não classificou`,
   `<div class="painel-escuro"><div class="chart-legend escuro">${series.map(s=>`<span><i style="--serie:${s.cor}"></i>${esc(s.nome)}</span>`).join('')}<span><i class="pt-var"></i>Variação do mês</span></div>
   <div class="chart-scroll" tabindex="0" role="region" aria-label="Blocos que mexeram o caixa"><svg class="blocos-svg" viewBox="0 0 ${W} ${H}">
    ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="casc-grade"/><text x="${PL-7}" y="${y(v)+3}" class="casc-eixo">${esc(compacto(v))}</text>`).join('')}
@@ -561,5 +593,5 @@ function blocosDoCaixa(){
    }).join('')}
    ${meses.map((m,i)=>`<text x="${(x(i)+larg/2).toFixed(1)}" y="${H-14}" class="casc-rot ${m.label===state.periodo?'atual':''}">${esc(m.m)}</text>`).join('')}
   </svg></div></div>
-  <p class="chart-foot">O ponto branco é a variação do mês: quando ele fica acima do zero e as barras verdes são pequenas, quem segurou o caixa foi empréstimo, não a operação. — significa mês sem coleta.</p>`);
+  <p class="chart-foot">O ponto branco é a variação do mês: quando ele fica acima do zero e as barras verdes são pequenas, quem segurou o caixa não foi a operação — veja se foi o laranja (empréstimo) ou o cinza. Cinza é Sem detalhamento: saídas sem detalhamento, transferências entre empresas e entradas a identificar; não é dívida nem empréstimo até ser classificado. — significa mês sem coleta.</p>`);
 }
