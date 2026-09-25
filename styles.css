@@ -64,3 +64,68 @@ th{font-weight:600}.line{line-height:1.65}.line b{font-weight:550}.line.total b{
 .coleta-bar a{white-space:nowrap}.coleta-alerta{border-color:#ca934b}
 @media(max-width:700px){.coleta-bar{align-items:flex-start;flex-direction:column;gap:8px;padding:14px}.toolbar{flex-wrap:wrap}}
 @media print{.coleta-bar{display:none!important}}
+
+/* ==========================================================================
+   DENSIDADE DOS CARDS (25/09/2026) — pedido do Léo: "cards muito grandes,
+   muitas informações em espaços vazios". Medido antes de mexer, a 1440 px:
+   - listas rótulo → valor com 760 a 816 px entre o nome e o número
+     (Resultado, Detalhamento, Conferência): o olho atravessava a tela;
+   - faixa de coleta com 7,5% da área ocupada, no topo de todas as telas;
+   - KPIs com 140 px de altura para três linhas; atalhos de custo com 112 px.
+   Esta camada é a ÚNICA fonte da densidade dos cards: vem por último e vence
+   as declarações antigas espalhadas acima (limpar essas é o "dedupe" que
+   ficou pendente). Aqui só muda ESPAÇO — nenhuma cor, fonte ou conteúdo.
+   ========================================================================== */
+.card{margin:14px 0;border-radius:14px}
+.card>summary{padding:14px 18px;font-size:16px}
+.card-body{padding:0 18px 16px}
+.section-heading{margin:20px 0 12px}
+/* O valor fica perto do nome: em card largo a linha para em 36rem, e os
+   valores continuam alinhados entre si, formando uma coluna. Alinhamento pela
+   LINHA DE BASE: quando o rótulo é link (botão), ele ficava mais baixo que o
+   valor ao lado. */
+.line{padding:8px 0;align-items:baseline}
+.card-body .line{max-width:36rem}
+.cards{gap:12px;margin:14px 0}
+.metric{padding:12px 16px;border-radius:12px}
+.metric strong{margin:4px 0 2px}
+.finance-kpis{margin:0 0 14px;gap:12px}
+.finance-kpis .metric{padding:12px 16px}
+.finance-kpis .metric:before{top:14px;right:14px}
+.finance-kpis .metric strong{font-size:clamp(22px,1.9vw,28px);margin:4px 0 2px;line-height:1.2}
+.chart-card{padding:16px 18px;margin:0 0 14px;border-radius:14px}
+.chart-heading{margin-bottom:12px}
+.dashboard-grid{gap:14px;margin-bottom:14px}
+.cost-shortcuts{gap:10px;margin-bottom:14px}
+.cost-shortcut{padding:10px 12px;gap:10px;border-radius:12px}
+.cost-emoji{font-size:18px}
+.cost-shortcut strong{font-size:15px;margin:2px 0 0}
+.cfo-intro{padding:16px 20px;gap:18px;margin:14px 0}
+.cfo-intro h2{font-size:20px;margin-bottom:6px}
+.cfo-intro p{margin-bottom:8px}
+.cfo-alert{padding:12px 16px;margin:14px 0}
+.comparison-strip{padding:8px 12px;margin:0 0 14px}
+.note{padding:12px 14px}
+/* Faixa de coleta: no estado normal, título e frase numa linha só. No ALERTA
+   ela volta a ocupar espaço — é justamente quando precisa ser vista. */
+.coleta-bar{padding:8px 14px;margin:0 0 12px;border-radius:10px;gap:12px}
+.coleta-bar:not(.coleta-alerta)>div>strong,.coleta-bar:not(.coleta-alerta)>div>p{display:inline}
+.coleta-bar:not(.coleta-alerta)>div>p{margin:0 0 0 .35em}
+.coleta-bar small{margin-top:1px}
+.coleta-alerta{padding:12px 16px}
+/* Saúde da informação: quatro fatos lado a lado. */
+.fatos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:2px 0 10px}
+.fato{background:var(--bg);border-radius:10px;padding:10px 12px;min-width:0}
+.fato .label{display:block;font-size:12px;color:var(--muted)}
+.fato b{display:block;margin-top:2px;font-size:14px;font-weight:600;overflow-wrap:anywhere}
+@media(max-width:900px){.fatos{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){
+.card>summary{padding:13px 14px}
+.card-body{padding:0 14px 14px}
+.card-body .line{max-width:none}
+.chart-card{padding:14px 12px}
+.cfo-intro{padding:14px 16px}
+/* no celular o KPI já é uma linha só (grid rótulo | número): sem margem */
+.finance-kpis .metric{padding:12px 14px}
+.finance-kpis .metric strong{font-size:22px;margin:0}
+}
