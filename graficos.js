@@ -5,6 +5,14 @@ const valorTexto=v=>v==null?'Não informado':money(v);
 // a cobertura da coleta. Bloqueio de verdade nunca vira asterisco, vira frase.
 const marca=(r,t)=>r?`<b class="marca-conferir" title="${esc(t||'Cobertura da coleta ainda não validada — confira antes de decidir.')}">*</b>`:'';
 // v===0 tambem captura -0 (Math.ceil(-0.25) devolve -0, e Intl imprime "-0").
+/* Célula de CSV. O apóstrofo neutraliza fórmula vinda de texto do ERP (=, +, @,
+   -) — mas não pode pegar NÚMERO: "-15,00" virava "'-15,00", texto que a
+   planilha não soma. Uma função só, para as três exportações. */
+const celulaCSV=v=>{
+ const s=String(v??'');
+ const numero=/^-?\d+([.,]\d+)?$|^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s.trim());
+ return '"'+(numero?s:s.replace(/^[=+@-]/,"'$&")).replace(/"/g,'""')+'"';
+};
 const compacto=v=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(v===0?0:v);
 const nomeConta=(reg,code)=>reg?.cells?.find(c=>c.code===code)?.name;
 function contaConhecida(code){return nomeConta(regAtual(),code)||[...state.records].reverse().map(r=>nomeConta(r,code)).find(Boolean)||code;}
@@ -111,7 +119,7 @@ function wireGraficos(){
  if($$('costSearch'))$$('costSearch').oninput=e=>{custoUI.busca=e.target.value;const pos=e.target.selectionStart;render();$$('costSearch').focus();$$('costSearch').setSelectionRange(pos,pos);};
  if($$('exportCosts'))$$('exportCosts').onclick=()=>{
   const cols=F.serieAnual(state.records,state.periodo,'2').filter(x=>x.reg||x.label===state.periodo);
-  const csvCell=v=>'"'+String(v??'').replace(/^[=+@-]/,"'$&").replace(/"/g,'""')+'"';
+  const csvCell=celulaCSV;
   const out=[['Conta','Despesa',...cols.map(c=>c.label)],['','Cobertura',...cols.map(c=>c.qualidade.rotulo)],...linhasCustos().flatMap(c=>[[c.code,c.name,...cols.map(x=>{const v=F.valorConta(x.reg,c.code);return v==null?'Não informado':v.toFixed(2).replace('.',',');})],[c.code,'Nome original',...cols.map(x=>nomeConta(x.reg,c.code)||'Não informado')]])];
   download('despesas-'+state.periodo.split('/')[1]+'.csv','\ufeff'+out.map(row=>row.map(csvCell).join(';')).join('\n'),'text/csv');
  };
@@ -186,9 +194,16 @@ function painelRitmo({titulo,tipo,pontos,referencia,rotuloRef,bomAcima,nota}){
  for(let i=1;i<pontos.length;i++){
   const a=pontos[i-1],b=pontos[i];
   if(a.acumulado==null||b.acumulado==null)continue;
-  segs.push(`<line x1="${x(i-1)}" y1="${y(a.acumulado)}" x2="${x(i)}" y2="${y(b.acumulado)}" class="ritmo-linha ${ladoBom(b.acumulado,i)?'bom':'ruim'}"/>`);
+  segs.push(`<line x1="${x(i-1)}" y1="${y(a.acumulado)}" x2="${x(i)}" y2="${y(b.acumulado)}" class="ritmo-linha ${b.qualidade?.parcial?'parcial':ladoBom(b.acumulado,i)?'bom':'ruim'}"/>`);
  }
  const ult=pontos.filter(p=>p.acumulado!=null).pop();
+ /* O VEREDITO É DO ÚLTIMO MÊS FECHADO. O mês corrente está sempre pela metade,
+    e o ritmo esperado conta o mês inteiro: com 8 meses e 5 dias coletados o
+    painel cobrava 9 meses de meta e pintava "Fora do ritmo" quem estava
+    exatamente no ritmo (e "No ritmo" as saídas, pelo mesmo motivo). O mês em
+    andamento continua desenhado, tracejado e sem cor de veredito. */
+ const fechado=pontos.filter(p=>p.acumulado!=null&&!p.qualidade?.parcial).pop();
+ const corteUlt=ult.qualidade?.parcial?String(ult.qualidade.coletadoAte||'').split('-').reverse().join('/'):'';
  return `<div class="ritmo-painel ${tipo}">
   <h3>${esc(titulo)}</h3>
   <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(titulo)}: acumulado do ano até ${esc(ult.label)}, ${money(ult.acumulado)}${referencia!=null?', referência '+money(referencia):''}">
@@ -196,15 +211,16 @@ function painelRitmo({titulo,tipo,pontos,referencia,rotuloRef,bomAcima,nota}){
    ${referencia!=null?`<line x1="${x(0)}" y1="${y(ritmoDe(0))}" x2="${x(11)}" y2="${y(referencia)}" class="ritmo-ritmo"/>`:''}
    ${referencia!=null?`<line x1="${PL}" y1="${y(referencia)}" x2="${W-PR}" y2="${y(referencia)}" class="ritmo-ref"/>`:''}
    ${segs.join('')}
-   ${pontos.map((p,i)=>p.acumulado==null?'':`<circle cx="${x(i)}" cy="${y(p.acumulado)}" r="${p.label===state.periodo?4:2.6}" class="ritmo-ponto ${ladoBom(p.acumulado,i)?'bom':'ruim'} ${p.qualidade.comparavel?'':'aconferir'}"><title>${esc(p.label)} · acumulado ${money(p.acumulado)}${p.qualidade.comparavel?'':' · cobertura a conferir'}</title></circle>`).join('')}
+   ${pontos.map((p,i)=>p.acumulado==null?'':`<circle cx="${x(i)}" cy="${y(p.acumulado)}" r="${p.label===state.periodo?4:2.6}" class="ritmo-ponto ${p.qualidade?.parcial?'parcial':ladoBom(p.acumulado,i)?'bom':'ruim'} ${p.qualidade.comparavel?'':'aconferir'}"><title>${esc(p.label)} · acumulado ${money(p.acumulado)}${p.qualidade?.parcial?' · mês em andamento, sem veredito':p.qualidade.comparavel?'':' · cobertura a conferir'}</title></circle>`).join('')}
    ${pontos.map((p,i)=>i%2?'':`<text x="${x(i)}" y="${H-14}" class="ritmo-mes">${esc(p.label.split('/')[0])}</text>`).join('')}
   </svg>
   <div class="ritmo-rodape">
-   <span><b>${money(ult.acumulado)}</b> acumulado até ${esc(ult.label)}</span>
-   ${(()=>{const i=pontos.findIndex(p=>p===ult),alvo=ritmoDe(i);
+   <span><b>${money(ult.acumulado)}</b> acumulado até ${esc(ult.label)}${corteUlt?` (lançamentos até ${esc(corteUlt)})`:''}</span>
+   ${(()=>{if(!fechado)return '<span class="ritmo-legenda">Nenhum mês fechado ainda para medir o ritmo</span>';
+     const i=pontos.findIndex(p=>p===fechado),alvo=ritmoDe(i);
      if(alvo==null)return '<span class="ritmo-legenda">Defina a referência para acompanhar o ritmo</span>';
-     const ok=bomAcima?ult.acumulado>=alvo:ult.acumulado<=alvo;
-     return `<span class="ritmo-situacao ${ok?'bom':'ruim'}">${ok?'No ritmo':'Fora do ritmo'} · esperado ${money(alvo)} até aqui</span>`;})()}
+     const ok=bomAcima?fechado.acumulado>=alvo:fechado.acumulado<=alvo;
+     return `<span class="ritmo-situacao ${ok?'bom':'ruim'}">${ok?'No ritmo':'Fora do ritmo'} · esperado ${money(alvo)} até ${fechado===ult?'aqui':esc(fechado.label)}</span>`;})()}
    <span class="ritmo-legenda"><i class="ref"></i>${esc(rotuloRef)} do ano${referencia!=null?' · '+money(referencia):' — você ainda não definiu'}</span>
    ${nota?`<span class="ritmo-nota">${esc(nota)}</span>`:''}
   </div>
@@ -353,26 +369,42 @@ function relatorioRegua(){
  // Referência = mês coletado até o último dia e não expirado. NÃO exige o
  // contrato da API validado: o coletor grava false em todo mês, e exigir isso
  // deixava a régua com zero meses para sempre.
- const fechados=F.mesesDeReferencia(state.records).filter(r=>r.label!==state.periodo);
+ // Só meses da MESMA empresa e critério entram na média: um mês fechado de
+ // outra base puxava a referência sem aviso.
+ const mesmoEscopo=r=>r.company===atual.company&&r.basis===atual.basis
+  &&r.qualidade?.escopo===atual.qualidade?.escopo&&r.qualidade?.regra===atual.qualidade?.regra;
+ const fechados=F.mesesDeReferencia(state.records).filter(r=>r.label!==state.periodo&&mesmoEscopo(r));
+ /* MÊS EM ANDAMENTO NÃO RECEBE VEREDITO. Cinco dias de lançamento contra a
+    média de meses inteiros saíam "abaixo da média" — economia que não existe,
+    todo mês, porque o painel abre no mês corrente. A referência continua
+    visível (é útil para acompanhar); o ponto e a seta voltam quando o mês fecha. */
+ const qAtual=F.qualidade(atual),emAndamento=!!qAtual.parcial;
+ const corte=String(qAtual.coletadoAte||'').split('-').reverse().join('/');
  const semValidacao=fechados.some(r=>!F.qualidade(r).comparavel);
  if(fechados.length<3)return painelGrafico('Este mês contra os meses fechados','Referência interna',
   `<p class="empty">São necessários pelo menos 3 meses coletados até o último dia para formar a referência. Hoje há ${fechados.length}.</p>`);
  const linha=(rot,code,custo)=>{
-  const v=F.valorConta(atual,code);
+  const v=emAndamento?null:F.valorConta(atual,code);
   const hist=fechados.map(r=>F.valorConta(r,code)).filter(x=>x!=null);
-  if(v==null||!hist.length)return '';
+  if(!hist.length||(!emAndamento&&v==null))return '';
   const media=hist.reduce((a,b)=>a+b,0)/hist.length;
   const min=Math.min(...hist),max=Math.max(...hist),faixa=(max-min)||1;
-  const pos=Math.max(0,Math.min(100,(v-min)/faixa*100));
   const posMedia=Math.max(0,Math.min(100,(media-min)/faixa*100));
+  if(emAndamento)return `<div class="regua-linha"><div class="regua-topo"><span>${esc(rot)}</span><b class="muted">sem veredito até o mês fechar</b></div>
+   <div class="regua-trilho"><i class="regua-media" style="left:${posMedia.toFixed(1)}%"></i></div>
+   <div class="regua-pes"><span>mín ${esc(money(min))}</span><span>média ${esc(money(media))}</span><span>máx ${esc(money(max))}</span></div></div>`;
+  const pos=Math.max(0,Math.min(100,(v-min)/faixa*100));
   const dif=v-media,acima=dif>0;
   const tom=dif===0?'':(acima!==custo?'delta-bom':'delta-ruim');
   return `<div class="regua-linha"><div class="regua-topo"><span>${esc(rot)}</span><b class="${tom}">${acima?'▲':'▼'} ${esc(money(Math.abs(dif)))} ${acima?'acima':'abaixo'} da média</b></div>
    <div class="regua-trilho"><i class="regua-media" style="left:${posMedia.toFixed(1)}%"></i><i class="regua-ponto ${tom}" style="left:${pos.toFixed(1)}%"></i></div>
    <div class="regua-pes"><span>mín ${esc(money(min))}</span><span>média ${esc(money(media))}</span><span>máx ${esc(money(max))}</span></div></div>`;
  };
- return painelGrafico('Este mês contra os meses já fechados',`${esc(state.periodo)} · referência dos ${fechados.length} meses coletados até o último dia`,
+ return painelGrafico('Este mês contra os meses já fechados',emAndamento
+   ?`${esc(state.periodo)} tem lançamentos só até ${esc(corte||'uma data não registrada')} · referência dos ${fechados.length} meses fechados`
+   :`${esc(state.periodo)} · referência dos ${fechados.length} meses coletados até o último dia`,
   linha('Recebimentos','1',false)+linha('Pagamentos','2',true)+
+  (emAndamento?`<p class="hint">Comparar um pedaço de mês com a média de meses inteiros faria recebimentos e pagamentos parecerem abaixo da média — uma economia que não existe. A comparação volta quando ${esc(state.periodo)} for coletado até o último dia.</p>`:'')+
   `<p class="hint">Entram os meses coletados até o último dia. Substitui o comparativo com o ano anterior, que ainda não existe: a base começa em ${esc([...state.records].sort((a,b)=>monthSortKey(a.label)-monthSortKey(b.label))[0]?.label||'—')}.</p>`+
   (semValidacao?`<p class="hint marca-aviso">* A cobertura da coleta ainda não foi validada nestes meses. Os valores estão na tela e a referência é útil, mas confira antes de decidir.</p>`:''));
 }

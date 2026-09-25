@@ -45,6 +45,22 @@ function baseDoPeso(d,i,r){
  const saida=['saidas','pagamentosOperacionais','socios','parcelasAtivos','dividas','transferencias','investimentos','pendentes'];
  return saida.includes(r.id)?d.valores[i].saidas:d.valores[i].entradas;
 }
+/* Para onde a linha "melhora". Dívida e empréstimo ficam em 0 de propósito:
+   aumento de dívida nunca é movimento favorável, e pagar mais dívida também não
+   é "piora" — a seta aparece, a cor não. Linha nova sem entrada aqui fica
+   neutra, nunca com cor chutada. */
+const DIRECAO_DA_LINHA={
+ // caixa
+ entradas:1,operacionais:1,emprestimos:0,rendimentos:1,naoIdentificadas:-1,outrasEntradas:0,
+ saidas:-1,pagamentosOperacionais:-1,socios:-1,parcelasAtivos:0,investimentos:0,dividas:0,
+ transferencias:0,pendentes:-1,variacao:1,
+ // competência
+ bruta:1,produtos:1,servicos:1,outrasVendas:1,deducoes:-1,devolucoes:-1,descontos:-1,tributosVendas:-1,
+ liquida:1,custos:-1,bruto:1,margemBruta:1,despesasVendas:-1,administrativas:-1,outrasDespesas:-1,
+ outrasReceitas:1,equivalencia:1,operacional:1,margemOperacional:1,receitasFinanceiras:1,
+ despesasFinanceiras:-1,antesTributos:1,tributosLucro:-1,tributosDiferidos:0,continuadas:1,
+ descontinuadas:1,liquido:1,margemLiquida:1,da:0,ebitda:1,margemEbitda:1,
+};
 function celulaComparativo(d,r){
  const i=d.ate-1,serie=d.valores.slice(0,d.ate).map(v=>v[r.id]??null);
  const atual=d.valores[i]?.[r.id]??null,anterior=i>0?(d.valores[i-1]?.[r.id]??null):null;
@@ -66,11 +82,14 @@ function celulaComparativo(d,r){
  }
  const delta=comparavel?Math.round((atual-anterior)*100)/100:null;
  const pct=comparavel&&anterior?delta/Math.abs(anterior)*100:null;
- // custo subindo é má notícia; recebimento subindo, boa
- const custo=/saida|pagamento|custo|despesa|deducoes|divida|socio|parcela|tributo|financeiras/i.test(r.id+' '+r.nome);
- const tom=delta==null||delta===0?'':((delta>0)!==custo?'delta-bom':'delta-ruim');
+ // Subir é bom (+1), ruim (−1) ou nenhum dos dois (0) — declarado linha a
+ // linha. Adivinhar pela palavra no nome invertia a cor: "resultado antes dos
+ // TRIBUTOS" e "receitas FINANCEIRAS" subindo saíam vermelhos; devoluções e
+ // descontos subindo, verdes; "Saídas" (com acento) escapava de "saida".
+ const dir=DIRECAO_DA_LINHA[r.id]??0;
+ const tom=delta==null||delta===0||!dir?'':((delta>0)===(dir>0)?'delta-bom':'delta-ruim');
  const seta=delta==null?'':delta>0?'▲':delta<0?'▼':'■';
- const tomLinha=delta==null||delta===0?'':((delta>0)!==custo?'cai':'sobe');
+ const tomLinha=delta==null||delta===0||!dir?'':((delta>0)===(dir>0)?'cai':'sobe');
  return `<td class="num col-relatorio"><div class="dre-compare">
   ${miniSerie(serie,{tom:tomLinha})}
   <b>${delta==null?'<span class="muted">sem comparação</span>':`<span class="${tom}" ${ressalva?'title="Cobertura ainda não validada nos dois meses — confira antes de decidir."':''}>${seta} ${esc(ratio?delta.toLocaleString('pt-BR',{maximumFractionDigits:1})+' p.p.':money(delta))}${pct!=null&&!ratio?' · '+(pct>0?'+':'')+pct.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':''}</span>`}</b>
@@ -102,7 +121,7 @@ function wireDRE(){
  if($$('editarCompetencia'))$$('editarCompetencia').onclick=()=>abrirCompetencia(state.periodo);
  if($$('dreMesAtual'))$$('dreMesAtual').onclick=()=>{const wrap=document.querySelector('.dre-table-wrap'),cell=wrap?.querySelector('thead .selected-month');if(wrap&&cell)wrap.scrollTo({left:Math.max(0,cell.offsetLeft-wrap.querySelector('th').offsetWidth),behavior:'smooth'});};
  if($$('drePrint'))$$('drePrint').onclick=()=>exportarCFO({tipo:'anual',periodo:state.periodo,base:dreUI.base},$$('drePrint'));
- if($$('dreCSV'))$$('dreCSV').onclick=()=>{const d=dadosDRE(),rows=[[(d.competencia?'DRE por competência':'Caixa gerencial'),...d.cols.map(x=>x.label),'Acumulado até '+state.periodo],['Situação',...d.cols.map(x=>d.competencia?statusCompetencia(x.comp):F.qualidade(x.reg).rotulo),'Depende de todos os meses e do mesmo escopo'],['Empresa / escopo',...d.cols.map(x=>(d.competencia?x.comp:x.reg)?.company||'Não informado'),''],...d.linhas.map(r=>[r.nome,...[...d.valores,d.soma].map(v=>v[r.id]==null?'Não apurado':v[r.id].toFixed(r.tipo==='ratio'?4:2).replace('.',',')+(r.tipo==='ratio'?'%':''))])];download('dre-'+dreUI.base+'-'+state.periodo.split('/')[1]+'.csv','\ufeff'+rows.map(r=>r.map(x=>'"'+String(x).replace(/^[=+@-]/,"'$&").replace(/"/g,'""')+'"').join(';')).join('\n'),'text/csv');};
+ if($$('dreCSV'))$$('dreCSV').onclick=()=>{const d=dadosDRE(),rows=[[(d.competencia?'DRE por competência':'Caixa gerencial'),...d.cols.map(x=>x.label),'Acumulado até '+state.periodo],['Situação',...d.cols.map(x=>d.competencia?statusCompetencia(x.comp):F.qualidade(x.reg).rotulo),'Depende de todos os meses e do mesmo escopo'],['Empresa / escopo',...d.cols.map(x=>(d.competencia?x.comp:x.reg)?.company||'Não informado'),''],...d.linhas.map(r=>[r.nome,...[...d.valores,d.soma].map(v=>v[r.id]==null?'Não apurado':v[r.id].toFixed(r.tipo==='ratio'?4:2).replace('.',',')+(r.tipo==='ratio'?'%':''))])];download('dre-'+dreUI.base+'-'+state.periodo.split('/')[1]+'.csv','\ufeff'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');};
 }
 function abrirCompetencia(label){
  if(!state.permissoes.admin)return;

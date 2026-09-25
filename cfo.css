@@ -40,6 +40,9 @@
 /* ponto vazado = mês que ainda não passou pela conferência */
 .ritmo-ponto.aconferir{fill:#0b0f16;stroke:var(--cor);stroke-width:1.8}
 .ritmo-ponto.ruim.aconferir{stroke:var(--cor-ruim)}
+/* mês em andamento: desenhado, mas sem cor de veredito */
+.ritmo-linha.parcial{stroke:#ffffff8c;stroke-dasharray:3 3}
+.ritmo-ponto.parcial,.ritmo-ponto.parcial.aconferir{fill:#0b0f16;stroke:#ffffffb0;stroke-width:1.6}
 .ritmo-eixo{fill:#ffffff8c;font:9px/1 var(--font-ui);text-anchor:end}
 .ritmo-mes{fill:#ffffff7a;font:9px/1 var(--font-ui);text-anchor:middle}
 .ritmo-rodape{
