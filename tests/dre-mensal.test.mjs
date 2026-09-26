@@ -97,3 +97,10 @@ test('consulta sem mudança não recria o chip (foco e painel aberto preservados
  const c=tela(),bar=coletaFalsa(c);c.v=statusBase();vm.runInContext('mostrarColeta(v);mostrarColeta(v);mostrarColeta(v)',c);
  assert.equal(bar.escritas,1);
 });
+test('pedido com rotina acionada: minutos de espera são normais; 20 min sem começar é falha',()=>{
+ const c=tela(),bar=coletaFalsa(c);c.v=statusBase({estado:'aguardando',solicitadoEm:horasAtras(5/60),acionadaEm:horasAtras(5/60),rotinaVistaEm:horasAtras(3)});vm.runInContext('mostrarColeta(v)',c);
+ assert.doesNotMatch(bar.className,/coleta-alerta/);assert.match(bar.innerHTML,/rotina acionada/);
+ const c2=tela(),bar2=coletaFalsa(c2);c2.v=statusBase({estado:'aguardando',solicitadoEm:horasAtras(.5),acionadaEm:horasAtras(.5),rotinaVistaEm:horasAtras(3)});vm.runInContext('mostrarColeta(v)',c2);
+ assert.match(bar2.className,/coleta-alerta/);assert.match(bar2.innerHTML,/acionada no GitHub há mais de 20 minutos/);
+});
+

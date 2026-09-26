@@ -40,6 +40,31 @@ const TOKEN = Deno.env.get("DRE_TOKEN") ?? "";
 const COLLECTOR_TOKEN = Deno.env.get("DRE_COLLECTOR_TOKEN") ?? "";
 const JWT_SECRET = Deno.env.get("EQUIPE_JWT_SECRET") ?? "";
 const BUCKET = "dre-arquivos";
+// Disparo imediato da coleta (26/09/2026). O agendamento '*/10' do GitHub roda,
+// na prática, a cada 3–5h: quem clicava em "Atualizar Mubisys" esperava horas.
+// Com um token fino (só Actions: write neste repositório) guardado como secret
+// do Supabase, o pedido aciona a rotina na hora. Sem o secret, nada muda.
+const GITHUB_DISPATCH_TOKEN = Deno.env.get("GITHUB_DISPATCH_TOKEN") ?? "";
+async function acionarRotina(): Promise<boolean> {
+  if (!GITHUB_DISPATCH_TOKEN) return false;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch("https://api.github.com/repos/leogpereira-afk/impresilk-dre/actions/workflows/erp-previa.yml/dispatches", {
+      method: "POST", signal: ctrl.signal,
+      headers: { authorization: "Bearer " + GITHUB_DISPATCH_TOKEN, accept: "application/vnd.github+json",
+        "x-github-api-version": "2022-11-28", "user-agent": "impresilk-dre-sync", "content-type": "application/json" },
+      body: JSON.stringify({ ref: "main", inputs: { publicar: "true" } }),
+    });
+    if (r.status !== 204) console.error("[dre-sync] GitHub recusou o disparo:", r.status);
+    return r.status === 204;
+  } catch (e) {
+    console.error("[dre-sync] disparo indisponível:", (e as Error)?.message);
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // Le o cracha da Central de Acessos. Copia enxuta do verificarJwt da
 // equipe-auth: so Web Crypto, sem dependencia.
@@ -191,7 +216,8 @@ Deno.serve(async (req: Request) => {
           if(res.error?.code === '23505') return false;
           if(res.error) throw new Error('Não foi possível registrar a solicitação.');
           return !!res.data?.length;
-        }
+        },
+        acionar: acionarRotina,
       });
       return json(resposta.body,resposta.code);
     }

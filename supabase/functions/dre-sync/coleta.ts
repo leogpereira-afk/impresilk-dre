@@ -1,5 +1,7 @@
 // A fila acompanha o coletor existente; não calcula nem grava valores financeiros.
-type Store = {read: () => Promise<any>; save: (value: any, version: any) => Promise<boolean>};
+// acionar: dispara a rotina no GitHub na hora (workflow_dispatch). Opcional:
+// sem ele, ou se falhar, o pedido espera a próxima passagem do agendamento.
+type Store = {read: () => Promise<any>; save: (value: any, version: any) => Promise<boolean>; acionar?: () => Promise<boolean>};
 type Identity = {configured: boolean; editor?: boolean; collector?: boolean};
 const LEASE_MS = 95 * 60 * 1000;
 
@@ -18,7 +20,7 @@ function statusColeta(r: any, configured: boolean, now: Date) {
     estado: expirou ? 'interrompido' : (r.estado || 'inativa'),
     pedidoId: r.pedidoId || null, solicitadoEm: r.solicitadoEm || null,
     iniciadoEm: r.iniciadoEm || null, runId: r.runId || null,
-    rotinaVistaEm: r.rotinaVistaEm || null,
+    rotinaVistaEm: r.rotinaVistaEm || null, acionadaEm: r.acionadaEm || null,
     ultimaConclusao: tentativaSegura(r.ultimaConclusao), ultimaTentativa: tentativaSegura(r.ultimaTentativa),
     horarios: ['06:00', '12:00', '18:00'], fuso: 'America/Sao_Paulo',
     // hora do servidor: o painel mede idades por ela, não pelo relógio do aparelho
@@ -44,6 +46,7 @@ export async function coleta(body: any, who: Identity, store: Store, now = new D
     return reply({erro: 'Ação de coleta inválida.'}, 400);
   if (who.collector && ['coletaIniciar', 'coletaConcluir'].includes(action) && !/^\d{1,30}$/.test(String(body.runId || '')))
     return reply({erro: 'Execução da rotina inválida.'}, 400);
+  let acionada: boolean | undefined; // no máximo UM disparo por pedido, mesmo com nova tentativa de gravação
   for (let attempt = 0; attempt < 3; attempt++) {
     const current = await store.read();
     const r = {...(current?.valor || {})};
@@ -54,13 +57,15 @@ export async function coleta(body: any, who: Identity, store: Store, now = new D
     if (action === 'solicitarColeta') {
       if (!who.configured || !r.enabled) return reply({erro: 'A rotina automática ainda precisa ser ativada.', status: statusColeta(r, who.configured, now)}, 503);
       if (busy || r.estado === 'aguardando') return result();
-      Object.assign(r, {estado: 'aguardando', pedidoId: crypto.randomUUID(), solicitadoEm: now.toISOString()});
+      if (acionada === undefined) acionada = store.acionar ? await store.acionar().catch(() => false) : false;
+      Object.assign(r, {estado: 'aguardando', pedidoId: crypto.randomUUID(), solicitadoEm: now.toISOString(),
+        acionadaEm: acionada ? now.toISOString() : null});
     } else if (action === 'coletaIniciar') {
       if (busy && r.runId === String(body.runId)) return result({executar:true});
       r.enabled = true; r.rotinaVistaEm = now.toISOString();
       executar = !busy && (body.forcar === true || r.estado === 'aguardando' ||
         r.estado === 'executando' || r.ultimaJanela !== janela(now));
-      if (executar) Object.assign(r, {estado: 'executando', runId: String(body.runId),
+      if (executar) Object.assign(r, {estado: 'executando', runId: String(body.runId), acionadaEm: null,
         iniciadoEm: now.toISOString(), limiteEm: new Date(now.getTime() + LEASE_MS).toISOString(),
         ultimaJanela: janela(now)});
     } else {

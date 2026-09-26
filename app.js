@@ -489,7 +489,9 @@ const coletaControle=typeof DREColeta==='undefined'?null:DREColeta.controlador({
 // alerta antigo de "1h sem sinal" ficava aceso quase sempre. Pelo mesmo
 // motivo, pedido esperando 1–2h é normal: "parado" é quando a rotina já passou
 // depois do pedido e não o pegou, ou quando passou do maior intervalo visto.
-const HORAS_PEDIDO_PARADO=6,HORAS_ROTINA_SEM_SINAL=8,MINUTOS_ROTINA_PASSOU=15;
+// Com o disparo imediato (acionadaEm), a rotina começa em 1–2 minutos: se
+// passar de MINUTOS_ACIONADA_PARADA sem começar, aí é falha.
+const HORAS_PEDIDO_PARADO=6,HORAS_ROTINA_SEM_SINAL=8,MINUTOS_ROTINA_PASSOU=15,MINUTOS_ACIONADA_PARADA=20;
 // Troca o conteúdo só quando muda: a consulta de 30s refazia o chip e tirava
 // o foco de quem navega por teclado.
 function trocarColeta(bar,classe,html){
@@ -515,20 +517,21 @@ function mostrarColeta(v){
   const horas=x=>x?Math.max(0,(Date.now()+desvio-Date.parse(x))/36e5):0;
   const esperando=['aguardando','executando'].includes(estado);
   const rotinaPassou=estado==='aguardando'&&!!st?.solicitadoEm&&!!st?.rotinaVistaEm&&Date.parse(st.rotinaVistaEm)-Date.parse(st.solicitadoEm)>MINUTOS_ROTINA_PASSOU*6e4;
-  const pedidoParado=estado==='aguardando'&&!!st?.solicitadoEm&&(rotinaPassou||horas(st.solicitadoEm)>HORAS_PEDIDO_PARADO);
+  const acionadaParada=estado==='aguardando'&&!!st?.acionadaEm&&horas(st.acionadaEm)*60>MINUTOS_ACIONADA_PARADA;
+  const pedidoParado=estado==='aguardando'&&!!st?.solicitadoEm&&(rotinaPassou||acionadaParada||horas(st.solicitadoEm)>HORAS_PEDIDO_PARADO);
   const falha=!!v.erro||['erro','interrompido'].includes(estado)||pedidoParado;
   const runId=t?.runId||st?.runId;
   const link=/^\d+$/.test(String(runId||''))?`<a href="https://github.com/leogpereira-afk/impresilk-dre/actions/runs/${esc(runId)}" target="_blank" rel="noopener">Ver execução ↗</a>`:'';
   const pedido=esperando&&st?.solicitadoEm?`Solicitado em ${dataBR(st.solicitadoEm)}.`:'';
   if(falha){
-    const alerta=v.erro||(rotinaPassou?'A rotina do GitHub rodou depois do pedido e não o executou. Confira as execuções.':pedidoParado?`O pedido espera há mais de ${HORAS_PEDIDO_PARADO} horas e a rotina do GitHub ainda não o pegou. Confira as execuções.`:v.descricao);
+    const alerta=v.erro||(acionadaParada?`A rotina foi acionada no GitHub há mais de ${MINUTOS_ACIONADA_PARADA} minutos e não começou. Confira as execuções.`:rotinaPassou?'A rotina do GitHub rodou depois do pedido e não o executou. Confira as execuções.':pedidoParado?`O pedido espera há mais de ${HORAS_PEDIDO_PARADO} horas e a rotina do GitHub ainda não o pegou. Confira as execuções.`:v.descricao);
     trocarColeta(bar,'coleta-bar coleta-alerta',`<div><strong>${esc(pedidoParado?'Pedido de atualização parado':v.titulo)}</strong><p>${esc(alerta)} ${esc(pedido)}</p>${stamp?`<small>${esc(stamp)}${detalhes?' · '+esc(detalhes):''}</small>`:''}</div>${link}`);
     return;
   }
   const semSinal=st?.ativa&&st.rotinaVistaEm?horas(st.rotinaVistaEm):0,silencio=!esperando&&semSinal>HORAS_ROTINA_SEM_SINAL;
   const hora=x=>dataBR(x).slice(12,17);
-  const texto=!st?'Conferindo atualização…':!st.ativa?'Atualização automática pendente':estado==='executando'?'Coletando no Mubisys…':estado==='aguardando'?`Atualização solicitada${st.solicitadoEm?' às '+hora(st.solicitadoEm):''} · aguardando a rotina`:t?.em?`Mubisys · coletado ${dataBR(t.em).slice(0,17)}`:'Mubisys · sem coleta registrada';
-  const explica=estado==='aguardando'?'O pedido fica registrado e a rotina do GitHub o executa na próxima passagem — costuma levar de minutos a algumas horas. Você pode fechar esta tela.':v.descricao;
+  const texto=!st?'Conferindo atualização…':!st.ativa?'Atualização automática pendente':estado==='executando'?'Coletando no Mubisys…':estado==='aguardando'?`Atualização solicitada${st.solicitadoEm?' às '+hora(st.solicitadoEm):''} · ${st.acionadaEm?'rotina acionada':'aguardando a rotina'}`:t?.em?`Mubisys · coletado ${dataBR(t.em).slice(0,17)}`:'Mubisys · sem coleta registrada';
+  const explica=estado==='aguardando'?(st?.acionadaEm?'A rotina do GitHub foi acionada: a coleta costuma começar em 1–2 minutos. Você pode fechar esta tela.':'O pedido fica registrado e a rotina do GitHub o executa na próxima passagem — costuma levar de minutos a algumas horas. Você pode fechar esta tela.'):v.descricao;
   const tom=esperando?'info':silencio||(st&&!st.ativa)?'warn':st?'ok':'';
   trocarColeta(bar,'coleta-slot',`<details class="chip-details coleta-chip ${tom}"><summary aria-label="${esc('Coleta do Mubisys: '+texto+(silencio?`. A rotina não dá sinal há ${Math.floor(semSinal)} horas`:''))}"><span class="st-dot" aria-hidden="true"></span><span class="st-txt">${esc(texto)}${silencio?` · sem sinal há ${Math.floor(semSinal)}h`:''}</span></summary><div class="chip-pop"><strong>${esc(v.titulo)}</strong><p>${esc(explica)} ${esc(pedido)}${silencio?` A rotina não dá sinal há ${Math.floor(semSinal)} horas; o GitHub pode estar atrasando o agendamento.`:''}</p>${stamp?`<small>${esc(stamp)}${detalhes?' · '+esc(detalhes):''}</small>`:''}${link}</div></details>`);
 }

@@ -5,11 +5,11 @@ import vm from 'node:vm';
 import {stripTypeScriptTypes} from 'node:module';
 
 const path=new URL('../supabase/functions/dre-sync/coleta.ts',import.meta.url);
-function harness(initial=null){
+function harness(initial=null,{acionar,falhasDeGravacao=0}={}){
   let row=initial,version=0;
   const ctx={crypto:globalThis.crypto,Date,Intl};vm.createContext(ctx);
   if(fs.existsSync(path))vm.runInContext(stripTypeScriptTypes(fs.readFileSync(path,'utf8').replace(/export /g,'')),ctx);
-  const store={read:async()=>row?{valor:structuredClone(row),version}:null,save:async(next,base)=>{if(base!==(row?version:null))return false;row=structuredClone(next);version++;return true;}};
+  const store={read:async()=>row?{valor:structuredClone(row),version}:null,save:async(next,base)=>{if(falhasDeGravacao>0){falhasDeGravacao--;return false;}if(base!==(row?version:null))return false;row=structuredClone(next);version++;return true;},...(acionar?{acionar}:{})};
   return {row:()=>row,call:async(action,body={},who={editor:true},date='2026-09-12T13:00:00Z')=>{
     assert.equal(typeof ctx.coleta,'function','O servidor precisa aceitar solicitações de coleta');
     return ctx.coleta({action,...body},{configured:true,...who},store,new Date(date));
@@ -75,4 +75,29 @@ test('conclusão repetida após perda de resposta não muda o resultado salvo',a
   const fim={runId:'12',ok:true,meses:[{label:'Set/2026',estado:'gravado'}]};
   await h.call('coletaConcluir',fim,who);
   assert.equal((await h.call('coletaConcluir',fim,who)).code,200);
+});
+
+// Disparo imediato (26/09/2026): o pedido aciona a rotina no GitHub na hora.
+test('pedido aciona a rotina uma única vez e registra a hora do disparo',async()=>{
+  let disparos=0;const h=harness({enabled:true},{acionar:async()=>{disparos++;return true;}});
+  const a=await h.call('solicitarColeta');
+  assert.equal(disparos,1);assert.equal(a.body.status.acionadaEm,'2026-09-12T13:00:00.000Z');
+  await h.call('solicitarColeta');assert.equal(disparos,1,'segundo clique não dispara de novo');
+  const r=await h.call('coletaIniciar',{runId:'77'},{collector:true});
+  assert.equal(r.body.executar,true);assert.equal(r.body.status.acionadaEm,null);
+});
+test('disparo que falha ou quebra não perde o pedido: ele espera a próxima passagem',async()=>{
+  for(const acionar of [async()=>false,async()=>{throw new Error('GitHub fora');}]){
+    const h=harness({enabled:true},{acionar});const a=await h.call('solicitarColeta');
+    assert.equal(a.body.status.estado,'aguardando');assert.equal(a.body.status.acionadaEm,null);
+  }
+});
+test('nova tentativa de gravação não dispara a rotina duas vezes',async()=>{
+  let disparos=0;const h=harness({enabled:true},{acionar:async()=>{disparos++;return true;},falhasDeGravacao:1});
+  const a=await h.call('solicitarColeta');
+  assert.equal(a.body.status.estado,'aguardando');assert.equal(disparos,1);
+});
+test('status informa a hora do servidor para o painel medir idades',async()=>{
+  const h=harness({enabled:true});const r=await h.call('coletaStatus',{},{});
+  assert.equal(r.body.status.agora,'2026-09-12T13:00:00.000Z');
 });
