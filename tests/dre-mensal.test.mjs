@@ -62,7 +62,7 @@ test('matriz do caixa pinta entrada, saída e variação negativa',()=>{
 
 // Coleta (26/09/2026): o GitHub roda a rotina a cada 3–5h; rotina quieta não
 // é falha. Cartão só em falha que pede ação — inclusive pedido parado.
-function coletaFalsa(c){const bar={className:'',innerHTML:'',querySelector:()=>null},btn={disabled:false,textContent:''};vm.runInContext('document.getElementById=id=>id==="coletaBar"?globalThis.barFalsa:id==="syncBtn"?globalThis.btnFalso:null;',c);c.barFalsa=bar;c.btnFalso=btn;return bar;}
+function coletaFalsa(c){let html='';const bar={className:'',dataset:{},escritas:0,get innerHTML(){return html;},set innerHTML(x){html=x;bar.escritas++;},querySelector:()=>null},btn={disabled:false,textContent:''};vm.runInContext('document.getElementById=id=>id==="coletaBar"?globalThis.barFalsa:id==="syncBtn"?globalThis.btnFalso:null;',c);c.barFalsa=bar;c.btnFalso=btn;return bar;}
 const horasAtras=h=>new Date(Date.now()-h*3600e3).toISOString();
 const statusBase=(extra={})=>({titulo:'Última coleta processada',descricao:'Confira os meses.',podeSolicitar:true,status:{ativa:true,estado:'concluido',rotinaVistaEm:horasAtras(3),ultimaTentativa:{em:horasAtras(3),runId:'9',meses:[{label:'Set/2026',estado:'gravado'}]},...extra}});
 test('rotina quieta há 3h não vira cartão de alerta',()=>{
@@ -74,11 +74,26 @@ test('rotina sem sinal há mais de 8h vira ponto âmbar no chip, sem cartão',()
  const c=tela(),bar=coletaFalsa(c);c.v=statusBase({rotinaVistaEm:horasAtras(10)});vm.runInContext('mostrarColeta(v)',c);
  assert.doesNotMatch(bar.className,/coleta-alerta/);assert.match(bar.innerHTML,/coleta-chip warn/);assert.match(bar.innerHTML,/sem sinal há 10h/);
 });
-test('pedido parado há mais de 1h, erro e interrupção continuam chamativos',()=>{
- for(const extra of [{estado:'aguardando',solicitadoEm:horasAtras(2)},{estado:'erro'},{estado:'interrompido'}]){
+test('pedido parado, erro e interrupção continuam chamativos; espera normal fica no chip',()=>{
+ const casos=[
+  [{estado:'aguardando',solicitadoEm:horasAtras(7),rotinaVistaEm:horasAtras(8)},true,'pedido esperando mais de 6h'],
+  [{estado:'aguardando',solicitadoEm:horasAtras(1),rotinaVistaEm:horasAtras(.5)},true,'rotina passou depois do pedido e não pegou'],
+  [{estado:'erro'},true,'erro'],[{estado:'interrompido'},true,'interrompido'],
+  [{estado:'aguardando',solicitadoEm:horasAtras(2),rotinaVistaEm:horasAtras(3)},false,'espera normal: a rotina ainda não passou'],
+ ];
+ for(const [extra,cartao,nome] of casos){
   const c=tela(),bar=coletaFalsa(c);c.v=statusBase(extra);vm.runInContext('mostrarColeta(v)',c);
-  assert.match(bar.className,/coleta-alerta/,extra.estado);
+  assert.equal(/coleta-alerta/.test(bar.className),cartao,nome);
+  if(!cartao)assert.match(bar.innerHTML,/aguardando a rotina/);
  }
- const c=tela(),bar=coletaFalsa(c);c.v=statusBase({estado:'aguardando',solicitadoEm:horasAtras(.2)});vm.runInContext('mostrarColeta(v)',c);
- assert.doesNotMatch(bar.className,/coleta-alerta/,'pedido recente ainda está no prazo');assert.match(bar.innerHTML,/Atualização solicitada/);
+});
+test('relógio do aparelho adiantado não inventa alarme quando o servidor informa a hora',()=>{
+ const c=tela(),bar=coletaFalsa(c);const agoraServidor=horasAtras(10);
+ c.v=statusBase({estado:'aguardando',solicitadoEm:agoraServidor,rotinaVistaEm:horasAtras(11),agora:agoraServidor});
+ vm.runInContext('mostrarColeta(v)',c);
+ assert.doesNotMatch(bar.className,/coleta-alerta/);
+});
+test('consulta sem mudança não recria o chip (foco e painel aberto preservados)',()=>{
+ const c=tela(),bar=coletaFalsa(c);c.v=statusBase();vm.runInContext('mostrarColeta(v);mostrarColeta(v);mostrarColeta(v)',c);
+ assert.equal(bar.escritas,1);
 });

@@ -20,7 +20,9 @@ function statusColeta(r: any, configured: boolean, now: Date) {
     iniciadoEm: r.iniciadoEm || null, runId: r.runId || null,
     rotinaVistaEm: r.rotinaVistaEm || null,
     ultimaConclusao: tentativaSegura(r.ultimaConclusao), ultimaTentativa: tentativaSegura(r.ultimaTentativa),
-    horarios: ['06:00', '12:00', '18:00'], fuso: 'America/Sao_Paulo'};
+    horarios: ['06:00', '12:00', '18:00'], fuso: 'America/Sao_Paulo',
+    // hora do servidor: o painel mede idades por ela, não pelo relógio do aparelho
+    agora: now.toISOString()};
 }
 function janela(now: Date) {
   const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {timeZone: 'America/Sao_Paulo',

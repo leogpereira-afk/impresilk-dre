@@ -243,4 +243,13 @@ body.dark{--chart-in:#8fb0ff;--chart-out:#ff8f8c;--chart-cost:#ff8f8c;--chart-ne
 .dre-table td .mini-serie.sobe path,.dre-table td .mini-serie.sobe circle,body.dark .dre-table td .mini-serie.sobe path,body.dark .dre-table td .mini-serie.sobe circle{stroke:var(--red);fill:var(--red)}
 .water-net{fill:var(--chart-net)}
 .cost-shortcut.active{border-color:var(--blue)}
+/* A bolinha do cartão seguia a POSIÇÃO (2º vermelho, 3º azul) e passou a
+   contradizer o número: lucro azul com bolinha vermelha. Agora segue o
+   significado; sem tom (zero, não apurado) fica neutra. */
+.finance-kpis .metric:before,.finance-kpis .metric:nth-child(2):before,.finance-kpis .metric:nth-child(3):before{background:var(--chart-net)}
+.finance-kpis .metric.metric-entra:before{background:var(--chart-in)}
+.finance-kpis .metric.metric-sai:before{background:var(--chart-out)}
+/* minissérie de linha sem direção (dívida, parcela, transferência): neutra, não azul */
+.dre-table td .mini-serie:not(.sobe):not(.cai) path{stroke:var(--muted)}
+.dre-table td .mini-serie:not(.sobe):not(.cai) circle{fill:var(--muted)}
 

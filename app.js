@@ -355,7 +355,7 @@ function dialog(title,html){$$('detailTitle').textContent=title;$$('detailConten
 const fato=(label,value)=>`<div class="fato"><span class="label">${esc(label)}</span><b>${esc(value)}</b></div>`;
 const linha=(label,value,total=false,code='')=>`<div class="line ${total?'total':''}"><span>${code?botaoConta(code,label):esc(label)}</span><b>${typeof value==='number'?money(value):esc(value)}</b></div>`;
 const card=(title,html,open=true)=>`<details class="card" ${open?'open':''}><summary>${esc(title)}</summary><div class="card-body">${html}</div></details>`;
-const metric=(label,value,desc,code='',tom='')=>`<${code?'button':'div'} class="metric" ${code?`data-account="${esc(code)}"`:''}><span class="label">${esc(label)}</span><strong${tom?` class="${tom}"`:''}>${value==null?'Não apurado':typeof value==='number'?money(value):esc(value)}</strong><small>${esc(desc)}</small></${code?'button':'div'}>`;
+const metric=(label,value,desc,code='',tom='')=>`<${code?'button':'div'} class="metric${tom?' metric-'+tom.slice(4):''}" ${code?`data-account="${esc(code)}"`:''}><span class="label">${esc(label)}</span><strong${tom?` class="${tom}"`:''}>${value==null?'Não apurado':typeof value==='number'?money(value):esc(value)}</strong><small>${esc(desc)}</small></${code?'button':'div'}>`;
 function regAtual(){return state.records.find(r=>r.label===state.periodo)||null;}
 function boot(D){state.D=D;state.records=(D?.registros||datasetRecords(D||getCurrentData())).filter(r=>!r.apagado);if(!state.periodo)state.periodo=mesHoje();if(!state.comparar)state.comparar=state.records.filter(r=>monthSortKey(r.label)<monthSortKey(state.periodo)).at(-1)?.label||'';render();}
 function scopeSession(){let sub='equipe';try {const raw=AUTH.cracha().split('.')[1];sub=JSON.parse(atob(raw.replace(/-/g,'+').replace(/_/g,'/'))).sub||sub;}catch(_){}const suffix=encodeURIComponent(String(sub));STORE_KEY='dre_v2_data:'+suffix;MONTH_TS_KEY='dre_v2_ts:'+suffix;QUEUE_KEY='dre_v2_queue:'+suffix;}
@@ -485,9 +485,22 @@ const coletaControle=typeof DREColeta==='undefined'?null:DREColeta.controlador({
 // A coleta mora num chip da régua de status. Só vira cartão quando há falha
 // que pede ação: erro, execução interrompida, falha ao consultar/pedir, ou
 // pedido de alguém parado. Rotina quieta NÃO é falha: o GitHub roda o
-// agendamento a cada 3–5h na prática, e o alerta antigo de "1h sem sinal"
-// ficava aceso quase sempre (26/09/2026).
-const HORAS_PEDIDO_PARADO=1,HORAS_ROTINA_SEM_SINAL=8;
+// agendamento a cada 3–5h na prática (execuções de 22 a 25/09/2026), e o
+// alerta antigo de "1h sem sinal" ficava aceso quase sempre. Pelo mesmo
+// motivo, pedido esperando 1–2h é normal: "parado" é quando a rotina já passou
+// depois do pedido e não o pegou, ou quando passou do maior intervalo visto.
+const HORAS_PEDIDO_PARADO=6,HORAS_ROTINA_SEM_SINAL=8,MINUTOS_ROTINA_PASSOU=15;
+// Troca o conteúdo só quando muda: a consulta de 30s refazia o chip e tirava
+// o foco de quem navega por teclado.
+function trocarColeta(bar,classe,html){
+  if(bar.dataset&&bar.className===classe&&bar.dataset.h===html)return;
+  const ativo=typeof document!=='undefined'?document.activeElement:null;
+  const foco=ativo&&typeof bar.contains==='function'&&bar.contains(ativo)?(ativo.matches?.('summary')?'summary':ativo.matches?.('a')?'a':null):null;
+  const aberto=!!bar.querySelector('details[open]');
+  bar.className=classe;bar.innerHTML=aberto?html.replace('<details ','<details open '):html;
+  if(bar.dataset)bar.dataset.h=html;
+  if(foco)bar.querySelector(foco)?.focus?.({preventScroll:true});
+}
 function mostrarColeta(v){
   const bar=$$('coletaBar'),button=$$('syncBtn');if(!bar||!button)return;
   button.disabled=v.pedindo||!v.podeSolicitar||!state.permissoes.edicao;
@@ -496,25 +509,28 @@ function mostrarColeta(v){
   const nomes={gravado:'atualizado',preservado:'histórico de planilha preservado',vazio:'sem lançamentos no período',simulado:'simulação, sem gravação'};
   const detalhes=meses.map(m=>`${m.label}: ${nomes[m.estado]||m.estado}`).join(' · ');
   const stamp=t?.em?`Última tentativa: ${dataBR(t.em)}`:'';
-  const horas=x=>x?(Date.now()-Date.parse(x))/36e5:0;
+  // relógio do aparelho fora de hora não pode inventar nem esconder alerta:
+  // quando o servidor informa a hora dele, as idades são medidas por ela.
+  const desvio=st?.agora&&Number.isFinite(Date.parse(st.agora))?Date.parse(st.agora)-Date.now():0;
+  const horas=x=>x?Math.max(0,(Date.now()+desvio-Date.parse(x))/36e5):0;
   const esperando=['aguardando','executando'].includes(estado);
-  const pedidoParado=estado==='aguardando'&&!!st?.solicitadoEm&&horas(st.solicitadoEm)>HORAS_PEDIDO_PARADO;
+  const rotinaPassou=estado==='aguardando'&&!!st?.solicitadoEm&&!!st?.rotinaVistaEm&&Date.parse(st.rotinaVistaEm)-Date.parse(st.solicitadoEm)>MINUTOS_ROTINA_PASSOU*6e4;
+  const pedidoParado=estado==='aguardando'&&!!st?.solicitadoEm&&(rotinaPassou||horas(st.solicitadoEm)>HORAS_PEDIDO_PARADO);
   const falha=!!v.erro||['erro','interrompido'].includes(estado)||pedidoParado;
   const runId=t?.runId||st?.runId;
   const link=/^\d+$/.test(String(runId||''))?`<a href="https://github.com/leogpereira-afk/impresilk-dre/actions/runs/${esc(runId)}" target="_blank" rel="noopener">Ver execução ↗</a>`:'';
   const pedido=esperando&&st?.solicitadoEm?`Solicitado em ${dataBR(st.solicitadoEm)}.`:'';
   if(falha){
-    const alerta=v.erro||(pedidoParado?'A rotina do GitHub ainda não pegou o pedido. Ela costuma rodar a cada poucas horas; se passar disso, confira as execuções.':v.descricao);
-    bar.className='coleta-bar coleta-alerta';
-    bar.innerHTML=`<div><strong>${esc(pedidoParado?'Pedido de atualização parado':v.titulo)}</strong><p>${esc(alerta)} ${esc(pedido)}</p>${stamp?`<small>${esc(stamp)}${detalhes?' · '+esc(detalhes):''}</small>`:''}</div>${link}`;
+    const alerta=v.erro||(rotinaPassou?'A rotina do GitHub rodou depois do pedido e não o executou. Confira as execuções.':pedidoParado?`O pedido espera há mais de ${HORAS_PEDIDO_PARADO} horas e a rotina do GitHub ainda não o pegou. Confira as execuções.`:v.descricao);
+    trocarColeta(bar,'coleta-bar coleta-alerta',`<div><strong>${esc(pedidoParado?'Pedido de atualização parado':v.titulo)}</strong><p>${esc(alerta)} ${esc(pedido)}</p>${stamp?`<small>${esc(stamp)}${detalhes?' · '+esc(detalhes):''}</small>`:''}</div>${link}`);
     return;
   }
   const semSinal=st?.ativa&&st.rotinaVistaEm?horas(st.rotinaVistaEm):0,silencio=!esperando&&semSinal>HORAS_ROTINA_SEM_SINAL;
-  const texto=!st?'Conferindo atualização…':!st.ativa?'Atualização automática pendente':estado==='executando'?'Coletando no Mubisys…':estado==='aguardando'?'Atualização solicitada':t?.em?`Mubisys · coletado ${dataBR(t.em).slice(0,17)}`:'Mubisys · sem coleta registrada';
+  const hora=x=>dataBR(x).slice(12,17);
+  const texto=!st?'Conferindo atualização…':!st.ativa?'Atualização automática pendente':estado==='executando'?'Coletando no Mubisys…':estado==='aguardando'?`Atualização solicitada${st.solicitadoEm?' às '+hora(st.solicitadoEm):''} · aguardando a rotina`:t?.em?`Mubisys · coletado ${dataBR(t.em).slice(0,17)}`:'Mubisys · sem coleta registrada';
+  const explica=estado==='aguardando'?'O pedido fica registrado e a rotina do GitHub o executa na próxima passagem — costuma levar de minutos a algumas horas. Você pode fechar esta tela.':v.descricao;
   const tom=esperando?'info':silencio||(st&&!st.ativa)?'warn':st?'ok':'';
-  const aberto=!!bar.querySelector('details[open]');
-  bar.className='coleta-slot';
-  bar.innerHTML=`<details class="chip-details coleta-chip ${tom}"${aberto?' open':''}><summary aria-label="${esc('Coleta do Mubisys: '+texto+(silencio?`. A rotina não dá sinal há ${Math.floor(semSinal)} horas`:''))}"><span class="st-dot" aria-hidden="true"></span><span class="st-txt">${esc(texto)}${silencio?` · sem sinal há ${Math.floor(semSinal)}h`:''}</span></summary><div class="chip-pop"><strong>${esc(v.titulo)}</strong><p>${esc(v.descricao)} ${esc(pedido)}${silencio?` A rotina não dá sinal há ${Math.floor(semSinal)} horas; o GitHub pode estar atrasando o agendamento.`:''}</p>${stamp?`<small>${esc(stamp)}${detalhes?' · '+esc(detalhes):''}</small>`:''}${link}</div></details>`;
+  trocarColeta(bar,'coleta-slot',`<details class="chip-details coleta-chip ${tom}"><summary aria-label="${esc('Coleta do Mubisys: '+texto+(silencio?`. A rotina não dá sinal há ${Math.floor(semSinal)} horas`:''))}"><span class="st-dot" aria-hidden="true"></span><span class="st-txt">${esc(texto)}${silencio?` · sem sinal há ${Math.floor(semSinal)}h`:''}</span></summary><div class="chip-pop"><strong>${esc(v.titulo)}</strong><p>${esc(explica)} ${esc(pedido)}${silencio?` A rotina não dá sinal há ${Math.floor(semSinal)} horas; o GitHub pode estar atrasando o agendamento.`:''}</p>${stamp?`<small>${esc(stamp)}${detalhes?' · '+esc(detalhes):''}</small>`:''}${link}</div></details>`);
 }
 function iniciarAcompanhamentoColeta(){
   if(!coletaControle)return;

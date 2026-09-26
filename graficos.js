@@ -525,7 +525,7 @@ function cascataRubricas(reg){
  const W=1140,H=300,PL=58,PR=14,PT=18,PB=76;
  let cur=0;const barras=[];
  for(const p of passos){const de=cur;cur=Math.round(cur*100+Math.round(p.v*100))/100;barras.push({...p,de,ate:cur});}
- barras.push({id:'variacao',nome:'(=) Variação do caixa',curto:'Sobrou',v:cur,tipo:'net',de:0,ate:cur});
+ barras.push({id:'variacao',nome:'(=) Variação do caixa',curto:cur<0?'Faltou':'Sobrou',v:cur,tipo:'net'+(cur<0?' ruim':cur>0?' bom':''),de:0,ate:cur});
  const todos=barras.flatMap(b=>[b.de,b.ate]).concat(0);
  let alto=Math.max(...todos),baixo=Math.min(...todos);
  const folga=(alto-baixo)*.1||1;alto+=folga;baixo-=folga;
@@ -580,7 +580,7 @@ function blocosDoCaixa(){
    variacao:r.variacao};
  });
  const W=980,H=300,PL=58,PR=14,PT=18,PB=40;
- const series=[{id:'operacao',nome:'Sobra da operação',cor:'#3ddc97'},{id:'socios',nome:'Sócios, ativos e investimento',cor:'#c2a6e7'},{id:'divida',nome:'Empréstimo e dívida',cor:'#f3ae7f'},{id:'semDetalhe',nome:'Sem detalhamento',cor:'#8e98aa'}];
+ const series=[{id:'operacao',nome:'Sobra da operação',nota:' · falta em vermelho',cor:'#8fb0ff'},{id:'socios',nome:'Sócios, ativos e investimento',cor:'#c2a6e7'},{id:'divida',nome:'Empréstimo e dívida',cor:'#f3ae7f'},{id:'semDetalhe',nome:'Sem detalhamento',cor:'#8e98aa'}];
  const comDado=meses.filter(x=>!x.vazio);
  if(!comDado.length)return painelGrafico('O que mexeu o caixa em cada mês',ano,'<p class="empty">Nenhum mês coletado neste ano.</p>');
  const somaPos=x=>series.reduce((n,s)=>n+Math.max(0,x[s.id]||0),0),somaNeg=x=>series.reduce((n,s)=>n+Math.min(0,x[s.id]||0),0);
@@ -592,7 +592,7 @@ function blocosDoCaixa(){
  const pe=([1,2,2.5,5,10].find(k=>k*ordem>=bruto)||10)*ordem;
  const marcas=[];for(let v=Math.ceil(baixo/pe)*pe;v<=alto;v+=pe)marcas.push(v);
  return painelGrafico('O que mexeu o caixa em cada mês',`${ano} · a operação sobrou acima do zero; sócio e dívida puxam abaixo; cinza é o que o ERP não classificou`,
-  `<div class="painel-escuro"><div class="chart-legend escuro">${series.map(s=>`<span><i style="--serie:${s.cor}"></i>${esc(s.nome)}</span>`).join('')}<span><i class="pt-var"></i>Variação do mês</span></div>
+  `<div class="painel-escuro"><div class="chart-legend escuro">${series.map(s=>`<span><i style="--serie:${s.cor}"></i>${esc(s.nome+(s.nota||''))}</span>`).join('')}<span><i class="pt-var"></i>Variação do mês</span></div>
   <div class="chart-scroll" tabindex="0" role="region" aria-label="Blocos que mexeram o caixa"><svg class="blocos-svg" viewBox="0 0 ${W} ${H}">
    ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="casc-grade"/><text x="${PL-7}" y="${y(v)+3}" class="casc-eixo">${esc(compacto(v))}</text>`).join('')}
    <line x1="${PL}" y1="${y(0)}" x2="${W-PR}" y2="${y(0)}" class="casc-zero"/>
@@ -604,7 +604,7 @@ function blocosDoCaixa(){
       const de=v>0?cimaAcc:baixoAcc,ate=de+v;
       if(v>0)cimaAcc=ate;else baixoAcc=ate;
       const topo=Math.max(de,ate);
-      out+=`<rect x="${x(i).toFixed(1)}" y="${y(topo).toFixed(1)}" width="${larg.toFixed(1)}" height="${Math.max(1.5,Math.abs(y(de)-y(ate))).toFixed(1)}" fill="${s.cor}" rx="1.5"><title>${esc(m.label+' · '+s.nome+': '+money(v))}</title></rect>`;
+      out+=`<rect x="${x(i).toFixed(1)}" y="${y(topo).toFixed(1)}" width="${larg.toFixed(1)}" height="${Math.max(1.5,Math.abs(y(de)-y(ate))).toFixed(1)}" fill="${s.id==='operacao'&&v<0?'#f0708f':s.cor}" rx="1.5"><title>${esc(m.label+' · '+s.nome+': '+money(v))}</title></rect>`;
      }
      return out+`<circle cx="${(x(i)+larg/2).toFixed(1)}" cy="${y(m.variacao).toFixed(1)}" r="3.4" class="pt-variacao"><title>${esc(m.label+' · variação do mês: '+money(m.variacao))}</title></circle>`;
    }).join('')}
