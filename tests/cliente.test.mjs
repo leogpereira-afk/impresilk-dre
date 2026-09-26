@@ -28,7 +28,7 @@ const ler=(c,k)=>vm.runInContext(`localStorage.getItem(${JSON.stringify(k)})`,c)
 function prepararSaida(c,{confirma=true}={}){
  const perguntas=[];
  vm.runInContext("document.getElementById=()=>({hidden:false,value:'',close(){}});STORE_KEY='dre_v2_data:equipe';MONTH_TS_KEY='dre_v2_ts:equipe';QUEUE_KEY='dre_v2_queue:equipe';localStorage.removeItem(QUEUE_KEY);localStorage.setItem(STORE_KEY,'{\"registros\":[{\"label\":\"Ago/2026\"}]}');localStorage.setItem(MONTH_TS_KEY,'{\"Ago/2026\":\"x\"}');",c);
- c.confirm=m=>{perguntas.push(m);return confirma;};c.AUTH={esquecer(){c.saiu=true;}};
+ c.confirm=m=>{perguntas.push(m);return confirma;};c.AUTH={esquecer(){c.saiu=true;}};c.clearInterval=()=>{};
  return perguntas;
 }
 test('sair apaga do aparelho a cópia dos números',async()=>{
