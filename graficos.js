@@ -245,9 +245,9 @@ function graficoRitmoAno(){
 function formularioMetas(){
  const ano=state.periodo.split('/')[1],m=metasAno(ano);
  dialog('Metas de '+ano,`<form id="metasForm"><p>Valores do ano inteiro. Ficam guardados <b>neste aparelho</b>, como a projeção de 13 semanas — não vão para a nuvem nem alteram o Mubisys.</p>
-  <label>Meta de entradas no ano (R$)<input name="receita" type="number" step="0.01" min="0" value="${m.receita??''}" placeholder="Ex.: 5000000"><small>${COMPOE.entradas}</small></label>
-  <label>Limite de saídas no ano (R$)<input name="custos" type="number" step="0.01" min="0" value="${m.custos??''}" placeholder="Ex.: 4500000"><small>${COMPOE.saidas}</small></label>
-  <label>Alvo de entradas menos saídas no ano (R$)<input name="caixa" type="number" step="0.01" value="${m.caixa??''}" placeholder="Ex.: 180000"><small>${COMPOE.diferenca}</small></label>
+  <label>Meta de entradas no ano (R$)<input name="receita" type="number" step="0.01" min="0" value="${esc(m.receita??'')}" placeholder="Ex.: 5000000"><small>${COMPOE.entradas}</small></label>
+  <label>Limite de saídas no ano (R$)<input name="custos" type="number" step="0.01" min="0" value="${esc(m.custos??'')}" placeholder="Ex.: 4500000"><small>${COMPOE.saidas}</small></label>
+  <label>Alvo de entradas menos saídas no ano (R$)<input name="caixa" type="number" step="0.01" value="${esc(m.caixa??'')}" placeholder="Ex.: 180000"><small>${COMPOE.diferenca}</small></label>
   <p class="hint">Deixe em branco para não mostrar a linha tracejada daquele painel.</p>
   <button class="primary" type="submit">Salvar metas</button></form>`);
  $$('metasForm').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);

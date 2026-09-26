@@ -4,15 +4,15 @@ import {createHmac} from 'node:crypto';
 import {stripTypeScriptTypes} from 'node:module';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-function server({role='leitura',dbFail=false,response={status:200,data:[]}}={}) {
-  let handler,writes=0;
+function server({role='leitura',dbFail=false,permFail=false,response={status:200,data:[]}}={}) {
+  let handler,writes=0,erp=[];
   const env={DRE_TOKEN:'fixture-machine',DRE_COLLECTOR_TOKEN:'fixture-collector',EQUIPE_JWT_SECRET:'fixture-jwt',MUBI_PUBLIC_KEY:'fixture-public',MUBI_TOKEN:'fixture-access'};
-  const sb={rpc:async()=>({data:false,error:null}),from(table){let invalid=false;const b={select(){return b;},eq(k,v){if(table==='dre_config_global'&&k==='id'&&v!==true)invalid=true;return b;},maybeSingle:async()=>({data:table==='dre_config_global'?{config:{permissoes:{user:role}}}:null,error:invalid?{message:'id booleano inválido'}:null}),upsert:async()=>{writes++;return {error:dbFail?{message:'erro de teste'}:null};}};return b;}};
-  const context={Deno:{env:{get:k=>env[k]||''},serve:f=>handler=f},createClient:()=>sb,TextEncoder,TextDecoder,Request,Response,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,crypto:globalThis.crypto,atob,console,fetch:async()=>new Response(JSON.stringify(response.data),{status:response.status})};
+  const sb={rpc:async()=>({data:false,error:null}),from(table){let invalid=false;const b={select(){return b;},eq(k,v){if(table==='dre_config_global'&&k==='id'&&v!==true)invalid=true;return b;},maybeSingle:async()=>({data:table==='dre_config_global'&&!permFail?{config:{permissoes:{user:role}}}:null,error:invalid||(permFail&&table==='dre_config_global')?{message:'id booleano inválido'}:null}),upsert:async()=>{writes++;return {error:dbFail?{message:'erro de teste'}:null};}};return b;}};
+  const context={Deno:{env:{get:k=>env[k]||''},serve:f=>handler=f},createClient:()=>sb,TextEncoder,TextDecoder,Request,Response,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,crypto:globalThis.crypto,atob,console,fetch:async(u)=>{erp.push(String(u));return new Response(JSON.stringify(response.data),{status:response.status});}};
   vm.createContext(context);vm.runInContext(stripTypeScriptTypes(fs.readFileSync(new URL('../supabase/functions/dre-financas/index.ts',import.meta.url),'utf8').replace(/^import .*;$/mg,'')),context);
   const h=Buffer.from('{"alg":"HS256"}').toString('base64url'),p=Buffer.from(JSON.stringify({sub:'user',sis:'dre',papel:'equipe',exp:Math.floor(Date.now()/1000)+60})).toString('base64url');
   const jwt=h+'.'+p+'.'+createHmac('sha256',env.EQUIPE_JWT_SECRET).update(h+'.'+p).digest('base64url');
-  return {writes:()=>writes,call:async(body,machine=false)=>{const r=await handler(new Request('https://test/dre-financas',{method:'POST',headers:{'content-type':'application/json',...(machine?{'x-token':machine==='collector'?env.DRE_COLLECTOR_TOKEN:env.DRE_TOKEN}:{authorization:'Bearer '+jwt})},body:JSON.stringify(body)}));return {status:r.status,body:await r.json()};}};
+  return {writes:()=>writes,erp:()=>erp,call:async(body,machine=false)=>{const r=await handler(new Request('https://test/dre-financas',{method:'POST',headers:{'content-type':'application/json',...(machine?{'x-token':machine==='collector'?env.DRE_COLLECTOR_TOKEN:env.DRE_TOKEN}:{authorization:'Bearer '+jwt})},body:JSON.stringify(body)}));return {status:r.status,body:await r.json()};}};
 }
 test('leitor não altera credenciais da integração',async()=>{const s=server();const r=await s.call({action:'salvarConfig',publicKey:'nova'});assert.equal(r.status,403);assert.equal(s.writes(),0);});
 test('administrador recebe falha quando a configuração não foi salva',async()=>{const s=server({role:'admin',dbFail:true});const r=await s.call({action:'salvarConfig',publicKey:'nova'});assert.equal(r.status,500);assert.notEqual(r.body.ok,true);});
@@ -52,4 +52,50 @@ test('coletor exclusivo lê o financeiro, mas não muda credenciais nem acessa o
   assert.equal((await s.call({action:'salvarConfig',publicKey:'nova'},'collector')).status,403);
   assert.equal((await s.call({action:'listar',recurso:'funcionarios'},'collector')).status,403);
   assert.equal(s.writes(),0);
+});
+
+// Porta do ERP (25/09/2026): a lista de recursos vale para todo mundo, e as
+// consultas de diagnóstico ficam com a máquina e a administração. A tela do
+// DRE só usa importarMes.
+test('crachá comum não usa o conector para ler outro recurso do ERP',async()=>{
+  for(const role of ['leitura','edicao','admin']){
+    const s=server({role});
+    for(const recurso of ['funcionarios','clientes','contas-pagar/../funcionarios','ordem-servico/numero/1/../../clientes']){
+      const r=await s.call({action:'listar',recurso});
+      assert.equal(r.status,403,role+' '+recurso);
+    }
+    assert.equal(s.erp().length,0,'nenhuma consulta chegou ao ERP');
+  }
+});
+test('máquina também fica presa à lista de recursos',async()=>{
+  const s=server();
+  assert.equal((await s.call({action:'listar',recurso:'funcionarios'},true)).status,403);
+  assert.equal((await s.call({action:'preview',recurso:'clientes'},true)).status,403);
+  assert.equal(s.erp().length,0);
+  assert.equal((await s.call({action:'listar',recurso:'contas-pagar'},true)).body.ok,true);
+});
+test('consultas de diagnóstico ficam com a administração',async()=>{
+  for(const action of ['listar','preview','raw','ping','statusConfig']){
+    const s=server({role:'edicao'});
+    const r=await s.call({action,recurso:'contas-pagar'});
+    assert.equal(r.status,403,action);
+    assert.equal(JSON.stringify(r.body).includes('fixture-access'.slice(-4)),false,action+' não mostra o fim do token');
+    assert.equal(s.erp().length,0,action);
+  }
+  const adm=server({role:'admin'});
+  assert.equal((await adm.call({action:'listar',recurso:'contas-pagar'})).body.ok,true);
+  assert.equal((await adm.call({action:'statusConfig'})).body.ok,true);
+});
+test('sem conseguir conferir o papel, a consulta de diagnóstico fica fechada',async()=>{
+  const s=server({role:'admin',permFail:true});
+  const r=await s.call({action:'listar',recurso:'contas-pagar'});
+  assert.equal(r.status,503);
+  assert.equal(s.erp().length,0);
+});
+test('a conferência da tela (importarMes) continua aberta para quem entra no DRE',async()=>{
+  const s=server({role:'leitura'});
+  const r=await s.call({action:'importarMes',datainicial:'2026-08-01',datafinal:'2026-08-07'});
+  assert.equal(r.status,200);
+  assert.equal(r.body.ok,true);
+  assert.ok(s.erp().every(u=>/\/contas-(pagar|receber)\?/.test(u)),'só contas a pagar e a receber');
 });

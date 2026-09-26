@@ -84,6 +84,11 @@ function garantirXLSX() {
   _xlsxPronto = new Promise((ok, falhou) => {
     const s = document.createElement('script');
     s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    // Integridade: o navegador só executa o arquivo se ele for byte a byte o
+    // que foi conferido. Um CDN comprometido (ou um arquivo trocado no meio do
+    // caminho) vira erro de carregamento, não código rodando com o crachá.
+    s.integrity = 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw';
+    s.crossOrigin = 'anonymous';
     const timer=setTimeout(()=>{s.remove();_xlsxPronto=null;falhou(new Error('O leitor de planilhas demorou para carregar. Verifique a conexão e tente novamente.'));},25000);
     s.onload = () => {clearTimeout(timer);ok();};
     s.onerror = () => {
@@ -356,7 +361,7 @@ function boot(D){state.D=D;state.records=(D?.registros||datasetRecords(D||getCur
 function scopeSession(){let sub='equipe';try {const raw=AUTH.cracha().split('.')[1];sub=JSON.parse(atob(raw.replace(/-/g,'+').replace(/_/g,'/'))).sub||sub;}catch(_){}const suffix=encodeURIComponent(String(sub));STORE_KEY='dre_v2_data:'+suffix;MONTH_TS_KEY='dre_v2_ts:'+suffix;QUEUE_KEY='dre_v2_queue:'+suffix;}
 async function onAuthed(){
   if(!AUTH.temCracha())return;
-  const check=await AUTH.conferir();if(check===false){AUTH.esquecer();return;}
+  const check=await AUTH.conferir();if(check===false){scopeSession();limparCopiaLocal();AUTH.esquecer();return;}
   state.permissoes={leitura:true,edicao:false,admin:false};state.cfg={};state.cfgVersion=null;scopeSession();$$('authOverlay').hidden=true;$$('appShell').hidden=false;
   boot(getCurrentData());await pullCloud();iniciarAcompanhamentoColeta();
 }
@@ -382,7 +387,7 @@ async function pullCloud(manual=false){
     if(manual)toast('Base salva na nuvem lida. Veja abaixo a data da coleta do ERP.');
   }catch(e){setSyncState('off','Leitura não concluída');toast(e.message||'Não foi possível ler a nuvem.','err');}
 }
-function periodoOptions(){const labels=[...new Set([...state.records.map(r=>r.label),...Object.values(state.cfg.demonstrativosCompetencia?.meses||{}).map(r=>r.label),state.periodo,mesHoje()])].sort((a,b)=>monthSortKey(b)-monthSortKey(a));$$('monthSelect').innerHTML=labels.map(l=>`<option ${state.periodo===l?'selected':''}>${esc(l)}</option>`).join('');$$('compareSelect').innerHTML='<option value="">Sem comparação</option>'+labels.filter(l=>l!==state.periodo).map(l=>`<option ${state.comparar===l?'selected':''}>${esc(l)}</option>`).join('');}
+function periodoOptions(){const labels=[...new Set([...state.records.map(r=>r.label),...Object.values(state.cfg.demonstrativosCompetencia?.meses||{}).map(r=>r.label),state.periodo,mesHoje()])].filter(l=>F.periodo(l)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));$$('monthSelect').innerHTML=labels.map(l=>`<option ${state.periodo===l?'selected':''}>${esc(l)}</option>`).join('');$$('compareSelect').innerHTML='<option value="">Sem comparação</option>'+labels.filter(l=>l!==state.periodo).map(l=>`<option ${state.comparar===l?'selected':''}>${esc(l)}</option>`).join('');}
 function render(){
   if(!state.D)return;periodoOptions();document.querySelector('.period').hidden=state.view==='glossario';$$('compareSelect').parentElement.hidden=state.view==='dre';$$('qualityBar').hidden=state.view==='glossario'||(state.view==='dre'&&dreUI.base==='competencia');const reg=regAtual(),q=F.qualidade(reg);const metadata={cfo:['Análise CFO','Prioridades, composição dos valores e perguntas para decidir com segurança.'],dre:['DRE mensal','Duas leituras, mês a mês: movimento de caixa e resultado por competência.'],glossario:['Glossário financeiro','Conceitos, fórmulas e exemplos para entender cada número.'],inicio:['Visão geral','O que aconteceu, o que falta conferir e onde agir.'],caixa:['Caixa','Entradas, saídas e planejamento, com critérios visíveis.'],resultado:['Resultado','Separe o movimento do dinheiro do resultado econômico.'],custos:['Centros de custos','Despesas por mês: entenda onde o dinheiro é gasto e acompanhe cada categoria.'],detalhe:['Detalhamento','Do total à conta, ao produto e à origem do lançamento.'],conferencia:['Conferência','Cobertura, pendências e diferenças antes do fechamento.'],config:['Sistemas e configurações','Integração, importação, backup e acesso.'],ajuda:['Ajuda financeira','Conceitos e regras para ler os números com clareza.']};
   const [title,desc]=metadata[state.view]||metadata.inicio;$$('pageTitle').textContent=title;$$('pageDesc').textContent=desc;
@@ -532,7 +537,14 @@ async function importarBackup(file){
  }catch(e){toast(e.message,'err');}
 }
 function revisarConflito(id){const item=getQueue().find(it=>it.opId===id);if(!item)return;const remote=item.conflito?.servidor;const dif=remote?diffRegistro(remote,item.registro):[];dialog('Revisar edição de '+item.registro.label,`<p>${remote?'Há uma versão diferente na nuvem. Compare os valores antes de escolher.':'A edição foi preservada e ainda não foi confirmada.'}</p>${dif.map(x=>linha(x.name+' · nuvem '+money(x.antes)+' → aparelho',x.depois)).join('')}<div class="actions"><button id="saveConflictCopy">Baixar cópia desta edição</button>${remote?'<button id="adoptRemote">Usar versão da nuvem</button><button id="retryLocal" class="primary">Confirmar versão deste aparelho</button>':'<button id="retryLocal" class="primary">Tentar envio novamente</button>'}</div>`);$$('saveConflictCopy').onclick=()=>download('edicao-'+safeId(item.registro.label)+'.json',JSON.stringify(item,null,2));if($$('adoptRemote'))$$('adoptRemote').onclick=async()=>{download('edicao-preservada-'+safeId(item.registro.label)+'.json',JSON.stringify(item,null,2));setQueue(getQueue().filter(it=>it.opId!==id));$$('detailDialog').close();await pullCloud();};$$('retryLocal').onclick=async()=>{const q=getQueue(),it=q.find(x=>x.opId===id);if(!it)return;it.registro.baseAtualizadoEm=item.conflito?(remote?.atualizadoEm||null):(it.registro.baseAtualizadoEm||null);delete it.conflito;delete it.erro;setQueue(q);$$('detailDialog').close();await trySync();render();};}
-function logout(){if(getQueue().length&&!confirm('Há edições pendentes neste aparelho. Elas serão preservadas para o próximo acesso. Sair?'))return;pararAcompanhamentoColeta();AUTH.esquecer();$$('appShell').hidden=true;$$('authOverlay').hidden=false;$$('loginPass').value='';state.D=null;state.records=[];state.cfg={};state.cfgVersion=null;$$('detailDialog').close();state.permissoes={leitura:true,edicao:false,admin:false};}
+// Sair apaga do aparelho a cópia dos números (ela volta do servidor no próximo
+// acesso). Edição que ainda não chegou à nuvem é tentada antes; se continuar
+// presa, só sai com a pessoa sabendo que ela será apagada.
+function limparCopiaLocal({fila=false}={}){for(const k of [STORE_KEY,MONTH_TS_KEY,'impresilk_dre_data',...(fila?[QUEUE_KEY]:[])])try{localStorage.removeItem(k);}catch(_){}}
+async function logout(){let q;try{q=getQueue();}catch(_){q=null;}if(q?.length&&navigator.onLine){try{await trySync();}catch(_){}try{q=getQueue();}catch(_){q=null;}}
+ if(q===null&&!confirm('A fila de edições deste aparelho está ilegível. Sair apaga essa fila. Para guardar, cancele e use "Baixar backup do DRE" nas Configurações. Sair mesmo assim?'))return;
+ if(q?.length&&!confirm(`${q.length===1?'Uma edição ainda não chegou':q.length+' edições ainda não chegaram'} à nuvem. Sair apaga ${q.length===1?'essa edição':'essas edições'} deste aparelho. Para guardar, cancele e use "Baixar backup do DRE" nas Configurações. Sair mesmo assim?`))return;
+ pararAcompanhamentoColeta();limparCopiaLocal({fila:true});AUTH.esquecer();$$('appShell').hidden=true;$$('authOverlay').hidden=false;$$('loginPass').value='';state.D=null;state.records=[];state.cfg={};state.cfgVersion=null;$$('detailDialog').close();state.permissoes={leitura:true,edicao:false,admin:false};}
 function initApp(){
   $$('loginForm').onsubmit=async e=>{e.preventDefault();$$('loginErr').textContent='';const b=e.target.querySelector('button');b.disabled=true;try{await AUTH.entrar($$('loginPass').value);$$('loginPass').value='';await onAuthed();}catch(err){$$('loginErr').textContent=err.message||'Não foi possível entrar.';}finally{b.disabled=false;}};
   document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;render();});$$('settingsBtn').onclick=()=>{state.view='config';render();};$$('helpBtn').onclick=()=>{state.view='ajuda';render();};$$('logoutBtn').onclick=logout;$$('syncBtn').onclick=()=>coletaControle?.solicitar();
@@ -543,3 +555,25 @@ function initApp(){
   onAuthed().catch(e=>{$$('loginErr').textContent=e.message;});
 }
 document.addEventListener('DOMContentLoaded',initApp);
+
+// Service Worker e aviso de versão nova. O SW novo assume as abas abertas
+// sozinho (skipWaiting + clients.claim), mas o JavaScript que já está rodando
+// é o antigo até recarregar: sem aviso, quem deixa o app aberto dias seguidos
+// fica olhando a versão velha. Primeira instalação não avisa (não havia
+// controlador antes).
+(function registrarSW(){
+  if(typeof navigator==='undefined'||typeof location==='undefined'||!('serviceWorker' in navigator)||location.protocol!=='https:')return;
+  const tinhaVersao=!!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('./sw.js').then(reg=>{
+    document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')reg.update().catch(()=>{});});
+  }).catch(()=>{});
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(tinhaVersao)avisarVersaoNova();});
+})();
+function avisarVersaoNova(){
+  if(document.getElementById('versaoNova'))return;
+  const el=document.createElement('div');el.id='versaoNova';el.setAttribute('role','status');
+  el.innerHTML='<span>Há uma versão nova do DRE.</span><button type="button" class="primary">Atualizar</button><button type="button" aria-label="Fechar aviso">✕</button>';
+  const [atualizar,fechar]=el.querySelectorAll('button');
+  atualizar.onclick=()=>location.reload();fechar.onclick=()=>el.remove();
+  document.body.appendChild(el);
+}

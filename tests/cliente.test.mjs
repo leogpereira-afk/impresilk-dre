@@ -21,3 +21,43 @@ test('falta de espaço na fila não finge que salvou a edição',()=>{const c=cl
 test('importação atualiza nome apenas no mês escolhido',()=>{const c=client();const r=vm.runInContext(`(()=>{const d=monthsToDataset([{label:'Jan/2026',cells:[{code:'2',name:'Antes',value:10}]},{label:'Fev/2026',cells:[{code:'2',name:'Velho',value:20}]}]);return monthRecord(upsertMonth(d,'Fev/2026',[{code:'2',name:'Novo',value:30}]),1,'agora')})()`,c);assert.equal(r.cells[0].name,'Novo');});
 test('importar mês não inventa contas zeradas de outros períodos',()=>{const c=client();const r=vm.runInContext(`prepararImportacao([{id:'Jan_2026',label:'Jan/2026',cells:[{code:'1',value:10},{code:'2',value:3},{code:'2.99',value:3}]}],'Fev/2026',[{code:'1',name:'Entradas',value:100},{code:'2',name:'Saídas',value:40}])`,c);assert.equal(r.cells.length,2);assert.equal(r.cells[0].value,100);});
 test('backup de configurações exclui campos de credenciais e permissões',()=>{const c=client();const r=vm.runInContext(`configSegura({accessToken:'segredo',publicKey:'chave',permissoes:{equipe:'admin'},produtosCodigo:{A:'1.1'},regras:{reserva:100}})`,c);assert.deepEqual(Object.keys(r).sort(),['produtosCodigo','regras']);});
+
+// Sair (25/09/2026): a cópia dos números sai do aparelho junto com a pessoa.
+// Edição que não chegou à nuvem é tentada antes e só é apagada com confirmação.
+const ler=(c,k)=>vm.runInContext(`localStorage.getItem(${JSON.stringify(k)})`,c);
+function prepararSaida(c,{confirma=true}={}){
+ const perguntas=[];
+ vm.runInContext("document.getElementById=()=>({hidden:false,value:'',close(){}});STORE_KEY='dre_v2_data:equipe';MONTH_TS_KEY='dre_v2_ts:equipe';QUEUE_KEY='dre_v2_queue:equipe';localStorage.removeItem(QUEUE_KEY);localStorage.setItem(STORE_KEY,'{\"registros\":[{\"label\":\"Ago/2026\"}]}');localStorage.setItem(MONTH_TS_KEY,'{\"Ago/2026\":\"x\"}');",c);
+ c.confirm=m=>{perguntas.push(m);return confirma;};c.AUTH={esquecer(){c.saiu=true;}};
+ return perguntas;
+}
+test('sair apaga do aparelho a cópia dos números',async()=>{
+ const c=client();const perguntas=prepararSaida(c);
+ await vm.runInContext('logout()',c);
+ assert.equal(ler(c,'dre_v2_data:equipe'),null);
+ assert.equal(ler(c,'dre_v2_ts:equipe'),null);
+ assert.equal(perguntas.length,0);assert.equal(c.saiu,true);
+});
+test('sair com edição presa pergunta antes e, se a pessoa desiste, nada é apagado',async()=>{
+ const c=client();const perguntas=prepararSaida(c,{confirma:false});c.api=async()=>{throw new Error('sem rede');};
+ vm.runInContext(`enqueueUpsert({id:'Ago_2026',label:'Ago/2026',valor:100})`,c);
+ await vm.runInContext('logout()',c);
+ assert.equal(perguntas.length,1);assert.match(perguntas[0],/Uma edição ainda não chegou à nuvem/);
+ assert.equal(c.saiu,undefined);
+ assert.equal(vm.runInContext('getQueue().length',c),1);
+ assert.notEqual(ler(c,'dre_v2_data:equipe'),null);
+});
+test('sair com edição presa e confirmação apaga a fila também',async()=>{
+ const c=client();prepararSaida(c,{confirma:true});c.api=async()=>{throw new Error('sem rede');};
+ vm.runInContext(`enqueueUpsert({id:'Ago_2026',label:'Ago/2026',valor:100})`,c);
+ await vm.runInContext('logout()',c);
+ assert.equal(c.saiu,true);
+ assert.equal(ler(c,'dre_v2_queue:equipe'),null);
+ assert.equal(ler(c,'dre_v2_data:equipe'),null);
+});
+test('sair envia antes a edição pendente quando há rede, sem perguntar',async()=>{
+ const c=client();const perguntas=prepararSaida(c);const enviados=[];c.api=async(_a,args)=>{enviados.push(args.registro.valor);return {ok:true};};
+ vm.runInContext(`enqueueUpsert({id:'Ago_2026',label:'Ago/2026',valor:100})`,c);
+ await vm.runInContext('logout()',c);
+ assert.deepEqual(enviados,[100]);assert.equal(perguntas.length,0);assert.equal(c.saiu,true);
+});

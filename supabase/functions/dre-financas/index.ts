@@ -331,6 +331,25 @@ async function crachaRevogado(sb: any, sistema: string, cracha: any): Promise<bo
   }
 }
 
+/* ---------------------------------------------------------------- porta do ERP
+   Este conector fala com o Mubisys usando a credencial DA EMPRESA. Até 25/09
+   só o coletor tinha lista fechada de recursos: com um crachá qualquer,
+   `listar` aceitava qualquer caminho da API (funcionários, clientes…) e
+   devolvia tudo. Agora a lista vale para todo mundo, e as consultas de
+   diagnóstico (listar/preview/raw/ping/statusConfig) ficam com a máquina e a
+   administração -- a tela do DRE só usa importarMes. */
+const RECURSOS_ERP = ["contas-pagar", "contas-receber", "conta-bancaria"];
+const recursoPermitido = (r: string) => RECURSOS_ERP.includes(r) || /^ordem-servico\/numero\/\d+$/.test(r);
+const SO_MAQUINA_OU_ADMIN = ["salvarConfig", "statusConfig", "ping", "raw", "preview", "listar"];
+// null = não deu para conferir (banco fora): a porta fica FECHADA nesse caso,
+// ao contrário da revogação -- aqui a pergunta é "pode mexer", não "ainda vale".
+async function papelNoDre(cracha: any): Promise<string | null> {
+  const { data, error } = await sb.from("dre_config_global").select("config").eq("id", true).maybeSingle();
+  if (error) return null;
+  return data?.config?.permissoes?.[String(cracha?.sub)] ||
+    (["admin", "master", "direcao"].includes(String(cracha?.papel)) ? "admin" : "edicao");
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ erro: "Use POST" }, 405);
@@ -351,18 +370,20 @@ Deno.serve(async (req: Request) => {
   }
   const action = body?.action as string;
   if (ehColetor && (!['ping','raw','listar','importarMes'].includes(action) ||
-      (body.recurso && !['contas-pagar','contas-receber','conta-bancaria'].includes(body.recurso) && !/^ordem-servico\/numero\/\d+$/.test(body.recurso))))
+      (body.recurso && !recursoPermitido(String(body.recurso)))))
     return json({erro:'A credencial da coleta não permite esta ação ou recurso.'},403);
+  if (body?.recurso != null && body.recurso !== "" && !recursoPermitido(String(body.recurso)))
+    return json({ erro: "Recurso do ERP não permitido." }, 403);
+  if (!ehMaquina && !ehColetor && SO_MAQUINA_OU_ADMIN.includes(action)) {
+    const papel = await papelNoDre(cracha);
+    if (papel === null) return json({ erro: "Não foi possível conferir permissões." }, 503);
+    if (papel !== "admin") return json({ erro: action === "salvarConfig"
+      ? "A configuração da integração exige acesso administrativo."
+      : "Esta consulta ao ERP é restrita à administração." }, 403);
+  }
 
   try {
     if (action === "salvarConfig") {
-      if (!ehMaquina) {
-        const {data,error} = await sb.from("dre_config_global").select("config").eq("id",true).maybeSingle();
-        if (error) return json({erro:"Não foi possível conferir permissões."},503);
-        const papel = data?.config?.permissoes?.[String(cracha.sub)] ||
-          (["admin","master","direcao"].includes(String(cracha.papel)) ? "admin" : "edicao");
-        if (papel !== "admin") return json({erro:"A configuração da integração exige acesso administrativo."},403);
-      }
       const atual = (await getMeta("mubisys")) ?? {};
       if (body.base && String(body.base).trim() && !baseConfiavel(String(body.base).trim().replace(/\/+$/, ""))) {
         return json({ erro: "Endereço do Mubisys não permitido. Use o endereço oficial (…mubisys.com)." }, 400);
@@ -413,7 +434,7 @@ Deno.serve(async (req: Request) => {
     // Diagnóstico limitado à estrutura: não devolve amostras nem valores.
     if (action === "raw") {
       const recurso = body.recurso || "contas-pagar";
-      if (!['contas-pagar','contas-receber','conta-bancaria'].includes(recurso) && !/^ordem-servico\/numero\/\d+$/.test(recurso)) return json({erro:'Recurso de diagnóstico não permitido.'},400);
+      if (!recursoPermitido(recurso)) return json({erro:'Recurso de diagnóstico não permitido.'},400);
       const r = await buscar(recurso, creds, {
         status: body.status ?? "",
         filtrodata: body.filtrodata ?? "",

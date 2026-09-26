@@ -35,3 +35,4 @@ dist/
 
 # Harness de verificação local (contém o razão mensal — nunca versionar)
 _v_*.html
+_v_*.js

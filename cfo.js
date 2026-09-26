@@ -1,7 +1,7 @@
 /* Navegação da análise: os cliques preservam o período da tela de origem. */
 let cfoVoltas=[];
 const cfoNome=id=>(linhasCaixa.find(x=>x.id===id)||DREModelo.linhas.find(x=>x.id===id))?.nome||id;
-const cfoValor=(v,ratio=false)=>v==null?'Não apurado':ratio?v.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':money(v);
+const cfoValor=(v,ratio=false)=>v==null?'Não apurado':ratio?Number(v).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%':money(v);
 function botaoConta(code,label,periodo=state.periodo){return `<button class="cfo-link" data-cfo-account="${esc(code)}" data-cfo-period="${esc(periodo)}">${esc(label)}</button>`;}
 function cfoResumo(reg){
  const a=DRECFO.analise(reg,state.records.find(x=>x.label===state.comparar));

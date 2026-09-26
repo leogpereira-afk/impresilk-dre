@@ -25,3 +25,18 @@ test('ambos os demonstrativos renderizam 12 meses sem inventar números em mês 
 test('acumulado por competência bloqueia empresas diferentes',()=>{const c=tela();c.months={Jan_2026:{company:'A',valores:valores({produtos:10})},Fev_2026:{company:'B',valores:valores({produtos:20})}};const r=vm.runInContext("state.periodo='Fev/2026';dreUI.base='competencia';state.cfg={demonstrativosCompetencia:{meses:months}};dadosDRE()",c);assert.equal(r.mesmoEscopo,false);assert.equal(r.soma.liquido,undefined);});
 test('glossário busca sem acentos, filtra assuntos e cobre toda a ajuda do DRE',()=>{const c=tela();const out=vm.runInContext("({count:GlossarioFinanceiro.termos.length,busca:GlossarioFinanceiro.buscar('depreciacao'),cats:GlossarioFinanceiro.buscar('','credito'),missing:[...DREModelo.linhas,...linhasCaixa].filter(r=>!GlossarioFinanceiro.termos.some(t=>t.nome===r.termo))})",c);assert.ok(out.count>=70);assert.ok(out.busca.some(t=>t.nome==='Depreciação'));assert.ok(out.cats.every(t=>t.grupo==='credito'));assert.equal(out.missing.length,0);});
 test('backup preserva competência e exclui segredos',()=>{const c=tela();const r=vm.runInContext("configSegura({demonstrativosCompetencia:{versao:1,meses:{}},permissoes:{},accessToken:'x'})",c);assert.deepEqual(Object.keys(r),['demonstrativosCompetencia']);});
+
+// Auditoria de HTML (25/09/2026): texto que não nasce no código não vira marcação.
+test('rótulo de mês fora do padrão não vira HTML no campo de competência',()=>{
+ const c=tela();c.ruim='Jan/2026"><img src=x onerror=alert(1)>';
+ const html=vm.runInContext("state.periodo=ruim;dreUI.base='competencia';renderDRE()",c);
+ assert.doesNotMatch(html,/<img/);
+ const bom=vm.runInContext("state.periodo='Set/2026';dreUI.base='competencia';renderDRE()",c);
+ assert.match(bom,/id="drePeriodo"[^>]*value="2026-09"/);
+});
+test('meta guardada no aparelho com texto não abre o atributo do campo',()=>{
+ const c=tela();vm.runInContext(`localStorage.getItem=k=>k===METAS_KEY?JSON.stringify({semAlvoZero:true,'2026':{receita:'1"><img src=x>',custos:5,caixa:null}}):null;localStorage.setItem=()=>{};document.getElementById=()=>({});dialog=(t,h)=>{globalThis.metasHTML=h;};`,c);
+ vm.runInContext('formularioMetas()',c);const html=vm.runInContext('metasHTML',c);
+ assert.doesNotMatch(html,/<img/);
+ assert.match(html,/name="custos"[^>]*value="5"/);
+});
