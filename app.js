@@ -355,7 +355,7 @@ function dialog(title,html){$$('detailTitle').textContent=title;$$('detailConten
 const fato=(label,value)=>`<div class="fato"><span class="label">${esc(label)}</span><b>${esc(value)}</b></div>`;
 const linha=(label,value,total=false,code='')=>`<div class="line ${total?'total':''}"><span>${code?botaoConta(code,label):esc(label)}</span><b>${typeof value==='number'?money(value):esc(value)}</b></div>`;
 const card=(title,html,open=true)=>`<details class="card" ${open?'open':''}><summary>${esc(title)}</summary><div class="card-body">${html}</div></details>`;
-const metric=(label,value,desc,code='')=>`<${code?'button':'div'} class="metric" ${code?`data-account="${esc(code)}"`:''}><span class="label">${esc(label)}</span><strong>${value==null?'Não apurado':typeof value==='number'?money(value):esc(value)}</strong><small>${esc(desc)}</small></${code?'button':'div'}>`;
+const metric=(label,value,desc,code='',tom='')=>`<${code?'button':'div'} class="metric" ${code?`data-account="${esc(code)}"`:''}><span class="label">${esc(label)}</span><strong${tom?` class="${tom}"`:''}>${value==null?'Não apurado':typeof value==='number'?money(value):esc(value)}</strong><small>${esc(desc)}</small></${code?'button':'div'}>`;
 function regAtual(){return state.records.find(r=>r.label===state.periodo)||null;}
 function boot(D){state.D=D;state.records=(D?.registros||datasetRecords(D||getCurrentData())).filter(r=>!r.apagado);if(!state.periodo)state.periodo=mesHoje();if(!state.comparar)state.comparar=state.records.filter(r=>monthSortKey(r.label)<monthSortKey(state.periodo)).at(-1)?.label||'';render();}
 function scopeSession(){let sub='equipe';try {const raw=AUTH.cracha().split('.')[1];sub=JSON.parse(atob(raw.replace(/-/g,'+').replace(/_/g,'/'))).sub||sub;}catch(_){}const suffix=encodeURIComponent(String(sub));STORE_KEY='dre_v2_data:'+suffix;MONTH_TS_KEY='dre_v2_ts:'+suffix;QUEUE_KEY='dre_v2_queue:'+suffix;}
@@ -390,9 +390,10 @@ async function pullCloud(manual=false){
 function periodoOptions(){const labels=[...new Set([...state.records.map(r=>r.label),...Object.values(state.cfg.demonstrativosCompetencia?.meses||{}).map(r=>r.label),state.periodo,mesHoje()])].filter(l=>F.periodo(l)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));$$('monthSelect').innerHTML=labels.map(l=>`<option ${state.periodo===l?'selected':''}>${esc(l)}</option>`).join('');$$('compareSelect').innerHTML='<option value="">Sem comparação</option>'+labels.filter(l=>l!==state.periodo).map(l=>`<option ${state.comparar===l?'selected':''}>${esc(l)}</option>`).join('');}
 function render(){
   if(!state.D)return;periodoOptions();document.querySelector('.period').hidden=state.view==='glossario';$$('compareSelect').parentElement.hidden=state.view==='dre';$$('qualityBar').hidden=state.view==='glossario'||(state.view==='dre'&&dreUI.base==='competencia');const reg=regAtual(),q=F.qualidade(reg);const metadata={cfo:['Análise CFO','Prioridades, composição dos valores e perguntas para decidir com segurança.'],dre:['DRE mensal','Duas leituras, mês a mês: movimento de caixa e resultado por competência.'],glossario:['Glossário financeiro','Conceitos, fórmulas e exemplos para entender cada número.'],inicio:['Visão geral','O que aconteceu, o que falta conferir e onde agir.'],caixa:['Caixa','Entradas, saídas e planejamento, com critérios visíveis.'],resultado:['Resultado','Separe o movimento do dinheiro do resultado econômico.'],custos:['Centros de custos','Despesas por mês: entenda onde o dinheiro é gasto e acompanhe cada categoria.'],detalhe:['Detalhamento','Do total à conta, ao produto e à origem do lançamento.'],conferencia:['Conferência','Cobertura, pendências e diferenças antes do fechamento.'],config:['Sistemas e configurações','Integração, importação, backup e acesso.'],ajuda:['Ajuda financeira','Conceitos e regras para ler os números com clareza.']};
-  const [title,desc]=metadata[state.view]||metadata.inicio;$$('pageTitle').textContent=title;$$('pageDesc').textContent=desc;
+  const [title,desc]=metadata[state.view]||metadata.inicio;$$('pageTitle').textContent=title;$$('pageDesc').textContent=desc;document.title=title+' · DRE Impresilk';
   document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===state.view);b.setAttribute('aria-current',b.dataset.view===state.view?'page':'false');});
-  $$('qualityBar').innerHTML=`<details class="status quality-details ${q.comparavel?'good':''}"><summary><span class="quality-dot"></span><span>${esc(state.periodo)} · ${esc(q.rotulo)}</span><span class="quality-action">Ver cobertura</span></summary><div><p>${esc(q.mensagem)}</p><small>Última coleta/registro: ${esc(dataBR(q.coletadoEm))} · Fonte: ${!reg?'Não disponível':reg.origem==='erp'?'Mubisys':'Histórico / planilha'} · Base: caixa filtrado por “compõe DRE”. Conciliação bancária: ${reg?.qualidade?.conciliado?'registrada':'não comprovada'}.</small></div></details>`;
+  const semContrato=reg?.qualidade?.apiContratoValidado===false;
+  $$('qualityBar').innerHTML=`<details class="status quality-details chip-details est-${esc(q.estado||'sem-dados')} ${q.comparavel?'good':''}"><summary aria-label="${esc(`Qualidade de ${state.periodo}: ${q.rotulo}${semContrato?'. Limites da API ainda não validados':''}. Ver cobertura`)}"><span class="quality-dot"></span><span>${esc(state.periodo)} · <b>${esc(q.rotulo)}</b></span>${semContrato?'<span class="st-ressalva">* API a validar</span>':''}<span class="quality-action">cobertura ▾</span></summary><div><p>${esc(q.mensagem)}</p><small>Última coleta/registro: ${esc(dataBR(q.coletadoEm))} · Fonte: ${!reg?'Não disponível':reg.origem==='erp'?'Mubisys':'Histórico / planilha'} · Base: caixa filtrado por “compõe DRE”. Conciliação bancária: ${reg?.qualidade?.conciliado?'registrada':'não comprovada'}.</small></div></details>`;
   const pages={cfo:renderCFO,dre:renderDRE,glossario:renderGlossario,inicio:renderInicio,caixa:renderCaixa,resultado:renderResultado,custos:renderCustos,detalhe:renderDetalhe,conferencia:renderConferencia,config:renderConfig,ajuda:renderAjuda};
   $$('pageContent').innerHTML=(pages[state.view]||renderInicio)(reg,q);
   $$('cfoTools').hidden=['glossario','config','ajuda'].includes(state.view);wireContent();$$('footMeta').hidden=state.view==='glossario';$$('footMeta').textContent=state.view==='dre'&&dreUI.base==='competencia'?`Competência informada por mês · leitura da nuvem: ${dataBR(state.updated)}. Preenchimento não equivale a fechamento contábil.`:`${state.records.length} registros mensais · ${state.D.accounts.length} contas · ${state.periodo} · ${q.rotulo} · Leitura da nuvem: ${dataBR(state.updated)}. Valores não conciliados não representam fechamento.`;
@@ -481,22 +482,39 @@ let coletaTimer=null;
 const coletaControle=typeof DREColeta==='undefined'?null:DREColeta.controlador({
   api:action=>api(action),render:mostrarColeta,onConcluido:()=>pullCloud()
 });
+// A coleta mora num chip da régua de status. Só vira cartão quando há falha
+// que pede ação: erro, execução interrompida, falha ao consultar/pedir, ou
+// pedido de alguém parado. Rotina quieta NÃO é falha: o GitHub roda o
+// agendamento a cada 3–5h na prática, e o alerta antigo de "1h sem sinal"
+// ficava aceso quase sempre (26/09/2026).
+const HORAS_PEDIDO_PARADO=1,HORAS_ROTINA_SEM_SINAL=8;
 function mostrarColeta(v){
   const bar=$$('coletaBar'),button=$$('syncBtn');if(!bar||!button)return;
   button.disabled=v.pedindo||!v.podeSolicitar||!state.permissoes.edicao;
   button.textContent=v.pedindo?'Enviando pedido…':v.status?.estado==='executando'?'↻ Coletando…':v.status?.estado==='aguardando'?'◷ Solicitado':'↻ Atualizar Mubisys';
-  const t=v.status?.ultimaTentativa;
+  const st=v.status,estado=st?.estado,t=st?.ultimaTentativa,meses=t?.meses||[];
   const nomes={gravado:'atualizado',preservado:'histórico de planilha preservado',vazio:'sem lançamentos no período',simulado:'simulação, sem gravação'};
-  const detalhes=(t?.meses||[]).map(m=>`${m.label}: ${nomes[m.estado]||m.estado}`).join(' · ');
+  const detalhes=meses.map(m=>`${m.label}: ${nomes[m.estado]||m.estado}`).join(' · ');
   const stamp=t?.em?`Última tentativa: ${dataBR(t.em)}`:'';
-  const waiting=['aguardando','executando'].includes(v.status?.estado);
-  const rotinaAtrasada=v.status?.ativa&&v.status.rotinaVistaEm&&Date.now()-Date.parse(v.status.rotinaVistaEm)>60*60*1000;
-  const pedido=waiting&&v.status?.solicitadoEm?`Solicitado em ${dataBR(v.status.solicitadoEm)}.`:'';
-  const alerta=v.erro||(rotinaAtrasada?'A rotina não responde há mais de uma hora. Confira as execuções; o pedido ainda não foi confirmado.':'');
-  const runId=t?.runId||v.status?.runId;
+  const horas=x=>x?(Date.now()-Date.parse(x))/36e5:0;
+  const esperando=['aguardando','executando'].includes(estado);
+  const pedidoParado=estado==='aguardando'&&!!st?.solicitadoEm&&horas(st.solicitadoEm)>HORAS_PEDIDO_PARADO;
+  const falha=!!v.erro||['erro','interrompido'].includes(estado)||pedidoParado;
+  const runId=t?.runId||st?.runId;
   const link=/^\d+$/.test(String(runId||''))?`<a href="https://github.com/leogpereira-afk/impresilk-dre/actions/runs/${esc(runId)}" target="_blank" rel="noopener">Ver execução ↗</a>`:'';
-  bar.className='coleta-bar'+(alerta||['erro','interrompido'].includes(v.status?.estado)?' coleta-alerta':'');
-  bar.innerHTML=`<div><strong>${esc(v.titulo)}</strong><p>${esc(alerta||v.descricao)} ${esc(pedido)}</p>${stamp?`<small>${esc(stamp)}${detalhes?' · '+esc(detalhes):''}</small>`:''}</div>${link}`;
+  const pedido=esperando&&st?.solicitadoEm?`Solicitado em ${dataBR(st.solicitadoEm)}.`:'';
+  if(falha){
+    const alerta=v.erro||(pedidoParado?'A rotina do GitHub ainda não pegou o pedido. Ela costuma rodar a cada poucas horas; se passar disso, confira as execuções.':v.descricao);
+    bar.className='coleta-bar coleta-alerta';
+    bar.innerHTML=`<div><strong>${esc(pedidoParado?'Pedido de atualização parado':v.titulo)}</strong><p>${esc(alerta)} ${esc(pedido)}</p>${stamp?`<small>${esc(stamp)}${detalhes?' · '+esc(detalhes):''}</small>`:''}</div>${link}`;
+    return;
+  }
+  const semSinal=st?.ativa&&st.rotinaVistaEm?horas(st.rotinaVistaEm):0,silencio=!esperando&&semSinal>HORAS_ROTINA_SEM_SINAL;
+  const texto=!st?'Conferindo atualização…':!st.ativa?'Atualização automática pendente':estado==='executando'?'Coletando no Mubisys…':estado==='aguardando'?'Atualização solicitada':t?.em?`Mubisys · coletado ${dataBR(t.em).slice(0,17)}`:'Mubisys · sem coleta registrada';
+  const tom=esperando?'info':silencio||(st&&!st.ativa)?'warn':st?'ok':'';
+  const aberto=!!bar.querySelector('details[open]');
+  bar.className='coleta-slot';
+  bar.innerHTML=`<details class="chip-details coleta-chip ${tom}"${aberto?' open':''}><summary aria-label="${esc('Coleta do Mubisys: '+texto+(silencio?`. A rotina não dá sinal há ${Math.floor(semSinal)} horas`:''))}"><span class="st-dot" aria-hidden="true"></span><span class="st-txt">${esc(texto)}${silencio?` · sem sinal há ${Math.floor(semSinal)}h`:''}</span></summary><div class="chip-pop"><strong>${esc(v.titulo)}</strong><p>${esc(v.descricao)} ${esc(pedido)}${silencio?` A rotina não dá sinal há ${Math.floor(semSinal)} horas; o GitHub pode estar atrasando o agendamento.`:''}</p>${stamp?`<small>${esc(stamp)}${detalhes?' · '+esc(detalhes):''}</small>`:''}${link}</div></details>`;
 }
 function iniciarAcompanhamentoColeta(){
   if(!coletaControle)return;
@@ -577,3 +595,7 @@ function avisarVersaoNova(){
   atualizar.onclick=()=>location.reload();fechar.onclick=()=>el.remove();
   document.body.appendChild(el);
 }
+
+// Chips da régua de status: um aberto por vez; clique fora ou Esc fecha.
+document.addEventListener('click',e=>{if(typeof e?.target?.closest!=='function')return;const dentro=e.target.closest('.status-line details');document.querySelectorAll('.status-line details[open]').forEach(d=>{if(d!==dentro)d.open=false;});});
+document.addEventListener('keydown',e=>{if(e?.key==='Escape')document.querySelectorAll('.status-line details[open]').forEach(d=>{d.open=false;});});

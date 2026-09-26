@@ -152,3 +152,95 @@ th{font-weight:600}.line{line-height:1.65}.line b{font-weight:550}.line.total b{
 #appShell>.sidebar button>span:not(.ic){min-width:0}
 }
 @media screen and (min-width:701px) and (pointer:coarse){#appShell>.sidebar button{min-height:44px}}
+
+/* ── TOPO COMPACTO (26/09/2026) ─────────────────────────────────────────
+   Pedido do Léo: "toda aba começa com desperdício de espaço". A 1200x800 o
+   conteúdo começava em y=461 (58% da tela); no celular a primeira tela era
+   toda cabeçalho. Agora: título com a descrição ao lado, e UMA régua de chips
+   (período, coleta, PDF). O cartão da coleta só volta em falha que pede ação
+   (ver mostrarColeta). Nada fixo no topo: a tabela do DRE já tem cabeçalho
+   fixo. A lateral não é tocada aqui. */
+.sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.topbar{padding:8px 28px;min-height:0}
+.topbar>div:first-child{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 10px;min-width:0}
+.topbar>div:first-child .muted{font-size:12px}
+#syncState[data-state="ok"]{display:none}
+#main{padding-top:14px}
+.pagehead{display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;margin:0 0 8px}
+.pagehead>div:first-child{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 12px;min-width:0;flex:1 1 320px}
+.pagehead h1{font-size:23px;font-weight:650;line-height:1.25;letter-spacing:-.015em;margin:0}
+.pagehead #pageDesc{font-size:13px;line-height:1.4;margin:0;max-width:none;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 200px}
+.period{width:auto;display:flex;gap:10px;align-items:center;flex-wrap:nowrap}
+.period label{display:flex;flex-direction:row;align-items:center;gap:6px;min-width:0;margin:0;font-size:12px;font-weight:500;color:var(--muted);white-space:nowrap}
+.period select{width:auto;min-height:36px;font-size:13px;font-weight:600;padding-top:0;padding-bottom:0}
+.status-line{position:relative;display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;margin:0 0 16px;padding:0 0 10px;border-bottom:1px solid var(--line)}
+.status-line>[hidden]{display:none!important}
+.status-line>#qualityBar,.status-line>.coleta-slot{display:block;flex:0 1 auto;min-width:0;max-width:100%;margin:0}
+.status-line .quality-details{margin:0;padding:0;border:0;background:transparent}
+.status-line .chip-details>summary{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:0 12px;margin:0;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;max-width:100%;min-width:0;cursor:pointer;list-style:none}
+.status-line .chip-details>summary::-webkit-details-marker{display:none}
+.status-line .chip-details>summary:hover{border-color:var(--blue)}
+.status-line .chip-details>summary b{font-weight:650}
+.status-line .quality-details:not(.good)>summary{border-color:color-mix(in srgb,var(--amber) 55%,var(--line));background:color-mix(in srgb,var(--amber) 10%,var(--surface))}
+.status-line .quality-details .quality-dot{flex-shrink:0}
+.status-line .quality-action{margin-left:2px;font-size:11px;text-decoration:none;color:var(--muted);font-weight:500}
+.st-ressalva{font-size:11px;font-weight:650;color:var(--amber)}
+.st-dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0}
+.coleta-chip.ok .st-dot{background:var(--green)}
+.coleta-chip.info .st-dot{background:var(--blue)}
+.coleta-chip.warn .st-dot{background:var(--amber)}
+.status-line .coleta-chip.warn>summary{border-color:color-mix(in srgb,var(--amber) 55%,var(--line))}
+.coleta-chip .st-txt{overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* detalhe do chip: painel logo abaixo da régua (toque abre, clique fora fecha) */
+.status-line .chip-details>div{position:absolute;left:0;top:calc(100% + 6px);z-index:30;width:min(560px,100%);padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);box-shadow:0 10px 30px #0f1b3a24;font-size:13px;line-height:1.55;color:var(--text)}
+.status-line .chip-details>div p{margin:4px 0}
+.status-line .chip-details>div small{display:block;color:var(--muted);line-height:1.5}
+.status-line .chip-pop a{display:inline-block;margin-top:6px;font-size:12px}
+.status-line .coleta-alerta{flex-basis:100%;order:-1;margin:0 0 4px;padding:10px 14px}
+.status-line .cfo-tools{display:flex;align-items:center;margin:0 0 0 auto;gap:10px;flex-wrap:nowrap;padding:0;border:0;background:transparent}
+.status-line .cfo-tools p{margin:0;font-size:12px;color:var(--muted)}
+.status-line #cfoPDF{width:auto;min-height:30px;height:30px;padding:0 12px;font-size:12px;border-radius:8px}
+@media(max-width:1400px){.status-line .cfo-tools p{display:none}}
+@media(max-width:700px){
+ .topbar{padding:6px 16px}
+ #main{padding-top:12px}
+ .topbar{display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:space-between;gap:8px}
+ .topbar>div:first-child .muted{display:none}
+ .topbar .toolbar{flex-wrap:nowrap;gap:6px;align-items:center}
+ .topbar #syncBtn{white-space:nowrap;font-size:13px;padding:0 12px;min-height:44px}
+ .topbar #themeToggle{min-height:44px;min-width:44px}
+ .pagehead{flex-direction:column;align-items:stretch;gap:8px;margin-bottom:8px}
+ .pagehead>div:first-child{flex:0 0 auto}
+ .pagehead h1{font-size:20px}
+ .pagehead #pageDesc{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+ .period{width:100%;gap:8px}
+ .period{align-items:stretch}
+ .period label{flex:1 1 0;min-width:0;font-size:11px;flex-direction:column;align-items:stretch;gap:2px}
+ .period select{flex:1;width:100%;min-width:0;min-height:44px}
+ .status-line{gap:8px}
+ .status-line .chip-details>summary,.status-line #cfoPDF{min-height:44px;height:auto}
+ .status-line .chip-details>summary{white-space:normal;flex-wrap:wrap;row-gap:2px;padding:6px 14px;border-radius:16px}
+ .status-line>#qualityBar{flex:1 1 100%}
+ .status-line>.coleta-slot{flex:1 1 0}
+ .status-line .chip-details>div{position:static;width:auto;margin-top:6px;box-shadow:none}
+}
+@media(pointer:coarse){.status-line .chip-details>summary,.status-line #cfoPDF,.period select{min-height:44px}}
+@media print{.status-line{display:none!important}}
+
+/* ── COR DO DINHEIRO NO DRE (26/09/2026) ────────────────────────────────
+   Pedido do Léo: o que entrou em azul, o que saiu em vermelho; resultado
+   positivo azul, negativo vermelho (tomDoValor em demonstrativos.js). Os
+   gráficos seguem a mesma regra: entradas azul, saídas e despesas vermelho;
+   o resultado (que pode ser + ou −) ganha um tom neutro próprio. */
+:root{--chart-in:#2f62d0;--chart-out:#c7424c;--chart-cost:#c7424c;--chart-net:#5b6a86;--cob-ok:#238a7b}
+body.dark{--chart-in:#8fb0ff;--chart-out:#ff8f8c;--chart-cost:#ff8f8c;--chart-net:#b3bdd0;--cob-ok:#58c5b1}
+.dre-table td.num.tom-entra,.dre-table .dre-row-ratio td.num.tom-entra,.metric strong.tom-entra,.tom-entra{color:var(--blue)}
+.dre-table td.num.tom-sai,.dre-table .dre-row-ratio td.num.tom-sai,.metric strong.tom-sai,.tom-sai{color:var(--red)}
+/* td a mais: o cfo.css carrega depois e empataria em especificidade */
+.dre-table td .dre-compare .delta-bom,body.dark .dre-table td .dre-compare .delta-bom{color:var(--blue)}
+.dre-table td .dre-compare .delta-ruim,body.dark .dre-table td .dre-compare .delta-ruim{color:var(--red)}
+.dre-table td .mini-serie.cai path,.dre-table td .mini-serie.cai circle,body.dark .dre-table td .mini-serie.cai path,body.dark .dre-table td .mini-serie.cai circle{stroke:var(--blue);fill:var(--blue)}
+.dre-table td .mini-serie.sobe path,.dre-table td .mini-serie.sobe circle,body.dark .dre-table td .mini-serie.sobe path,body.dark .dre-table td .mini-serie.sobe circle{stroke:var(--red);fill:var(--red)}
+.water-net{fill:var(--chart-net)}
+.cost-shortcut.active{border-color:var(--blue)}
+

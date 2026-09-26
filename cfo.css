@@ -193,8 +193,8 @@ body.dark .regua-ponto.delta-ruim{background:#f0708f}
 .cobertura-faixa .cob[disabled]{cursor:default}
 .cobertura-faixa .cob span{font-size:10px;color:var(--muted)}
 .cob i{display:block;width:100%;height:26px;border-radius:5px;background:var(--line)}
-.cob.validado i{background:var(--chart-in)}
-.cob.coletado i{background:var(--chart-in);opacity:.55;
+.cob.validado i{background:var(--cob-ok,var(--chart-in))}
+.cob.coletado i{background:var(--cob-ok,var(--chart-in));opacity:.55;
  background-image:repeating-linear-gradient(45deg,#fff3 0 3px,transparent 3px 6px)}
 .cob.parcial i{background:linear-gradient(to top,var(--amber) 50%,var(--line) 50%)}
 .cob.atrasado i{background:var(--amber);background-image:repeating-linear-gradient(45deg,#fff5 0 3px,transparent 3px 6px)}
@@ -204,8 +204,8 @@ body.dark .regua-ponto.delta-ruim{background:#f0708f}
 .cobertura-legenda i.cob{width:18px;height:11px;border-radius:3px;flex:none}
 @media (max-width:640px){.cobertura-faixa{gap:3px}.cob i{height:20px}.cobertura-legenda{gap:10px}}
 /* a legenda usa o próprio <i> como amostra: as regras acima pintam um filho */
-.cobertura-legenda i.cob.validado{background:var(--chart-in)}
-.cobertura-legenda i.cob.coletado{background:var(--chart-in);opacity:.55;background-image:repeating-linear-gradient(45deg,#fff3 0 3px,transparent 3px 6px)}
+.cobertura-legenda i.cob.validado{background:var(--cob-ok,var(--chart-in))}
+.cobertura-legenda i.cob.coletado{background:var(--cob-ok,var(--chart-in));opacity:.55;background-image:repeating-linear-gradient(45deg,#fff3 0 3px,transparent 3px 6px)}
 .cobertura-legenda i.cob.parcial{background:linear-gradient(to top,var(--amber) 50%,var(--line) 50%)}
 .cobertura-legenda i.cob.ausente{background:transparent;border:1px dashed var(--line)}
 .casc-rot.in{fill:#3ddc97}

@@ -13,6 +13,23 @@ const celulaCSV=v=>{
  const numero=/^-?\d+([.,]\d+)?$|^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s.trim());
  return '"'+(numero?s:s.replace(/^[=+@-]/,"'$&")).replace(/"/g,'""')+'"';
 };
+/* Cor do NÚMERO (pedido do dono, 26/09/2026): o que entrou em azul, o que
+   saiu em vermelho; resultado positivo azul, negativo vermelho. O sentido diz
+   para que lado o dinheiro anda quando o valor é POSITIVO (1 entra, -1 sai);
+   valor negativo inverte — estorno de uma saída é dinheiro voltando. Não é a
+   mesma coisa que DIRECAO_DA_LINHA (que diz se a variação é boa notícia):
+   empréstimo que entra é azul aqui e neutro lá. Linha fora desta tabela
+   (depreciação já incluída) fica neutra. */
+const SENTIDO_DA_LINHA={
+ entradas:1,operacionais:1,emprestimos:1,rendimentos:1,naoIdentificadas:1,outrasEntradas:1,
+ saidas:-1,pagamentosOperacionais:-1,socios:-1,parcelasAtivos:-1,investimentos:-1,dividas:-1,transferencias:-1,pendentes:-1,
+ variacao:1,
+ bruta:1,produtos:1,servicos:1,outrasVendas:1,deducoes:-1,devolucoes:-1,descontos:-1,tributosVendas:-1,
+ liquida:1,custos:-1,bruto:1,margemBruta:1,despesasVendas:-1,administrativas:-1,outrasDespesas:-1,outrasReceitas:1,equivalencia:1,
+ operacional:1,margemOperacional:1,receitasFinanceiras:1,despesasFinanceiras:-1,antesTributos:1,tributosLucro:-1,tributosDiferidos:-1,
+ continuadas:1,descontinuadas:1,liquido:1,margemLiquida:1,ebitda:1,margemEbitda:1,
+};
+function tomDoValor(id,v){const s=SENTIDO_DA_LINHA[id],n=Number(v);if(!s||v==null||!Number.isFinite(n)||n===0)return '';return n*s>0?'tom-entra':'tom-sai';}
 const compacto=v=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(v===0?0:v);
 const nomeConta=(reg,code)=>reg?.cells?.find(c=>c.code===code)?.name;
 function contaConhecida(code){return nomeConta(regAtual(),code)||[...state.records].reverse().map(r=>nomeConta(r,code)).find(Boolean)||code;}
@@ -56,7 +73,7 @@ function atalhosCustos(){
 }
 function resumoMovimento(reg){
  const entrada=F.valorConta(reg,'1'),saida=F.valorConta(reg,'2'),delta=entrada!=null&&saida!=null?Math.round((entrada-saida)*100)/100:null;
- return `<div class="cards finance-kpis">${metric('O que entrou',entrada,'Recebimentos registrados no período','1')}${metric('O que saiu',saida,'Pagamentos registrados no período','2')}${metric('Entradas menos saídas',delta,'Variação do mês · não é lucro nem saldo bancário','variacao')}</div>`;
+ return `<div class="cards finance-kpis">${metric('O que entrou',entrada,'Recebimentos registrados no período','1',tomDoValor('entradas',entrada))}${metric('O que saiu',saida,'Pagamentos registrados no período','2',tomDoValor('saidas',saida))}${metric('Entradas menos saídas',delta,'Variação do mês · não é lucro nem saldo bancário','variacao',tomDoValor('variacao',delta))}</div>`;
 }
 function comparativoMovimento(reg){
  if(!state.comparar)return '';

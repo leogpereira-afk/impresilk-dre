@@ -40,3 +40,45 @@ test('meta guardada no aparelho com texto não abre o atributo do campo',()=>{
  assert.doesNotMatch(html,/<img/);
  assert.match(html,/name="custos"[^>]*value="5"/);
 });
+
+// Cor do dinheiro (26/09/2026): o que entrou azul, o que saiu vermelho;
+// resultado positivo azul, negativo vermelho; zero e ausência neutros.
+test('regra de cor segue o sentido do dinheiro e o sinal do resultado',()=>{
+ const c=tela();const t=(id,v)=>vm.runInContext(`tomDoValor(${JSON.stringify(id)},${JSON.stringify(v)})`,c);
+ assert.equal(t('entradas',100),'tom-entra');assert.equal(t('saidas',100),'tom-sai');
+ assert.equal(t('saidas',-20),'tom-entra','estorno de saída é dinheiro voltando');
+ assert.equal(t('entradas',-5),'tom-sai');
+ assert.equal(t('variacao',50),'tom-entra');assert.equal(t('variacao',-50),'tom-sai');
+ assert.equal(t('liquido',-1),'tom-sai');assert.equal(t('custos',300),'tom-sai');assert.equal(t('margemLiquida',12.5),'tom-entra');
+ assert.equal(t('variacao',0),'');assert.equal(t('entradas',null),'');assert.equal(t('da',80),'','depreciação já incluída é informativa');
+});
+test('matriz do caixa pinta entrada, saída e variação negativa',()=>{
+ const c=tela();c.regs=[{id:'Jan_2026',label:'Jan/2026',company:'Impresilk + Universo',basis:'Caixa',origem:'erp',qualidade:{estado:'aguardando-conferencia',ate:'2026-01-31'},cells:[{code:'1',value:100,name:'Receitas',level:1},{code:'1.1',value:100,name:'CV',level:2},{code:'2',value:150,name:'Despesas',level:1}]}];
+ const html=vm.runInContext("state.records=regs;state.periodo='Jan/2026';dreUI.base='caixa';renderDRE()",c);
+ const celula=id=>(html.match(new RegExp(`<td class="num[^"]*"><button class="cfo-value" data-cfo-rubrica="${id}" data-cfo-period="Jan/2026"`))||[''])[0];
+ assert.match(celula('entradas'),/tom-entra/);assert.match(celula('saidas'),/tom-sai/);assert.match(celula('variacao'),/tom-sai/);
+ assert.doesNotMatch(celula('entradas'),/tom-sai/);
+});
+
+// Coleta (26/09/2026): o GitHub roda a rotina a cada 3–5h; rotina quieta não
+// é falha. Cartão só em falha que pede ação — inclusive pedido parado.
+function coletaFalsa(c){const bar={className:'',innerHTML:'',querySelector:()=>null},btn={disabled:false,textContent:''};vm.runInContext('document.getElementById=id=>id==="coletaBar"?globalThis.barFalsa:id==="syncBtn"?globalThis.btnFalso:null;',c);c.barFalsa=bar;c.btnFalso=btn;return bar;}
+const horasAtras=h=>new Date(Date.now()-h*3600e3).toISOString();
+const statusBase=(extra={})=>({titulo:'Última coleta processada',descricao:'Confira os meses.',podeSolicitar:true,status:{ativa:true,estado:'concluido',rotinaVistaEm:horasAtras(3),ultimaTentativa:{em:horasAtras(3),runId:'9',meses:[{label:'Set/2026',estado:'gravado'}]},...extra}});
+test('rotina quieta há 3h não vira cartão de alerta',()=>{
+ const c=tela(),bar=coletaFalsa(c);c.v=statusBase();vm.runInContext('mostrarColeta(v)',c);
+ assert.doesNotMatch(bar.className,/coleta-alerta/);assert.doesNotMatch(bar.innerHTML,/não responde|sem sinal/);
+ assert.match(bar.innerHTML,/Mubisys · coletado/);assert.match(bar.innerHTML,/Set\/2026: atualizado/);
+});
+test('rotina sem sinal há mais de 8h vira ponto âmbar no chip, sem cartão',()=>{
+ const c=tela(),bar=coletaFalsa(c);c.v=statusBase({rotinaVistaEm:horasAtras(10)});vm.runInContext('mostrarColeta(v)',c);
+ assert.doesNotMatch(bar.className,/coleta-alerta/);assert.match(bar.innerHTML,/coleta-chip warn/);assert.match(bar.innerHTML,/sem sinal há 10h/);
+});
+test('pedido parado há mais de 1h, erro e interrupção continuam chamativos',()=>{
+ for(const extra of [{estado:'aguardando',solicitadoEm:horasAtras(2)},{estado:'erro'},{estado:'interrompido'}]){
+  const c=tela(),bar=coletaFalsa(c);c.v=statusBase(extra);vm.runInContext('mostrarColeta(v)',c);
+  assert.match(bar.className,/coleta-alerta/,extra.estado);
+ }
+ const c=tela(),bar=coletaFalsa(c);c.v=statusBase({estado:'aguardando',solicitadoEm:horasAtras(.2)});vm.runInContext('mostrarColeta(v)',c);
+ assert.doesNotMatch(bar.className,/coleta-alerta/,'pedido recente ainda está no prazo');assert.match(bar.innerHTML,/Atualização solicitada/);
+});
