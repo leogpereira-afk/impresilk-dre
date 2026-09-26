@@ -233,6 +233,45 @@ def buscar_os(recebimentos, orcamento_s=1500):
     return {n:o for n,o in cache.items() if isinstance(o,dict) and "_erro" not in o
             and time.time() - float(o.get("_dreConsultadoEm") or 0) <= 6 * 3600}
 
+def listar_meses():
+    """Todos os meses gravados no servidor (paginado; falha em vez de meia lista)."""
+    lista = call("dre-sync", {"action": "list"}, 90) or {}
+    if lista.get("ok") is not True or not isinstance(lista.get("itens"),list): raise RuntimeError("Histórico não confirmado")
+    meses_servidor = lista["itens"]
+    offset = lista.get("nextOffset")
+    while offset is not None:
+        lista = call("dre-sync", {"action":"list", "offset":offset}, 90)
+        if lista.get("ok") is not True or not isinstance(lista.get("itens"),list): raise RuntimeError("Histórico parcial")
+        meses_servidor.extend(lista["itens"])
+        prox = lista.get("nextOffset")
+        if prox is not None and prox <= offset: raise RuntimeError("Paginação inválida")
+        offset = prox
+    return meses_servidor
+
+# Baixa lançada com data retroativa (pagamento de julho registrado em
+# setembro) só entrava se alguém pedisse o mês à mão: a rotina relê M-1 e M.
+# Agora M-2 e M-3 também são relidos, mas no máximo uma vez a cada
+# RECOLETA_DIAS e só se vieram do ERP (planilha segue protegida).
+RECOLETA_DIAS = 7
+def retroativos(corrente, meses_servidor, agora):
+    m1 = (corrente - datetime.timedelta(days=1)).replace(day=1)
+    m2 = (m1 - datetime.timedelta(days=1)).replace(day=1)
+    m3 = (m2 - datetime.timedelta(days=1)).replace(day=1)
+    alvos = []
+    for ini in (m3, m2):
+        label = f"{PT[ini.month - 1]}/{ini.year}"
+        reg = next((r for r in meses_servidor if r.get("label") == label), None)
+        if not reg or reg.get("origem") != "erp":
+            continue
+        ts = (reg.get("qualidade") or {}).get("coletadoEm") or reg.get("atualizadoEm") or ""
+        try:
+            quando = datetime.datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        except ValueError:
+            quando = None
+        if quando is None or quando.tzinfo is None or agora - quando >= datetime.timedelta(days=RECOLETA_DIAS):
+            alvos.append(ini)
+    return alvos
+
 def main(on_month=None):
     hoje = datetime.date.today()
     arg_mes = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
@@ -244,6 +283,13 @@ def main(on_month=None):
         alvos = [corrente]
 
         alvos.insert(0, (corrente - datetime.timedelta(days=1)).replace(day=1))
+        if os.environ.get("DRE_PUBLISH") == "1":
+            agora = datetime.datetime.now(datetime.timezone.utc)
+            try:
+                alvos = retroativos(corrente, listar_meses(), agora) + alvos
+            except Exception as e:
+                # Releitura antiga é extra: não pode travar a coleta de M-1 e M.
+                print(f"Releitura de meses antigos adiada: {e}")
     for ini in alvos:
         resultado = processar(ini)
         if on_month:
@@ -335,17 +381,7 @@ def processar(ini):
         },
     }
 
-    lista = call("dre-sync", {"action": "list"}, 90) or {}
-    if lista.get("ok") is not True or not isinstance(lista.get("itens"),list): raise RuntimeError("Histórico não confirmado")
-    meses_servidor = lista["itens"]
-    offset = lista.get("nextOffset")
-    while offset is not None:
-        lista = call("dre-sync", {"action":"list", "offset":offset}, 90)
-        if lista.get("ok") is not True or not isinstance(lista.get("itens"),list): raise RuntimeError("Histórico parcial")
-        meses_servidor.extend(lista["itens"])
-        prox = lista.get("nextOffset")
-        if prox is not None and prox <= offset: raise RuntimeError("Paginação inválida")
-        offset = prox
+    meses_servidor = listar_meses()
     for reg in sorted(meses_servidor, key=lambda r:r.get("atualizadoEm", "")):
         for campo, mapa in (reg.get("mapeamento") or {}).items():
             cfg_atual.setdefault(campo, {}).update(mapa)

@@ -157,3 +157,95 @@ class RegrasPrivadasTest(unittest.TestCase):
         self.assertTrue(any(p['tipo']=='fixture' and p['valor']==100 for p in out))
     def test_renome_privado_e_aceito_sem_mudar_o_codigo_da_conta(self):
         self.assertTrue(erp_mes._renome_conhecido('2.14.1.1','Nome sintético',{'renomes':{'2.14.1.1':['Nome sintético']}}))
+
+
+class ContaRenomeadaTest(unittest.TestCase):
+    """Conta renomeada ou grupo novo no ERP (revisão de 25/09/2026)."""
+    montar = staticmethod(lambda pagar, nomes: erp_mes.montar('Ago/2026', [], pagar, {}, lambda t: t['valor'], previa.codigo, nomes_conhecidos=nomes))
+
+    def celulas(self, r):
+        return {c['code']: c['value'] for c in r['cells']}
+
+    def test_socios_renomeado_continua_em_socios_e_vira_pendencia(self):
+        r, _, reman = self.montar([{'plano_contas': '2.11 - Pro-labore diretoria', 'valor': 1000}], {'2': 'Despesas', '2.14': 'Retirada de sócios'})
+        cel = self.celulas(r)
+        novo = next(c for c in cel if c.startswith('2.14.') and c != '2.14')
+        self.assertEqual(cel['2.14'], 1000)
+        self.assertEqual(erp_mes.natureza(novo), 'sócios')
+        self.assertNotIn('2.51', cel)
+        pend = [p for p in r['pendencias'] if p['tipo'] == 'conta-renomeada-no-erp']
+        self.assertEqual([(p['conta'], p['valor']) for p in pend], [(novo, 1000)])
+        self.assertIn('Retirada de sócios', pend[0]['texto'])
+
+    def test_divida_e_investimento_renomeados_nao_viram_pagamento_operacional(self):
+        for erp, canon, nat in (('2.17', '2.17', 'dívidas'), ('2.13.4', '2.16', 'investimentos')):
+            r, _, _ = self.montar([{'plano_contas': f'{erp} - Nome novo qualquer', 'valor': 500}], {canon: 'Nome antigo diferente'})
+            cel = self.celulas(r)
+            self.assertEqual(cel[canon], 500, canon)
+            self.assertTrue(any(c.startswith(canon + '.') for c in cel), canon)
+            self.assertEqual(r['pendencias'][0]['texto'].count(nat), 1, canon)
+
+    def test_renomeada_operacional_segue_como_antes_mas_avisa(self):
+        r, _, _ = self.montar([{'plano_contas': '2.1.3 - Internet fibra', 'valor': 80}], {'2.1': 'Pessoal e estrutura', '2.1.3': 'Energia elétrica'})
+        cel = self.celulas(r)
+        self.assertIn('2.1.51', cel)
+        self.assertEqual(r['pendencias'][0]['tipo'], 'conta-renomeada-no-erp')
+
+    def test_mesmo_nome_nao_gera_pendencia(self):
+        r, _, _ = self.montar([{'plano_contas': '2.1.3 - Energia elétrica', 'valor': 80}], {'2.1': 'Pessoal', '2.1.3': 'Energia elétrica'})
+        self.assertEqual(r['pendencias'], [])
+
+    def test_grupo_novo_no_erp_vira_pendencia_e_folha_nova_em_grupo_conhecido_nao(self):
+        r, _, _ = self.montar([{'plano_contas': '2.20.1 - Consorcio', 'valor': 300}, {'plano_contas': '2.1.9 - Material novo', 'valor': 20}],
+                              {'2.1': 'Pessoal', '2.1.3': 'Energia'})
+        novos = [(p['conta'], p['valor']) for p in r['pendencias'] if p['tipo'] == 'conta-nova-no-erp']
+        self.assertEqual(novos, [('2.20', 300)])
+
+    def test_blocos_iguais_aos_do_painel(self):
+        import re
+        js = (Path(__file__).resolve().parents[1] / 'financeiro.js').read_text()
+        i = js.find('function resumo(reg)')
+        corpo = js[i:js.find('return Object.fromEntries', i)]
+        codigos = set(re.findall(r"v\('([\d.]+)'\)", corpo)) - {'1', '2'}
+        self.assertEqual(codigos, set(erp_mes.BLOCOS_CAIXA))
+
+
+class ReleituraRetroativaTest(unittest.TestCase):
+    """Baixa retroativa em mês antigo (revisão de 25/09/2026)."""
+    agora = datetime.datetime(2026, 9, 25, 12, tzinfo=datetime.timezone.utc)
+
+    def reg(self, label, dias, origem='erp'):
+        ts = (self.agora - datetime.timedelta(days=dias)).isoformat()
+        return {'label': label, 'origem': origem, 'qualidade': {'coletadoEm': ts}}
+
+    def test_relê_so_meses_do_erp_parados_ha_uma_semana(self):
+        corrente = datetime.date(2026, 9, 1)
+        casos = [
+            ([self.reg('Jun/2026', 8), self.reg('Jul/2026', 8)], ['2026-06-01', '2026-07-01']),
+            ([self.reg('Jun/2026', 2), self.reg('Jul/2026', 8)], ['2026-07-01']),
+            ([self.reg('Jun/2026', 30, 'planilha'), self.reg('Jul/2026', 3)], []),
+            ([], []),
+        ]
+        for meses, esperado in casos:
+            self.assertEqual([d.isoformat() for d in previa.retroativos(corrente, meses, self.agora)], esperado)
+
+    def test_rotina_publicando_inclui_os_antigos_antes_do_mes_anterior(self):
+        class Hoje(datetime.date):
+            @classmethod
+            def today(cls): return cls(2026, 9, 9)
+        meses = [self.reg('Jun/2026', 10), self.reg('Jul/2026', 10)]
+        with patch.object(previa.datetime, 'date', Hoje), patch.object(sys, 'argv', ['erp_previa.py']), \
+             patch.dict(previa.os.environ, {'DRE_PUBLISH': '1'}), patch.object(previa, 'listar_meses', return_value=meses), \
+             patch.object(previa, 'processar') as proc:
+            previa.main()
+        self.assertEqual([c.args[0].isoformat() for c in proc.call_args_list], ['2026-06-01', '2026-07-01', '2026-08-01', '2026-09-01'])
+
+    def test_falha_na_lista_nao_impede_a_coleta_normal(self):
+        class Hoje(datetime.date):
+            @classmethod
+            def today(cls): return cls(2026, 9, 9)
+        with patch.object(previa.datetime, 'date', Hoje), patch.object(sys, 'argv', ['erp_previa.py']), \
+             patch.dict(previa.os.environ, {'DRE_PUBLISH': '1'}), patch.object(previa, 'listar_meses', side_effect=RuntimeError('fora')), \
+             patch.object(previa, 'processar') as proc:
+            previa.main()
+        self.assertEqual([c.args[0].isoformat() for c in proc.call_args_list], ['2026-08-01', '2026-09-01'])

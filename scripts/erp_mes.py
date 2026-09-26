@@ -29,6 +29,29 @@ NOMES_BASE = {
     "2": "Despesas",
 }
 
+# Blocos que a leitura de caixa separa por PREFIXO de código (financeiro.js,
+# resumo()). O que não cai em nenhum vira "pagamento operacional" -- por isso
+# conta renomeada no ERP não pode ser remanejada para fora do bloco dela.
+# tests/test_financas.py confere esta lista contra o financeiro.js.
+BLOCOS_CAIXA = {
+    "2.13.7.1.1": "parcelas de ativos", "2.13.7.1.2": "parcelas de ativos", "2.14.3.4": "parcelas de ativos",
+    "2.13.7.1.3": "dívidas", "2.13.6": "dívidas", "2.17": "dívidas", "2.14.3": "dívidas",
+    "2.14": "sócios", "2.16": "investimentos", "2.18": "transferências", "2.99": "pendentes de detalhamento",
+    "1.1": "entradas operacionais", "1.2": "entradas operacionais", "1.5": "entradas operacionais", "1.6": "entradas operacionais",
+    "1.3": "rendimentos", "1.4": "empréstimos recebidos", "1.7": "entradas a identificar",
+}
+
+def bloco_de(code):
+    """Bloco de caixa mais profundo que contém o código, ou None."""
+    dono = [b for b in BLOCOS_CAIXA if code == b or code.startswith(b + ".")]
+    return max(dono, key=len) if dono else None
+
+def natureza(code):
+    b = bloco_de(code)
+    if b:
+        return BLOCOS_CAIXA[b]
+    return "pagamentos operacionais" if code.startswith("2") else "outras entradas"
+
 GALHOS = {"1.1.2": "1.1.2", "1.2": "1.2", "1.5": "1.5", "1.6": "1.6"}
 PRIMEIRO_CODIGO = 51
 
@@ -273,6 +296,11 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
         if not antigo or not nome or _texto_igual(antigo, nome) or _renome_conhecido(c, nome, regras_privadas):
             return c
         p = pai(c) or "2"
+        # O novo código fica DENTRO do bloco da conta original: "2.14" (sócios)
+        # renomeada ia para "2.51" e virava pagamento operacional.
+        b = bloco_de(c)
+        if b and not (p == b or p.startswith(b + ".")):
+            p = c
         k = _chave(p, nome)
         if k in reman:
             return reman[k]
@@ -315,6 +343,17 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
         nomes[c] = nome or nomes.get(c, c)
         folhas[c] = round(folhas.get(c, 0.0) + valor_janela(t), 2)
 
+    # Conta separada por mudança de nome: o valor continua no bloco certo, mas
+    # alguém precisa dizer se é a mesma conta com nome novo (registrar o renome)
+    # ou outra conta que herdou o código.
+    for novo in sorted({v for k, v in remanejadas.items() if v != k}):
+        origem = next(k for k, v in remanejadas.items() if v == novo)
+        antes = (nomes_conhecidos or {}).get(origem)
+        pendencias.append({"tipo": "conta-renomeada-no-erp", "conta": novo, "valor": round(folhas.get(novo, 0.0), 2),
+            "texto": f"No ERP, a conta {origem} aparece como “{nomes.get(novo, novo)}”"
+                     + (f" (antes “{antes}”)" if antes and not _texto_igual(antes, nomes.get(novo)) else "") + f". O valor foi separado em {novo} e segue em "
+                     f"{natureza(novo)}. Se for a mesma conta com nome novo, registre o renome."})
+
     for t in receber:
         if t.get("tipo") == "Receita operacional":
             continue
@@ -324,6 +363,19 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
             pendencias.append({"tipo":"receita-sem-conta", "conta":c, "valor":round(valor_janela(t),2), "texto":"Entrada sem natureza identificada."})
         nomes.setdefault(c, nome)
         folhas[c] = round(folhas.get(c, 0.0) + valor_janela(t), 2)
+
+    # Grupo inteiro que o histórico nunca viu (ex.: "2.20"): o prefixo não diz
+    # a natureza, e o padrão seria pagamento operacional em silêncio.
+    if nomes_conhecidos:
+        novos = {}
+        for c, v in folhas.items():
+            g = ".".join(c.split(".")[:2])
+            if "." in g and g != "2.99" and g not in nomes_conhecidos and g not in NOMES_BASE:
+                novos[g] = round(novos.get(g, 0.0) + v, 2)
+        for g, v in sorted(novos.items()):
+            pendencias.append({"tipo": "conta-nova-no-erp", "conta": g, "valor": v,
+                "texto": f"Grupo novo no ERP: {g} “{nomes.get(g, g)}”. Pelo código ele entra em {natureza(g)}; "
+                         "confirme se é isso antes de comparar meses."})
 
     sem_rateio = round(sum(valor_janela(t) for t in receber if t.get("tipo") == "Receita operacional") - sum(por_produto.values()), 2)
     if sem_rateio:
