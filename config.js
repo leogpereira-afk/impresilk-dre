@@ -13,11 +13,8 @@
 // token antigo foi GIRADO: remover do arquivo não bastaria, porque ele já
 // estava público e continua nas cópias em cache de quem já visitou.
 
-// Endpoint do backend (função roteadora). Caminho relativo: funciona em
-// qualquer domínio onde o site estiver publicado.
-// Backend: Edge Functions do Supabase (antes: Netlify Functions no mesmo
-// dominio). Nomes com prefixo dre- porque o projeto e compartilhado com os
-// outros sistemas da Impresilk.
+// Backend: Edge Functions do Supabase. Nomes com prefixo dre- porque o projeto
+// e compartilhado com os outros sistemas da Impresilk.
 const API_BASE = 'https://heveemylixartyijxewh.supabase.co/functions/v1';
 const API_FN = { os: 'dre-sync', financas: 'dre-financas' };
 const API = API_BASE + '/dre-sync';

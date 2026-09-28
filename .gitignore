@@ -20,7 +20,7 @@ node_modules/
 # Cache de Ordens de Serviço do robô do ERP (reconstruível, vive no CI)
 .cache/
 
-# Artefato de deploy (gerado para o Netlify Drop)
+# Pacote .zip do site (não versionar)
 impresilk-dre-site.zip
 __pycache__/
 *.pyc
