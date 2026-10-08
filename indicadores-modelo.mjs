@@ -1,0 +1,74 @@
+// Contrato v1: valores em reais nesta camada; centavos nos cálculos.
+// Nenhuma função grava dados, muda classificação ou converte caixa em competência.
+export const ESCOPO = 'Impresilk + Universo';
+export const AREAS = ['Receita','Custos','Despesas','Resultado','Margem','Rentabilidade'];
+export const DICIONARIO = {
+ recebimentos:{nome:'Recebimentos',base:'Caixa',formula:'Soma das baixas de entrada no intervalo.',fonte:'DRE / pagamentos do Mubisys',limite:'Não equivale a vendas, faturamento ou receita por competência.'},
+ pagamentos:{nome:'Pagamentos',base:'Caixa',formula:'Soma das baixas de saída no intervalo.',fonte:'DRE / pagamentos do Mubisys',limite:'Inclui naturezas a revisar. Não equivale a despesa operacional por competência.'},
+ variacao:{nome:'Variação de caixa',base:'Caixa',formula:'Recebimentos menos pagamentos.',fonte:'DRE / pagamentos do Mubisys',limite:'Não representa lucro nem saldo bancário.'},
+ comercial:{nome:'Valor das O.S.',base:'Comercial',formula:'Soma dos valores confirmados das O.S. normais, não canceladas, pela data registrada no histórico.',fonte:'Painel / histórico de O.S.',limite:'Não somar a notas ou recebimentos. Cadastro de O.S. não comprova reconhecimento de receita.'},
+ fiscal:{nome:'NF-e elegíveis',base:'Fiscal',formula:'Soma das NF-e normais de saída, autorizadas ou aprovadas, sem cancelamento, pela emissão.',fonte:'Painel / conferência fiscal',limite:'NFS-e não incluídas. Faturamento total da empresa permanece parcial.'},
+ compras:{nome:'Notas recebidas',base:'Compras',formula:'Soma das notas recebidas não canceladas pela emissão.',fonte:'Painel / conferência fiscal',limite:'Compra não comprova consumo, pagamento nem custo vendido.'},
+ custos:{nome:'Custo informado nas O.S.',base:'Custo informado',formula:'Soma dos custos presentes nas O.S. não canceladas do recorte importado.',fonte:'Painel / detalhes de O.S.',limite:'O custo informado não comprova realização. Não mistura compras, pagamentos ou rateios.'},
+ margem:{nome:'Margem parcial das O.S.',base:'Custo informado',formula:'(Soma das vendas − soma dos custos) ÷ soma das vendas × 100, somente nas O.S. com os dois valores e receita positiva.',fonte:'Painel / detalhes de O.S.',limite:'Ponderada pela venda; não é ranking de lucro realizado. Sem custo, a margem é indeterminada.'},
+ competencia:{nome:'Resultado por competência',base:'Competência',formula:'Reutiliza as rubricas e as fórmulas da DRE mensal, sem nova incidência de tributos ou D&A.',fonte:'DRE / demonstrativo preenchido',limite:'Rubrica ausente permanece ausente. Preenchimento não comprova conciliação contábil.'},
+ rentabilidade:{nome:'Retorno sobre capital',base:'Patrimonial',formula:'Resultado compatível dividido pela base de capital validada do mesmo período.',fonte:'Balanços e fluxos de investimentos',limite:'Sem base patrimonial validada, permanece indisponível. Não usa receita como retorno.'}
+};
+export const numero = v => v == null || v === '' || typeof v==='boolean' || !Number.isFinite(Number(v)) ? null : Number(v);
+export const cent = v => numero(v) == null ? null : Math.round(Number(v)*100);
+export const soma = xs => !xs.length ? 0 : xs.some(v=>cent(v)==null) ? null : xs.reduce((s,v)=>s+cent(v),0)/100;
+export function margem(venda,custo){return numero(venda)>0 && numero(custo)!=null ? (cent(venda)-cent(custo))/cent(venda)*100 : null;}
+export function dataValida(s){return /^\d{4}-\d{2}-\d{2}$/.test(s||'') && !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0,10)===s;}
+export function validarPeriodo(de,ate){if(!dataValida(de)||!dataValida(ate)||de>ate||Date.parse(ate)-Date.parse(de)>366*86400000)throw new Error('Escolha um intervalo válido de até 12 meses.');return {de,ate};}
+export function periodoRotulo(label){const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],[m,y]=String(label).split('/'),i=meses.indexOf(m);if(i<0||!/^\d{4}$/.test(y))return null;return {de:`${y}-${String(i+1).padStart(2,'0')}-01`,ate:new Date(Date.UTC(+y,i+1,0)).toISOString().slice(0,10)};}
+export function periodoPreset(label,tipo){const p=periodoRotulo(label);if(!p)return null;let d=new Date(p.de+'T00:00:00Z'),a=new Date(p.ate+'T00:00:00Z');const m=d.getUTCMonth();if(tipo==='trimestre'){d.setUTCMonth(Math.floor(m/3)*3);a=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+3,0));}if(tipo==='semestre'){d.setUTCMonth(Math.floor(m/6)*6);a=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+6,0));}if(tipo==='ano'){d.setUTCMonth(0);a=new Date(Date.UTC(d.getUTCFullYear(),12,0));}if(tipo==='12meses')d.setUTCMonth(m-11);return {de:d.toISOString().slice(0,10),ate:a.toISOString().slice(0,10)};}
+const dentro=(d,p)=>dataValida(d)&&d>=p.de&&d<=p.ate;
+const texto=v=>String(v??'');
+export function agrupar(rows,key){const map=new Map();for(const r of rows){const k=texto(r[key]||'Não informado'),a=map.get(k)||{nome:k,valor:0,quantidade:0,ausentes:0};if(cent(r.valor)==null)a.ausentes++;else a.valor+=cent(r.valor);a.quantidade++;map.set(k,a);}return [...map.values()].map(a=>({...a,valor:a.ausentes===a.quantidade?null:a.valor/100})).sort((a,b)=>Math.abs(b.valor)-Math.abs(a.valor)||a.nome.localeCompare(b.nome));}
+export function resumir(rows,{query='',dimensao='grupo',grupo='',pagina=0,tamanho=50}={}){
+ const filtrados=rows.filter(r=>(!grupo||texto(r[dimensao]||'Não informado')===grupo)&&(!query||[r.numero,r.nome,r.grupo,r.cliente,r.vendedor,r.origem,r.id].join(' ').toLocaleLowerCase('pt-BR').includes(query.toLocaleLowerCase('pt-BR'))));
+ const validos=filtrados.filter(r=>numero(r.valor)!=null),pares=filtrados.filter(r=>numero(r.venda)!=null&&numero(r.custo)!=null),venda=soma(pares.map(r=>r.venda)),custo=soma(pares.map(r=>r.custo));
+ const pag=Math.min(Math.max(0,Number(pagina)||0),Math.max(0,Math.ceil(filtrados.length/tamanho)-1));
+ return {total:filtrados.length,comValor:validos.length,valor:validos.length?soma(validos.map(r=>r.valor)):filtrados.length?null:0,somaCompleta:validos.length===filtrados.length,pares:pares.length,venda,custo,margem:margem(venda,custo),negativas:pares.filter(r=>cent(r.custo)>cent(r.venda)).length,grupos:agrupar(filtrados,dimensao),evolucao:agrupar(filtrados.map(r=>({...r,mes:r.data?.slice(0,7)||'Sem data'})),'mes').sort((a,b)=>a.nome.localeCompare(b.nome)),pagina:pag,paginas:Math.max(1,Math.ceil(filtrados.length/tamanho)),rows:filtrados.slice(pag*tamanho,(pag+1)*tamanho)};
+}
+export function caixa(records,p,natureza){
+ validarPeriodo(p.de,p.ate);const meses=[];let d=new Date(p.de+'T00:00:00Z');d.setUTCDate(1);while(d.toISOString().slice(0,10)<=p.ate){meses.push(d.toISOString().slice(0,7));d.setUTCMonth(d.getUTCMonth()+1);}
+ const rows=[],fontes=[],vistos=new Set(),diferencas=[];let ausentes=0,semTrilha=0,duplicados=0,invalidos=0;
+ for(const mes of meses){const r=records.find(x=>periodoRotulo(x.label)?.de.slice(0,7)===mes);if(!r){ausentes++;continue;}const rp=periodoRotulo(r.label),q=r.qualidade||{};fontes.push({periodo:r.label,em:q.coletadoEm||r.previaERP?.geradoEm||r.atualizadoEm||null,corte:q.ate||null,conciliado:q.conciliado===true,completo:q.ate>=rp.ate&&q.apiContratoValidado!==false,pendencias:r.pendencias?.length||0});
+  if(!Array.isArray(r.eventos)||!r.eventos.length){semTrilha++;if(p.de<=rp.de&&p.ate>=rp.ate){const c=r.cells?.find(c=>c.code===(natureza==='entrada'?'1':'2'));if(c&&numero(c.value)!=null)rows.push({id:'mes:'+r.id,numero:r.label,data:rp.de,nome:'Total mensal sem trilha de pagamentos',grupo:'Histórico sem detalhamento',valor:numero(c.value),origem:'DRE / '+r.label,agregado:true});}continue;}
+  const inicioLinhas=rows.length;
+  for(const e of r.eventos){if(e.natureza!==natureza)continue;if(!dataValida(e.data)){invalidos++;continue;}if(!dentro(e.data,p))continue;
+   const id=[e.empresa,e.natureza,e.tituloId,e.pagamentoId??('pos:'+e.indiceNaColeta)].join(':');if(e.pagamentoId!=null&&vistos.has(id)){duplicados++;continue;}vistos.add(id);
+   rows.push({id,numero:texto(e.tituloId),data:e.data,nome:e.nomeConta||'Conta não informada',grupo:e.nomeConta||'Sem classificação de origem',valor:numero(e.valor),origem:`Mubisys / ${e.empresa||'Empresa não informada'} / título ${e.tituloId} / pagamento ${e.pagamentoId??'sem ID'}`,os:e.ordensServico||[],conta:e.contaOrigem,pagamento:e.pagamentoId});
+  }
+  if(p.de<=rp.de&&p.ate>=rp.ate){const controle=numero(r.cells?.find(c=>c.code===(natureza==='entrada'?'1':'2'))?.value),trilha=soma(rows.slice(inicioLinhas).map(e=>e.valor));if(controle!=null&&trilha!=null&&cent(controle)!==cent(trilha))diferencas.push(`${r.label}: diferença entre trilha e total mensal de ${((cent(trilha)-cent(controle))/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}.`);}
+ }
+ const conhecido=fontes.length>0&&(rows.length>0||(!semTrilha&&!ausentes));
+ return {rows,disponivel:conhecido,qualidade:!conhecido?'Indisponível':ausentes||semTrilha||duplicados||invalidos||diferencas.length||rows.some(r=>r.valor==null)||fontes.some(f=>!f.completo)?'Parcial':'Apurado',fontes,avisos:[...diferencas,...(ausentes?[`${ausentes} mês(es) sem fonte no intervalo.`]:[]),...(semTrilha?[`${semTrilha} mês(es) sem trilha detalhada; total mensal só entra se o mês inteiro estiver selecionado.`]:[]),...(duplicados?[`${duplicados} pagamentos com ID repetido não foram somados novamente.`]:[]),...(invalidos?[`${invalidos} movimentos sem data válida ficaram fora do intervalo.`]:[])],limite:DICIONARIO[natureza==='entrada'?'recebimentos':'pagamentos'].limite};
+}
+export function normalizarComercial(itens){return itens.filter(r=>r.comercial?.cancelada===false&&String(r.comercial?.tipo||'').toLowerCase()==='normal').map(r=>({id:texto(r.id),numero:texto(r.numero),data:r.data,nome:r.cliente||'Cliente não informado',cliente:r.cliente||'Cliente não informado',vendedor:r.vendedor||'Não informado',grupo:r.vendedor||'Não informado',valor:r.comercial?.valorConfirmado===true?numero(r.valor):null,origem:`Painel / O.S. ID ${r.id} / tipo ${r.comercial?.tipo||'não informado'}`}));}
+export function normalizarSnapshot(s,fonte,p){
+ const exato=fonte==='custos'||fonte==='margem';const disponivel=!!s && s.completo===true && (exato?s.desde===p.de&&s.ate===p.ate:s.desde<=p.de&&s.ate>=p.ate);
+ if(!disponivel)return {rows:[],disponivel:false,qualidade:'Indisponível',fontes:s?[{em:s.em,corte:s.ate,periodo:`${s.desde} a ${s.ate}`}]:[],avisos:[s?`Fonte disponível de ${s.desde} a ${s.ate}${exato?'; o recorte de O.S. precisa coincidir exatamente':''}.`:'Esta fonte ainda não foi importada.'],recorte:s?{de:s.desde,ate:s.ate}:null};
+ let rows;
+ if(exato)rows=s.itens.filter(r=>!r.cancelada).map(r=>({id:texto(r.id),numero:texto(r.numero),data:null,nome:r.cliente,cliente:r.cliente,grupo:r.tipo||'Tipo não informado',valor:numero(r.custo)==null?null:r.custo/100,venda:numero(r.venda)==null?null:r.venda/100,custo:numero(r.custo)==null?null:r.custo/100,origem:`Mubisys / O.S. ID ${r.id} / ${r.empresa||ESCOPO}`,processos:{previstos:r.previstos,realizados:r.realizados},tempoPositivo:(r.realizados||[]).some(x=>numero(x.tempo)>0)}));
+ else rows=s.itens.filter(r=>dentro(r.em,p)&&!r.cancelada&&(fonte==='compras'||(r.normal===true&&r.saida===true&&/aprovad|autorizad/i.test(r.status)))).map(r=>({id:texto(r.id),numero:texto(r.numero),data:r.em,nome:fonte==='compras'?r.emitente:r.destinatario,cliente:fonte==='compras'?r.emitente:r.destinatario,grupo:r.status,valor:numero(r.valor)==null?null:r.valor/100,origem:`Mubisys / NF-e ID ${r.id}`,os:r.osIds,itens:r.itens}));
+ return {rows,disponivel:true,qualidade:'Parcial',fontes:[{em:s.em,corte:s.ate,periodo:`${s.desde} a ${s.ate}`,conciliado:false}],avisos:[exato?'O.S. cadastradas no período e vinculadas às notas do período. Valores informados no retrato importado, sem prova de custo realizado.':'Recorte de documentos importados. Não comprova cobertura fiscal total.'],limite:DICIONARIO[fonte].limite};
+}
+export function csvCelula(v){let s=String(v??'');if(/^[\s]*[=+@-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';}
+export function exportarCSV({titulo,periodo,fonte,qualidade,limite,rows,valor,fontes=[],indicadores=[]}){
+ const linhas=[['Impresilk + Universo',titulo],['Período',periodo.de,periodo.ate],['Base',fonte],['Qualidade',qualidade],['Limitação',limite],...fontes.map(f=>['Fonte',f.periodo,'Atualização',f.em,'Corte',f.corte,'Conciliação',f.conciliado?'Registrada':'Não comprovada']),...indicadores.map(i=>[i.nome,i.valor,i.nota]),['Total conhecido em R$',valor==null?'Indisponível':valor.toFixed(2).replace('.',',')],[],['ID','Número','Data','Nome','Grupo','Valor R$','Venda R$','Custo informado R$','Margem parcial %','Origem'],...rows.map(r=>[r.id,r.numero,r.data,r.nome,r.grupo,numero(r.valor)==null?'Não informado':r.valor.toFixed(2).replace('.',','),numero(r.venda)==null?'':r.venda.toFixed(2).replace('.',','),numero(r.custo)==null?'':r.custo.toFixed(2).replace('.',','),margem(r.venda,r.custo)==null?'':margem(r.venda,r.custo).toFixed(4).replace('.',','),r.origem])];return '\ufeff'+linhas.map(row=>row.map(csvCelula).join(';')).join('\r\n');
+}
+
+// Comparação mensal com a mesma quantidade de dias já cobertos nas duas fontes.
+export function compararCaixa(records,p,natureza){
+ const atual=records.find(r=>periodoRotulo(r.label)?.de===p.de),per=periodoRotulo(atual?.label);
+ if(!per||p.ate!==per.ate)return {disponivel:false,motivo:'A comparação equivalente está disponível para um mês selecionado por inteiro.'};
+ const ini=new Date(p.de+'T00:00:00Z'),antDe=new Date(Date.UTC(ini.getUTCFullYear(),ini.getUTCMonth()-1,1)).toISOString().slice(0,10),antFim=new Date(Date.UTC(ini.getUTCFullYear(),ini.getUTCMonth(),0)).toISOString().slice(0,10);
+ const ant=records.find(r=>periodoRotulo(r.label)?.de===antDe);
+ if(!ant||!atual.qualidade?.ate||!ant.qualidade?.ate||atual.qualidade.ate<p.de||ant.qualidade.ate<antDe||atual.qualidade.apiContratoValidado===false||ant.qualidade.apiContratoValidado===false||!atual.eventos?.length||!ant.eventos?.length)return {disponivel:false,motivo:'Faltam trilhas datadas ou validação de cobertura para comparar intervalos equivalentes.'};
+ const dias=Math.min(Number(per.ate.slice(-2)),Number(antFim.slice(-2)),Number((atual.qualidade.ate<per.ate?atual.qualidade.ate:per.ate).slice(-2)),Number((ant.qualidade.ate<antFim?ant.qualidade.ate:antFim).slice(-2)));
+ const a={de:p.de,ate:p.de.slice(0,8)+String(dias).padStart(2,'0')},b={de:antDe,ate:antDe.slice(0,8)+String(dias).padStart(2,'0')};
+ const x=caixa(records,a,natureza),y=caixa(records,b,natureza);if(!x.disponivel||!y.disponivel||x.avisos.length||y.avisos.length)return {disponivel:false,motivo:'A trilha apresenta lacunas ou repetições a conferir.'};
+ const va=soma(x.rows.map(r=>r.valor)),vb=soma(y.rows.map(r=>r.valor));return {disponivel:va!=null&&vb!=null,atual:va,anterior:vb,delta:va==null||vb==null?null:(cent(va)-cent(vb))/100,percentual:vb>0&&va!=null?((cent(va)-cent(vb))/cent(vb))*100:null,a,b,dias};
+}

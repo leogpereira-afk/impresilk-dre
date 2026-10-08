@@ -33,6 +33,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { coleta } from "./coleta.ts";
+import { consultarIndicadores } from "./indicadores.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -225,6 +226,10 @@ Deno.serve(async (req: Request) => {
     if(["upsert","putPhoto"].includes(body.action) && !permissoes.edicao) return json({erro:"Sem permissão de edição."},403);
     if(["setCfg","delete"].includes(body.action) && !permissoes.admin) return json({erro:"Ação administrativa restrita."},403);
     switch (body.action as string) {
+      case "indicadores": {
+        if (!cracha || !Number.isFinite(cracha.exp) || cracha.exp <= Date.now()/1000) return json({erro:"Entre novamente para consultar os indicadores."},401);
+        return json(await consultarIndicadores(sb,body));
+      }
       case "ping":
         return json({ ok: true, ts: new Date().toISOString() });
 

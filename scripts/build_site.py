@@ -3,7 +3,7 @@
 from pathlib import Path
 import argparse,re,shutil
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('cfo-modelo.js','cfo.js','cfo.css','pdf-cfo.js','vendor/jspdf.umd.min.js','vendor/jspdf.plugin.autotable.min.js','vendor/jspdf-LICENSE.txt','vendor/autotable-LICENSE.txt','index.html','styles.css','app.js','coleta-ui.js','financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','config.js','auth.js','sw.js','data.js','logo.png','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png','inter-variable.woff2','inter-OFL.txt')
+FILES=('indicadores.js','indicadores-modelo.mjs','indicadores.css','cfo-modelo.js','cfo.js','cfo.css','pdf-cfo.js','vendor/jspdf.umd.min.js','vendor/jspdf.plugin.autotable.min.js','vendor/jspdf-LICENSE.txt','vendor/autotable-LICENSE.txt','index.html','styles.css','app.js','coleta-ui.js','financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','config.js','auth.js','sw.js','data.js','logo.png','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png','inter-variable.woff2','inter-OFL.txt')
 def conferir_pagina(html,sw):
     """O que a página pede precisa ir no pacote e, se leva ?v=, no cache offline.
 
@@ -11,10 +11,11 @@ def conferir_pagina(html,sw):
     quebrado no celular: 404 no Pages ou tela sem estilo offline."""
     locais=[u for u in re.findall(r'(?:src|href)="([^"#]+)"',html) if not re.match(r'[a-z]+:|//',u)]
     for js in sorted(ROOT.glob('*.js')):locais+=re.findall(r"['\"](vendor/[^'\"?]+)['\"]",js.read_text())
+    for js in [*ROOT.glob('*.js'),*ROOT.glob('*.mjs')]:locais+=re.findall(r"(?:from|import)\s*['\"]\./([^'\"]+)['\"]",js.read_text())
     faltam=sorted({u.split('?')[0] for u in locais}-set(FILES))
     if faltam:raise ValueError('A página pede arquivos fora do pacote: '+', '.join(faltam))
     shell=set(re.findall(r"`\./([^`?]+)\?v=\$\{V\}`",sw))
-    fora=sorted({u.split('?')[0] for u in locais if '?v=' in u and re.search(r'\.(js|css)\?',u)}-shell)
+    fora=sorted({u.split('?')[0] for u in locais if '?v=' in u and re.search(r'\.(mjs|js|css)\?',u)}-shell)
     if fora:raise ValueError('Arquivos versionados fora do cache offline (SHELL do sw.js): '+', '.join(fora))
     # A CSP da página não aceita script inline: um <script> sem src ficaria mudo.
     if re.search(r'<script(?![^>]*\bsrc=)[^>]*>',html):raise ValueError('Script inline na página: a CSP bloqueia. Mova para um .js.')
