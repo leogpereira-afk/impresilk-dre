@@ -16,7 +16,7 @@ test('conta bloqueada por renome recebe o motivo da conta, não o do par de mese
 test('resíduo de conta pai aparece no detalhamento',()=>{const r=F.residuos?.(rec({'1':100,'1.1':90}));assert.equal(r?.find(x=>x.code==='1')?.value,10);});
 test('margem acumulada usa razão dos totais',()=>assert.equal(F.margemAcumulada?.([{receita:100,resultado:50},{receita:900,resultado:90}]),.14));
 test('empresas de escopos distintos não são comparadas',()=>{const q={estado:'aguardando-conferencia',ate:'2026-08-31',escopo:'compõe DRE',regra:'v2'};assert.equal(F.comparacao(rec({}, {company:'A',qualidade:q}),rec({}, {company:'B',qualidade:q})).permitida,false);});
-test('transferência entre empresas não vira custo operacional',()=>{const r=F.resumo(rec({'2':100,'2.18':80}));assert.equal(r.transferencias,80);assert.equal(r.pagamentosOperacionais,20);});
+test('transferência entre empresas não vira custo operacional',()=>{const r=F.resumo(rec({'2':100,'2.18':80}));assert.equal(r.transferencias,80);assert.equal(r.pagamentosOperacionais,null,'componentes ausentes não podem ser tratados como zero');});
 test('saldo já abaixo da reserva é sinalizado no primeiro dia',()=>{const r=F.projecao({saldo:10,reserva:50,movimentos:[],inicio:'2026-09-09'});assert.equal(r.primeiroAperto,'2026-09-09');});
 test('coleta com contrato da API ainda não validado não libera comparação',()=>{const r=rec({}, {qualidade:{estado:'aguardando-conferencia',ate:'2026-08-31',apiContratoValidado:false}});assert.equal(F.qualidade(r).comparavel,false);});
 test('gráficos distinguem conta ausente de gasto zero e rejeitam valor inválido',()=>{
@@ -75,3 +75,5 @@ test('referência aceita mês coletado até o fim mesmo sem contrato validado',(
  const r=F.mesesDeReferencia?.([cheio,meio],new Date('2026-09-09'))||[];
  assert.equal(r.length,1);assert.equal(r[0].label,'Jul/2026');
 });
+
+test('totais ausentes não viram zero nem subtotais artificiais',()=>{assert.equal(F.resumo(null).entradas,null);assert.equal(F.resumo(rec({'1':100})).variacao,null);assert.equal(F.resumo(rec({'1':100,'2':0})).variacao,100);});

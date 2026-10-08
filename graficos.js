@@ -163,6 +163,7 @@ const COMPOE={
  diferenca:'Conta 1 menos conta 2. Não é lucro nem saldo em banco.',
 };
 function metasAno(ano){
+ if(state.cfg?.gestao?.['metas:'+ano])return {receita:null,custos:null,caixa:null,...state.cfg.gestao['metas:'+ano]};
  let todas={};try{todas=JSON.parse(localStorage.getItem(METAS_KEY))||{};}catch(_){}
  if(!todas.semAlvoZero){
   Object.values(todas).forEach(m=>{if(m&&typeof m==='object'&&m.caixa===0)m.caixa=null;});
@@ -171,18 +172,21 @@ function metasAno(ano){
  }
  return {receita:null,custos:null,caixa:null,...(todas[ano]||{})};
 }
-function salvarMetas(ano,metas){
+async function salvarMetas(ano,metas,original=state.cfg?.gestao?.['metas:'+ano]??null){
+ if(typeof salvarGestao==='function')return salvarGestao('metas:'+ano,metas,original);
+
  let todas={};try{todas=JSON.parse(localStorage.getItem(METAS_KEY))||{};}catch(_){}
  todas[ano]={...todas[ano],...metas};
- try{localStorage.setItem(METAS_KEY,JSON.stringify(todas));}catch(_){}
+ localStorage.setItem(METAS_KEY,JSON.stringify(todas));
 }
 // Acumulado mês a mês. Para no primeiro mês ausente e devolve até onde foi.
 function acumularAno(code){
  const serie=F.serieAnual(state.records,state.periodo,code);
+ const alvo=state.records.find(r=>r.label===state.periodo),escopo=r=>[r?.company,r?.basis,r?.qualidade?.escopo,r?.qualidade?.regra].join('|');
  let soma=0,parou=false;
  return serie.map(x=>{
   const v=code==='variacao'?(F.valorConta(x.reg,'1')!=null&&F.valorConta(x.reg,'2')!=null?F.valorConta(x.reg,'1')-F.valorConta(x.reg,'2'):null):x.value;
-  if(parou||v==null){parou=true;return {...x,mes:v,acumulado:null};}
+  if(parou||v==null||monthSortKey(x.label)>monthSortKey(state.periodo)||escopo(x.reg)!==escopo(alvo)){parou=true;return {...x,mes:v,acumulado:null};}
   soma=Math.round((soma+v)*100)/100;
   return {...x,mes:v,acumulado:soma};
  });
@@ -195,7 +199,7 @@ function acumularAno(code){
 function painelRitmo({titulo,tipo,pontos,referencia,rotuloRef,bomAcima,nota}){
  const W=300,H=210,PL=46,PR=12,PT=16,PB=34;
  const vals=pontos.map(p=>p.acumulado).filter(v=>v!=null);
- if(!vals.length)return `<div class="ritmo-painel ${tipo}"><h3>${esc(titulo)}</h3>${nota?`<p class="ritmo-nota">${esc(nota)}</p>`:''}<p class="ritmo-vazio">Sem dado coletado neste ano.</p></div>`;
+ if(!vals.length)return `<div class="ritmo-painel ${tipo}"><h3>${esc(titulo)}</h3>${nota?`<p class="ritmo-nota">${esc(nota)}</p>`:''}<p class="ritmo-vazio">Acumulado indisponível. Confira a continuidade dos meses e o escopo da base.</p></div>`;
  const cand=[...vals,referencia,0].filter(v=>v!=null&&Number.isFinite(v));
  let alto=Math.max(...cand),baixo=Math.min(...cand);
  if(alto===baixo){alto+=1;baixo-=1;}
@@ -255,22 +259,21 @@ function graficoRitmoAno(){
     ${painel('TUDO QUE SAIU','custos',des,metas.custos,'Limite',false,COMPOE.saidas)}
     ${painel('ENTRADAS MENOS SAÍDAS','caixa',cx,metas.caixa,'Alvo',true,COMPOE.diferenca)}
    </div>
-   <p class="chart-foot">A curva soma os meses já coletados. <b>Mês sem dado interrompe a linha</b> — não é tratado como zero. Ponto vazado indica cobertura a conferir.</p>
+   <p class="chart-foot">A curva soma os meses já coletados. <b>Mês sem dado ou com outro escopo interrompe a linha</b> — não é tratado como zero. Ponto vazado indica cobertura a conferir.</p>
    ${faltaAlguma?'<p class="hint">Defina a meta de entradas, o limite de saídas e o alvo da diferença para as linhas tracejadas aparecerem. Painel sem referência mostra só o acumulado.</p>':''}`,
   `<button id="ritmoMetas">${definiu?'Ajustar metas':'Definir metas do ano'}</button>`);
 }
 function formularioMetas(){
- const ano=state.periodo.split('/')[1],m=metasAno(ano);
- dialog('Metas de '+ano,`<form id="metasForm"><p>Valores do ano inteiro. Ficam guardados <b>neste aparelho</b>, como a projeção de 13 semanas — não vão para a nuvem nem alteram o Mubisys.</p>
+ const ano=state.periodo.split('/')[1],m=metasAno(ano),original=JSON.parse(JSON.stringify(state.cfg?.gestao?.['metas:'+ano]??null));
+ dialog('Metas de '+ano,`<form id="metasForm"><p>Valores do ano inteiro. São salvos na nuvem com data e histórico. Só administradores podem alterar. Não modificam o realizado nem o Mubisys.</p>
   <label>Meta de entradas no ano (R$)<input name="receita" type="number" step="0.01" min="0" value="${esc(m.receita??'')}" placeholder="Ex.: 5000000"><small>${COMPOE.entradas}</small></label>
   <label>Limite de saídas no ano (R$)<input name="custos" type="number" step="0.01" min="0" value="${esc(m.custos??'')}" placeholder="Ex.: 4500000"><small>${COMPOE.saidas}</small></label>
   <label>Alvo de entradas menos saídas no ano (R$)<input name="caixa" type="number" step="0.01" value="${esc(m.caixa??'')}" placeholder="Ex.: 180000"><small>${COMPOE.diferenca}</small></label>
   <p class="hint">Deixe em branco para não mostrar a linha tracejada daquele painel.</p>
   <button class="primary" type="submit">Salvar metas</button></form>`);
- $$('metasForm').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);
+ $$('metasForm').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);
   const num=k=>{const v=f.get(k);return v===''||v==null?null:Number(v);};
-  salvarMetas(ano,{receita:num('receita'),custos:num('custos'),caixa:num('caixa')});
-  $$('detailDialog').close();render();toast('Metas de '+ano+' salvas neste aparelho.');};
+  try{await salvarMetas(ano,{receita:num('receita'),custos:num('custos'),caixa:num('caixa')},original);$$('detailDialog').close();render();toast('Metas de '+ano+' confirmadas na nuvem.');}catch(err){toast(err.message,'err');}};
 }
 
 /* ── PEÇAS DE RELATÓRIO ──────────────────────────────────────────────────
@@ -335,7 +338,7 @@ function graficoLinhas(meses,series,label,sufixo='%'){
    ${series.map(s=>`<path d="${caminho(s)}" class="linhas-path" style="--serie:${s.cor}"/>`).join('')}
    ${series.map(s=>meses.map((m,i)=>m.valores[s.id]==null?'':`<circle cx="${x(i)}" cy="${y(m.valores[s.id])}" r="${m.label===state.periodo?4:2.4}" style="--serie:${s.cor}" class="linhas-ponto"><title>${esc(m.label+' · '+s.nome+': '+m.valores[s.id].toLocaleString('pt-BR',{maximumFractionDigits:1})+sufixo)}</title></circle>`).join('')).join('')}
    ${meses.map((m,i)=>`<text x="${x(i)}" y="${H-10}" class="linhas-mes">${esc(m.label.split('/')[0])}</text>`).join('')}
-  </svg></div><p class="chart-foot">Mês sem dado interrompe a linha — não é tratado como zero.</p>`;
+  </svg></div><p class="chart-foot">Mês sem dado ou com outro escopo interrompe a linha — não é tratado como zero.</p>`;
 }
 
 /* ── RELATÓRIOS DO DRE ───────────────────────────────────────────────────
@@ -572,6 +575,7 @@ function blocosDoCaixa(){
   const label=m+'/'+ano,reg=state.records.find(r=>monthSortKey(r.label)===Number(ano)*12+i)||null;
   if(!reg||F.valorConta(reg,'1')==null||F.valorConta(reg,'2')==null)return {label,m,vazio:true};
   const r=F.resumo(reg);
+  if(Object.values(r).some(v=>v==null))return {label,m,vazio:true};
   return {label,m,vazio:false,
    operacao:r.saldoOperacional,
    socios:-(r.socios+r.parcelasAtivos+r.investimentos),
@@ -582,7 +586,7 @@ function blocosDoCaixa(){
  const W=980,H=300,PL=58,PR=14,PT=18,PB=40;
  const series=[{id:'operacao',nome:'Sobra da operação',nota:' · falta em vermelho',cor:'#8fb0ff'},{id:'socios',nome:'Sócios, ativos e investimento',cor:'#c2a6e7'},{id:'divida',nome:'Empréstimo e dívida',cor:'#f3ae7f'},{id:'semDetalhe',nome:'Sem detalhamento',cor:'#8e98aa'}];
  const comDado=meses.filter(x=>!x.vazio);
- if(!comDado.length)return painelGrafico('O que mexeu o caixa em cada mês',ano,'<p class="empty">Nenhum mês coletado neste ano.</p>');
+ if(!comDado.length)return painelGrafico('O que mexeu o caixa em cada mês',ano,'<p class="empty">Não há decomposição completa neste ano. Consulte os totais de cada mês; componentes ausentes não são zero.</p>');
  const somaPos=x=>series.reduce((n,s)=>n+Math.max(0,x[s.id]||0),0),somaNeg=x=>series.reduce((n,s)=>n+Math.min(0,x[s.id]||0),0);
  let alto=Math.max(0,...comDado.map(somaPos)),baixo=Math.min(0,...comDado.map(somaNeg));
  const folga=(alto-baixo)*.08||1;alto+=folga;baixo-=folga;

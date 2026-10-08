@@ -3,7 +3,7 @@
 from pathlib import Path
 import argparse,re,shutil
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('indicadores.js','indicadores-modelo.mjs','indicadores.css','cfo-modelo.js','cfo.js','cfo.css','pdf-cfo.js','vendor/jspdf.umd.min.js','vendor/jspdf.plugin.autotable.min.js','vendor/jspdf-LICENSE.txt','vendor/autotable-LICENSE.txt','index.html','styles.css','app.js','coleta-ui.js','financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','config.js','auth.js','sw.js','data.js','logo.png','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png','inter-variable.woff2','inter-OFL.txt')
+FILES=('gestao.js','compacto.css','indicadores.js','indicadores-modelo.mjs','indicadores.css','cfo-modelo.js','cfo.js','cfo.css','pdf-cfo.js','vendor/jspdf.umd.min.js','vendor/jspdf.plugin.autotable.min.js','vendor/jspdf-LICENSE.txt','vendor/autotable-LICENSE.txt','index.html','styles.css','app.js','coleta-ui.js','financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','config.js','auth.js','sw.js','data.js','logo.png','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png','inter-variable.woff2','inter-OFL.txt')
 def conferir_pagina(html,sw):
     """O que a página pede precisa ir no pacote e, se leva ?v=, no cache offline.
 

@@ -70,7 +70,7 @@ function celulaComparativo(d,r){
  // pela receita também não mede nada. Nesses casos o peso é omitido.
  const semPeso=ratio||['entradas','saidas','variacao','bruta','liquida'].includes(r.id)||r.tipo==='total';
  const base=semPeso?null:baseDoPeso(d,i,r);
- const peso=!semPeso&&atual!=null&&base?Math.abs(atual/base*100):null;
+ const peso=!semPeso&&atual!=null&&base?atual/base*100:null;
  // Não usar qualidade().comparavel como liga/desliga: o coletor grava
  // apiContratoValidado:false em todo mês e a coluna inteira ficava em "sem
  // comparação". Aqui o bloqueio duro (empresa/base/critério) continua, e a
@@ -80,8 +80,9 @@ function celulaComparativo(d,r){
   const a=d.cols[i]?.reg,b=d.cols[i-1]?.reg,c=F.comparavelComRessalva(a,b);
   comparavel=c.pode;ressalva=c.ressalva;
  }
+ if(comparavel&&d.competencia)comparavel=!!d.cols[i]?.comp?.company&&!!d.cols[i-1]?.comp?.company&&String(d.cols[i]?.comp?.company||'').trim().toLowerCase()===String(d.cols[i-1]?.comp?.company||'').trim().toLowerCase();
  const delta=comparavel?Math.round((atual-anterior)*100)/100:null;
- const pct=comparavel&&anterior?delta/Math.abs(anterior)*100:null;
+ const pct=comparavel&&anterior>0?delta/Math.abs(anterior)*100:null;
  // Subir é bom (+1), ruim (−1) ou nenhum dos dois (0) — declarado linha a
  // linha. Adivinhar pela palavra no nome invertia a cor: "resultado antes dos
  // TRIBUTOS" e "receitas FINANCEIRAS" subindo saíam vermelhos; devoluções e
@@ -112,7 +113,7 @@ function renderDRE(){
  const cards=d.competencia?`<div class="cards finance-kpis">${metricRubricaCFO('liquida','Receita líquida',calc.liquida,state.periodo)}${metricRubricaCFO('liquido','Lucro / prejuízo líquido',calc.liquido,'Após financeiro e tributos')}${metricRubricaCFO('margemLiquida','Margem líquida',calc.margemLiquida,'Lucro líquido ÷ receita líquida')}</div>`:resumoMovimento(atual?.reg);
  const dadosNota=d.competencia?'Campos não preenchidos impedem os subtotais que dependem deles. Zero deve ser confirmado como zero ou não aplicável. EBITDA usa as operações continuadas e soma de volta a depreciação e amortização já incluídas nos custos e despesas.':'Os totais conservam a classificação de cada mês. Abra as rubricas para ver a decomposição. Meses parciais e mudanças de classificação exigem conferência antes de comparar.';
  const chart=d.competencia&&!d.valores.some(v=>v.liquida!=null||v.liquido!=null)?painelGrafico('Receita líquida e resultado ao longo do ano','Gráfico por competência','<p class="empty">O gráfico será preenchido conforme as receitas e os resultados mensais forem apurados.</p>'):d.competencia?painelGrafico('Receita líquida e resultado ao longo do ano','Valores por competência informados; mês vazio permanece sem barra.',graficoBarras(d.cols.map((x,i)=>({label:x.label,reg:x.comp,qualidade:{comparavel:false,rotulo:statusCompetencia(x.comp)},receita:d.valores[i].liquida,resultado:d.valores[i].liquido})),[{chave:'receita',nome:'Receita líquida',cor:'var(--chart-in)'},{chave:'resultado',nome:'Lucro / prejuízo',cor:'var(--chart-net)'}],'Receita e resultado por competência')):graficoEvolucao();
- return controls+(d.competencia?`<div class="dre-period-control"><label>Outro mês para preencher<input id="drePeriodo" type="month" min="2000-01" max="2100-12" value="${esc(F.periodo(state.periodo)?.de.slice(0,7)||'')}"></label></div>`:'')+intro+cards+painelGrafico(d.competencia?'Demonstração do resultado':'Demonstrativo de caixa',`Janeiro a dezembro · acumulado até ${state.periodo}`,`<div class="actions"><label class="check-label"><input id="dreDetalhar" type="checkbox" ${dreUI.detalhar?'checked':''}>Abrir rubricas detalhadas</label><button id="dreMesAtual">Ir à coluna de ${esc(state.periodo)}</button></div>${tabelaDRE(d)}<p class="hint">${dadosNota}</p><p class="hint">O acumulado fica sem valor quando falta algum mês ou os escopos diferem. Meses parciais continuam parciais no acumulado. ${d.mesmoEscopo?'':'Há empresas ou critérios diferentes neste ano.'}</p>`)+chart+(d.competencia?'':relatoriosDRE())+(atual?.comp?.notas?card('Notas de '+state.periodo,`<p class="preserve-lines">${esc(atual.comp.notas)}</p>`,false):'');
+ return controls+(d.competencia?`<div class="dre-period-control"><label>Outro mês para preencher<input id="drePeriodo" type="month" min="2000-01" max="2100-12" value="${esc(F.periodo(state.periodo)?.de.slice(0,7)||'')}"></label></div>`:'')+intro+cards+painelGrafico(d.competencia?'Demonstração do resultado':'Demonstrativo de caixa',`Janeiro a dezembro · acumulado até ${state.periodo}`,`<div class="actions"><label class="check-label"><input id="dreDetalhar" type="checkbox" ${dreUI.detalhar?'checked':''}>Abrir rubricas detalhadas</label><button id="dreMesAtual">Ir à coluna de ${esc(state.periodo)}</button></div>${typeof tabelaDRECompacta==='function'?tabelaDRECompacta(d):tabelaDRE(d)}<p class="hint">${dadosNota}</p><p class="hint">O acumulado fica sem valor quando falta algum mês ou os escopos diferem. Meses parciais continuam parciais no acumulado. ${d.mesmoEscopo?'':'Há empresas ou critérios diferentes neste ano.'}</p>`)+card('Evolução e relatórios',chart+(d.competencia?'':relatoriosDRE()),false)+(atual?.comp?.notas?card('Notas de '+state.periodo,`<p class="preserve-lines">${esc(atual.comp.notas)}</p>`,false):'');
 }
 function wireDRE(){
  if($$('drePeriodo'))$$('drePeriodo').onchange=e=>{if(!e.target.validity.valid||!e.target.value)return;const [y,m]=e.target.value.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;render();};
@@ -120,8 +121,8 @@ function wireDRE(){
  if($$('dreDetalhar'))$$('dreDetalhar').onchange=e=>{dreUI.detalhar=e.target.checked;render();};
  if($$('editarCompetencia'))$$('editarCompetencia').onclick=()=>abrirCompetencia(state.periodo);
  if($$('dreMesAtual'))$$('dreMesAtual').onclick=()=>{const wrap=document.querySelector('.dre-table-wrap'),cell=wrap?.querySelector('thead .selected-month');if(wrap&&cell)wrap.scrollTo({left:Math.max(0,cell.offsetLeft-wrap.querySelector('th').offsetWidth),behavior:'smooth'});};
- if($$('drePrint'))$$('drePrint').onclick=()=>exportarCFO({tipo:'anual',periodo:state.periodo,base:dreUI.base},$$('drePrint'));
- if($$('dreCSV'))$$('dreCSV').onclick=()=>{const d=dadosDRE(),rows=[[(d.competencia?'DRE por competência':'Caixa gerencial'),...d.cols.map(x=>x.label),'Acumulado até '+state.periodo],['Situação',...d.cols.map(x=>d.competencia?statusCompetencia(x.comp):F.qualidade(x.reg).rotulo),'Depende de todos os meses e do mesmo escopo'],['Empresa / escopo',...d.cols.map(x=>(d.competencia?x.comp:x.reg)?.company||'Não informado'),''],...d.linhas.map(r=>[r.nome,...[...d.valores,d.soma].map(v=>v[r.id]==null?'Não apurado':v[r.id].toFixed(r.tipo==='ratio'?4:2).replace('.',',')+(r.tipo==='ratio'?'%':''))])];download('dre-'+dreUI.base+'-'+state.periodo.split('/')[1]+'.csv','\ufeff'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');};
+ if($$('drePrint'))$$('drePrint').onclick=()=>exportarCFO({tipo:typeof gestaoUI!=='undefined'&&gestaoUI.dre==='mes'?'mensal':'anual',periodo:state.periodo,base:dreUI.base},$$('drePrint'));
+ if($$('dreCSV'))$$('dreCSV').onclick=()=>exportarDRECSV();
 }
 function abrirCompetencia(label){
  if(!state.permissoes.admin)return;
@@ -144,4 +145,10 @@ function abrirCompetencia(label){
   $$('competenciaSalvar').onclick=async()=>{if(!$$('competenciaConfirmar').checked)return;const btn=$$('competenciaSalvar');btn.disabled=true;$$('competenciaVoltar').disabled=true;$$('competenciaConfirmar').disabled=true;try{const res=await DRECompetencia.salvar({api,admin:state.permissoes.admin,id,original,registro});if(session!==STORE_KEY||!state.D)return;state.cfg=res.cfg;state.cfgVersion=res.atualizadoEm;$$('detailDialog').close();render();toast('Competência de '+label+' salva e confirmada na nuvem.');}catch(err){if($$('competenciaSaveErro'))$$('competenciaSaveErro').textContent=err.message;else toast(err.message,'err');btn.disabled=false;if($$('competenciaVoltar'))$$('competenciaVoltar').disabled=false;if($$('competenciaConfirmar'))$$('competenciaConfirmar').disabled=false;}};
  };
  mostrar();
+}
+
+function exportarDRECSV(){
+ const d=dadosDRE(),mensal=typeof gestaoUI!=='undefined'&&gestaoUI.dre==='mes',indices=mensal?[d.ate-1,d.cols.findIndex(x=>x.label===state.comparar)].filter(i=>i>=0):d.cols.map((_,i)=>i);
+ const rows=[[(d.competencia?'DRE por competência':'Caixa gerencial'),...indices.map(i=>d.cols[i].label),'Acumulado até '+state.periodo],['Situação',...indices.map(i=>d.competencia?statusCompetencia(d.cols[i].comp):F.qualidade(d.cols[i].reg).rotulo),'Depende de todos os meses e do mesmo escopo'],['Empresa / escopo',...indices.map(i=>(d.competencia?d.cols[i].comp:d.cols[i].reg)?.company||'Não informado'),''],...d.linhas.map(r=>[r.nome,...[...indices.map(i=>d.valores[i]),d.soma].map(v=>v[r.id]==null?'Não apurado':v[r.id].toFixed(r.tipo==='ratio'?4:2).replace('.',',')+(r.tipo==='ratio'?'%':''))])];
+ download('dre-'+dreUI.base+'-'+(mensal?safeId(state.periodo):state.periodo.split('/')[1])+'.csv','\ufeff'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');
 }

@@ -278,6 +278,10 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
            registro_remanejadas=None, regras_privadas=None):
     """montar: processa dados recebidos da origem autenticada."""
     folhas = {}
+    trilha = []
+    def vincular(t, natureza, c):
+        if t.get("id") is not None:
+            trilha.append({"natureza":natureza,"tituloId":str(t["id"]),"empresa":str(t.get("empresa") or t.get("empresa_id") or "Não informada"),"contaGerencial":c,"valor":round(valor_janela(t),2)})
     nomes = dict(nomes_conhecidos or {})
     nomes.update(NOMES_BASE)
 
@@ -342,6 +346,7 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
         c = remanejadas.get(c, c)
         nomes[c] = nome or nomes.get(c, c)
         folhas[c] = round(folhas.get(c, 0.0) + valor_janela(t), 2)
+        vincular(t, "saida", c)
 
     # Conta separada por mudança de nome: o valor continua no bloco certo, mas
     # alguém precisa dizer se é a mesma conta com nome novo (registrar o renome)
@@ -363,6 +368,7 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
             pendencias.append({"tipo":"receita-sem-conta", "conta":c, "valor":round(valor_janela(t),2), "texto":"Entrada sem natureza identificada."})
         nomes.setdefault(c, nome)
         folhas[c] = round(folhas.get(c, 0.0) + valor_janela(t), 2)
+        vincular(t, "entrada", c)
 
     # Grupo inteiro que o histórico nunca viu (ex.: "2.20"): o prefixo não diz
     # a natureza, e o padrão seria pagamento operacional em silêncio.
@@ -397,4 +403,4 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
     return ({"id": re.sub(r"[^\w]+", "_", label.strip()), "label": label,
              "company": "Impresilk + Universo", "basis": "Caixa gerencial · compõe DRE",
              "origem": "erp", "cells": _acumular(folhas, nomes),
-             "pendencias": pendencias}, reg, reman)
+             "pendencias": pendencias, "trilhaClassificacao":{"versao":"caixa-trilha-1","titulos":trilha}}, reg, reman)

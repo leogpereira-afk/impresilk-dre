@@ -3,7 +3,7 @@
 // ▶ A cada mudança nos arquivos, SUBA o número do CACHE (v1 → v2 → …). No
 //   evento "activate" apagamos todo cache com nome diferente, o que força os
 //   aparelhos a baixarem a versão nova (evita ficar preso em arquivos antigos).
-const CACHE = 'dre-shell-v90';
+const CACHE = 'dre-shell-v91';
 
 // O MESMO número precisa estar no ?v= dos <link>/<script> do index.html. O
 // Service Worker só manda no que passa por ele; o cache HTTP do navegador é
@@ -15,6 +15,8 @@ const V = CACHE.split('-v')[1];
 // para o app abrir offline. CDNs (Chart.js, fonts) não entram aqui: serão
 // cacheados sob demanda pelo fetch network-first abaixo.
 const SHELL = [
+  `./gestao.js?v=${V}`,
+  `./compacto.css?v=${V}`,
   './',
   './index.html',
   `./indicadores.js?v=${V}`,

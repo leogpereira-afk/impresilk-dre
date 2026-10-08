@@ -21,16 +21,14 @@ var DREFinancas = (() => {
       mensagem:parcial?`O mês foi coletado só até ${corte?String(corte).split('-').reverse().join('/'):'uma data não registrada'}. Comparações automáticas ficam suspensas enquanto o mês não fecha.`:q.apiContratoValidado===false?'Coleta registrada. Os limites e filtros da API ainda não foram validados: o cálculo sai, falta conferir se a base está completa antes de decidir.':expirada?'A última coleta do ERP está atrasada. Ler a nuvem não atualiza o Mubisys.':comparavel?'Cobertura registrada. Consulte pendências e conciliação antes do fechamento.':'O histórico está preservado; falta validar sua cobertura e conciliação.'};
   }
   function resumo(reg){
-    const m=new Map((reg?.cells||[]).map(c=>[c.code,cents(c.value)]));const v=c=>m.get(c)||0;
+    const v=c=>valorConta(reg,c),sum=(...xs)=>xs.some(x=>x==null)?null:xs.reduce((s,x)=>s+cents(x),0)/100,neg=x=>x==null?null:-x;
     const entradas=v('1'),saidas=v('2'),emprestimos=v('1.4'),rendimentos=v('1.3'),naoIdentificadas=v('1.7');
-    const operacionais=v('1.1')+v('1.2')+v('1.5')+v('1.6');
-    const socios=v('2.14')-v('2.14.3');
-    // Mantém a decomposição gerencial histórica. Parcelas de ativos são identificadas,
-    // sem afirmar aquisição ou amortização de principal antes da revisão contratual.
-    const parcelasAtivos=v('2.13.7.1.1')+v('2.13.7.1.2')+v('2.14.3.4');
-    const dividas=v('2.13.6')+v('2.17')+(v('2.14.3')-v('2.14.3.4'))+v('2.13.7.1.3');
-    const transferencias=v('2.18'),investimentos=v('2.16'),pendentes=v('2.99'),pagamentosOperacionais=saidas-socios-parcelasAtivos-dividas-transferencias-investimentos-pendentes;
-    return Object.fromEntries(Object.entries({entradas,saidas,variacao:entradas-saidas,operacionais,emprestimos,rendimentos,naoIdentificadas,outrasEntradas:entradas-operacionais-emprestimos-rendimentos-naoIdentificadas,socios,parcelasAtivos,dividas,transferencias,investimentos,pendentes,pagamentosOperacionais,saldoOperacional:operacionais-pagamentosOperacionais}).map(([k,n])=>[k,reais(n)]));
+    const operacionais=sum(v('1.1'),v('1.2'),v('1.5'),v('1.6'));
+    const socios=sum(v('2.14'),neg(v('2.14.3'))),parcelasAtivos=sum(v('2.13.7.1.1'),v('2.13.7.1.2'),v('2.14.3.4'));
+    const dividas=sum(v('2.13.6'),v('2.17'),v('2.14.3'),neg(v('2.14.3.4')),v('2.13.7.1.3'));
+    const transferencias=v('2.18'),investimentos=v('2.16'),pendentes=v('2.99');
+    const pagamentosOperacionais=sum(saidas,...[socios,parcelasAtivos,dividas,transferencias,investimentos,pendentes].map(neg));
+    return {entradas,saidas,variacao:sum(entradas,neg(saidas)),operacionais,emprestimos,rendimentos,naoIdentificadas,outrasEntradas:sum(entradas,...[operacionais,emprestimos,rendimentos,naoIdentificadas].map(neg)),socios,parcelasAtivos,dividas,transferencias,investimentos,pendentes,pagamentosOperacionais,saldoOperacional:sum(operacionais,neg(pagamentosOperacionais))};
   }
   function comparacao(a,b,agora=new Date()){
     const c=comparavelComRessalva(a,b,agora);

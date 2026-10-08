@@ -61,3 +61,18 @@ test('sair envia antes a edição pendente quando há rede, sem perguntar',async
  await vm.runInContext('logout()',c);
  assert.deepEqual(enviados,[100]);assert.equal(perguntas.length,0);assert.equal(c.saiu,true);
 });
+
+test('leitura remota aparece mesmo sem espaço para cache, preservando a fila',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};c.boot=d=>{c.aplicado=d;};
+ c.api=async action=>action==='permissions'?{permissoes:{leitura:true}}:action==='getCfg'?{ok:true,cfg:{}}:{ok:true,itens:[{id:'Set_2026',label:'Set/2026',cells:[{code:'1',value:200},{code:'2',value:40}]}]};
+ vm.runInContext(`salvarLocal(monthsToDataset([{id:'Set_2026',label:'Set/2026',cells:[{code:'1',value:100}]}]));setQueue([])`,c);
+ c.localStorage.setItem=()=>{throw new Error('QuotaExceededError');};
+ await vm.runInContext('pullCloud()',c);
+ assert.equal(c.aplicado?.registros[0].cells[0].value,200);
+ assert.equal(vm.runInContext('getCurrentData().registros[0].cells[0].value',c),200);
+ assert.equal(vm.runInContext('getQueue().length',c),0);
+});
+test('ausência e escopo de um mês não são substituídos pelos do último mês',()=>{
+ const c=client();const r=vm.runInContext(`(()=>{const d=monthsToDataset([{id:'Jan_2026',label:'Jan/2026',company:'Impresilk',basis:'Caixa',cells:[{code:'1',value:100}]},{id:'Fev_2026',label:'Fev/2026',company:'Impresilk + Universo',basis:'Caixa gerencial',cells:[{code:'1',value:200},{code:'2',value:50}]}]);return monthRecord(d,0,'agora')})()`,c);
+ assert.equal(r.company,'Impresilk');assert.equal(r.basis,'Caixa');assert.equal(r.cells.length,1);
+});

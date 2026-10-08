@@ -59,7 +59,7 @@ test('cor da variação: declarada por linha, nunca adivinhada pelo nome', () =>
  const c=view();
  c.run(`var v=(p,t,i)=>({entradas:1000,saidas:p+t+i,pendentes:p,transferencias:t,investimentos:i});
   var dcx={competencia:false,ate:2,cols:[{reg:erp('Jul/2026','2026-07-31',cel({'1':1000,'2':500}))},{reg:erp('Ago/2026','2026-08-31',cel({'1':1000,'2':900}))}],valores:[v(100,100,100),v(400,400,400)]};
-  var dk={competencia:true,ate:2,cols:[{},{}],valores:[{operacional:100,antesTributos:100,receitasFinanceiras:10,devolucoes:5,descontos:5,liquida:1000},{operacional:200,antesTributos:200,receitasFinanceiras:20,devolucoes:50,descontos:50,liquida:1000}]};
+  var dk={competencia:true,ate:2,cols:[{comp:{company:'Teste'}},{comp:{company:'Teste'}}],valores:[{operacional:100,antesTributos:100,receitasFinanceiras:10,devolucoes:5,descontos:5,liquida:1000},{operacional:200,antesTributos:200,receitasFinanceiras:20,devolucoes:50,descontos:50,liquida:1000}]};
   var cor=(d,lista,id)=>{const h=celulaComparativo(d,lista.find(x=>x.id===id));return (h.match(/class="(delta-\\w+)"/)||[])[1]||'neutro';};`);
  assert.equal(c.run(`cor(dcx,linhasCaixa,'pendentes')`),'delta-ruim');
  assert.equal(c.run(`cor(dcx,linhasCaixa,'transferencias')`),'neutro');
@@ -102,7 +102,7 @@ test('estrutura: a coluna de cada mês fecha com a conta 2 dele, não com os gru
 
 test('caixa: saída sem detalhamento (2.99) não vira empréstimo nem dívida', () => {
  const c=view();
- c.run(`state.records=[erp('Jul/2026','2026-07-31',cel({'1':1000,'1.1':1000,'2':1000,'2.5':600,'2.99':400}))];state.periodo='Ago/2026';`);
+ c.run(`state.records=[erp('Jul/2026','2026-07-31',cel({'1':1000,'1.1':1000,'1.2':0,'1.3':0,'1.4':0,'1.5':0,'1.6':0,'1.7':0,'2':1000,'2.5':600,'2.99':400,'2.14':0,'2.14.3':0,'2.13.7.1.1':0,'2.13.7.1.2':0,'2.14.3.4':0,'2.13.6':0,'2.17':0,'2.13.7.1.3':0,'2.18':0,'2.16':0}))];state.periodo='Ago/2026';`);
  const html=c.run('blocosDoCaixa()');
  const jul=Object.fromEntries([...html.matchAll(/<title>Jul\/2026 · ([^:<]+): ([^<]+)<\/title>/g)].map(m=>[m[1],m[2]]));
  assert.deepEqual(Object.keys(jul).filter(k=>/Empréstimo/.test(k)),[],'mês sem empréstimo nem dívida não pode ter barra de empréstimo');

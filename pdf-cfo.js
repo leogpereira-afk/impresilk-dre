@@ -50,9 +50,17 @@ function relatorioCFO(op={}){
  if(op.tipo==='conta'){
   const d=DRECFO.decompor(reg,op.code),comp=F.composicao(reg,op.code);r.titulo=reg?.cells?.find(x=>x.code===op.code)?.name||cfoNome(op.code);
   table('Valor e critério',['Item','Valor'],[['Valor no período',cfoValor(d.value)]],DRECFO.pergunta(r.titulo));
-  if(DRECFO.caixa[op.code])table('Fórmula da regra gerencial',['Conta','Operação','Valor'],d.partes.map(x=>[x.code+' '+x.name,x.sinal<0?'Subtrair':'Adicionar',cfoValor(x.value)]),'Contas ausentes são zero na regra histórica, mas não comprovam ausência de movimentação.');
+  if(DRECFO.caixa[op.code])table('Fórmula da regra gerencial',['Conta','Operação','Valor'],d.partes.map(x=>[x.code+' '+x.name,x.sinal<0?'Subtrair':'Adicionar',cfoValor(x.value)]),'Contas ausentes impedem subtotais dependentes. Zero deve estar informado explicitamente.');
   if(comp.itens.length)table('Composição',['Conta','Descrição','Valor'],comp.itens.map(x=>[x.code,x.name,cfoValor(x.value)]));
   table('Histórico da conta',['Mês','Nome no mês','Valor','Cobertura'],state.records.slice().sort((a,b)=>monthSortKey(a.label)-monthSortKey(b.label)).map(x=>[x.label,x.cells?.find(c=>c.code===op.code)?.name||r.titulo,cfoValor(DRECFO.decompor(x,op.code).value),F.qualidade(x).rotulo]));r.notas.push(DRECFO.origem(reg,op.code).nota);return r;
+ }
+ if(op.tipo==='mensal'){
+  const d=dadosDRE(),i=d.ate-1,j=d.cols.findIndex(x=>x.label===state.comparar),at=d.valores[i]||{},prev=d.valores[j]||{};
+  const ok=d.competencia?!!d.cols[i]?.comp&&!!d.cols[j]?.comp&&d.cols[i].comp.company.trim().toLowerCase()===d.cols[j].comp.company.trim().toLowerCase():F.comparavelComRessalva(d.cols[i]?.reg,d.cols[j]?.reg).pode;
+  r.titulo=d.competencia?'DRE por competência · '+label:'Caixa gerencial · '+label;
+  r.notas=d.competencia?['Fonte: '+(d.cols[i]?.comp?.fonte||'Não informada'),'Competência informada. Ausências impedem subtotais; preenchimento não equivale a fechamento.']:r.notas;
+  table('Mês e comparação',['Rubrica',label,state.comparar||'Sem comparação','Variação'],d.linhas.map(x=>[x.nome,cfoValor(at[x.id],x.tipo==='ratio'),cfoValor(prev[x.id],x.tipo==='ratio'),ok&&at[x.id]!=null&&prev[x.id]!=null?cfoValor(at[x.id]-prev[x.id],x.tipo==='ratio'):'Não comparável']),'Diferenças percentuais de margens são pontos percentuais.');
+  table('Acumulado até '+label,['Rubrica','Valor'],d.linhas.map(x=>[x.nome,cfoValor(d.soma[x.id],x.tipo==='ratio')]),'Ausência ou escopo diferente interrompe o acumulado.');return r;
  }
  if(op.tipo==='anual'){
   const d=dadosDRE();r.titulo=d.competencia?'DRE mensal por competência':'Demonstrativo mensal de caixa';r.subtitulo=label.split('/')[1]+' · referência '+label;
@@ -70,7 +78,7 @@ function relatorioCFO(op={}){
   for(let i=0;i<12;i+=3)table('Despesas · '+(i/3+1)+'º trimestre',['Conta',...cols.slice(i,i+3).map(x=>x.label)],rows.map(c=>[c.name,...cols.slice(i,i+3).map(x=>cfoValor(F.valorConta(x.reg,c.code)))]),'Seleção: '+(custoUI.busca||contaConhecida(custoUI.grupo))+'. Cada valor preserva a classificação e cobertura do seu mês.');
  } else if(op.tipo==='contas'){
   r.titulo='Contas detalhadas · '+label;
-  const cells=(reg?.cells||[]).filter(c=>(state.tipo==='todos'||c.code.startsWith(state.tipo))&&(state.grupo==='todos'||c.code===state.grupo||c.code.startsWith(state.grupo+'.'))&&(!state.consulta||normalPDF(c.name+' '+c.code).includes(normalPDF(state.consulta))));
+  const cells=filtrarContas(reg);
   table('Contas da seleção · '+cells.length,['Código','Descrição','Valor'],cells.map(c=>[c.code,c.name,cfoValor(F.valorConta(reg,c.code))]),'Totais e subcontas são níveis da mesma árvore: não devem ser somados entre si. Busca: '+(state.consulta||'todas')+'.');
  } else {
   table('Regra gerencial, linha por linha',['Rubrica','Valor'],linhasCaixa.map(x=>[x.nome,cfoValor(reg&&a.entradas!=null&&a.saidas!=null?F.resumo(reg)[x.id]:null)]));

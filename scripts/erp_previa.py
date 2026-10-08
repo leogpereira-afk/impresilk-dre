@@ -128,6 +128,26 @@ def eventos_financeiros(titulos, natureza, ini, fim):
                 "ordensServico":erp_os.numeros_de_os(t.get("despesa")) if natureza=="entrada" else []})
     return eventos
 
+def aplicar_trilha(registro, ini, fim, coletado_em):
+    """Anexa somente vínculos inequívocos e reconciliados dentro da janela."""
+    trilha = registro.get("trilhaClassificacao") or {}
+    trilha.update({"de":ini,"ate":fim,"coletadoEm":coletado_em})
+    chave = lambda e: (e.get("natureza"), e.get("empresa"), e.get("tituloId"))
+    titulos, eventos = {}, {}
+    for t in trilha.get("titulos", []): titulos.setdefault(chave(t), []).append(t)
+    for e in registro.get("eventos", []): eventos.setdefault(chave(e), []).append(e)
+    for k, itens in eventos.items():
+        links = titulos.get(k, [])
+        if len(links) != 1: continue
+        if sum(round(e["valor"]*100) for e in itens) != round(links[0]["valor"]*100): continue
+        for e in itens:
+            e["contaGerencial"] = links[0]["contaGerencial"]
+            e["regraClassificacao"] = trilha["versao"]
+    # Não duplica a lista de títulos no mês: os pagamentos guardam o vínculo.
+    trilha.pop("titulos", None)
+    trilha["movimentosVinculados"] = sum(bool(e.get("contaGerencial")) for e in registro.get("eventos", []))
+    registro["trilhaClassificacao"] = trilha
+
 def coletar(recurso, ini, fim):
     """coletar: processa dados recebidos da origem autenticada."""
     vistos = {}
@@ -403,6 +423,7 @@ def processar(ini):
     for natureza,total in (("entrada",rec_total),("saida",desp_total)):
         if abs(sum(e["valor"] for e in registro["eventos"] if e["natureza"]==natureza)-total) > .011:
             raise RuntimeError("Trilha de pagamentos não fecha; nada foi gravado.")
+    aplicar_trilha(registro,si,sf,previa["geradoEm"])
     registro["previaERP"] = previa
     registro["mapeamento"] = {"produtosCodigo":cod_produtos, "contasRemanejadas":cod_remanejadas}
     registro["qualidade"] = {

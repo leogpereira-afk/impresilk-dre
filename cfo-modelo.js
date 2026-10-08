@@ -38,7 +38,7 @@ var DRECFO = (() => {
   if(/cartao|fatura/.test(n))return 'Fatura sem rateio entra no custo sem dizer de que centro é. Abrir a fatura e lançar cada compra na sua conta, nem que seja por grupo.';
   if(/banc|juro|divida|emprest|antecip|tarifa/.test(n))return 'Abrir contratos e separar principal, juros, tarifas e antecipação de recebíveis antes de avaliar o custo financeiro.';
   if(/socie|socio|arrendamento|retirada|prolabore|pro-labore/.test(n))return 'Separar pró-labore, distribuição, mútuos e arrendamento conforme contratos. Saída para sócio não tem uma única natureza contábil.';
-  if(/imposto|tributo|das|darf|issqn|simples|inss/.test(n))return 'Separar o que incide sobre a venda do que incide sobre a folha e sobre o lucro. Conferir a receita dos últimos 12 meses contra a faixa do Simples.';
+  if(/imposto|tributo|das|darf|issqn|simples|inss/.test(n))return 'Separar o que incide sobre a venda do que incide sobre a folha e sobre o lucro. Conferir o regime tributário e a alíquota aplicáveis com a apuração fiscal, sem presumir enquadramento.';
   if(/energia|cemig|agua|copasa|saneamento/.test(n))return 'Comparar consumo físico, tarifa e dias de produção. O valor pago isolado não identifica a causa de aumento.';
   if(/fixa|aluguel|condominio|internet|telefone/.test(n))return 'Conferir contratos, reajuste e meses com duas competências pagas juntas. Despesa fixa que varia costuma ter data de pagamento fora do lugar.';
   if(/administrat|escritorio|contabil|juridic|advog/.test(n))return 'Conferir o que é recorrente de estrutura e o que foi serviço pontual. Honorário eventual não deve virar base de comparação mensal.';
@@ -61,6 +61,10 @@ var DRECFO = (() => {
   // Sem o mapa da coleta não se associa código de receita ao produto vendido.
   const all=reg?.eventos||[];
   if(code==='1'||code==='2')return {disponivel:all.length>0,eventos:all.filter(e=>e.natureza===(code==='1'?'entrada':'saida')),nota:'Movimentos de toda a entrada ou saída da coleta.'};
+  const versao=reg?.trilhaClassificacao?.versao;
+  const vinculados=all.filter(e=>versao&&e.regraClassificacao===versao&&(e.contaGerencial===code||e.contaGerencial?.startsWith(code+'.')));
+  const total=DREFinancas.valorConta(reg,code),conciliado=total!=null&&vinculados.length>0&&vinculados.every(e=>typeof e.valor==='number'&&Number.isFinite(e.valor))&&Math.round(total*100)===vinculados.reduce((n,e)=>n+Math.round(e.valor*100),0);
+  if(conciliado)return {disponivel:true,eventos:vinculados,nota:'Vínculos registrados pela classificação '+versao+' e reconciliados com o total desta conta no centavo. Janela '+reg.trilhaClassificacao.de+' a '+reg.trilhaClassificacao.ate+'. Não significa conciliação bancária.'};
   return {disponivel:false,eventos:[],nota:'O vínculo entre esta conta gerencial e os pagamentos de origem não está comprovado nesta base. Consulte a trilha geral na Conferência; não são atribuídos lançamentos por semelhança de nomes.'};
  }
  function sensibilidade({receita,custoVariavel,fixos,meta=0}){
