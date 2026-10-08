@@ -21,3 +21,19 @@ test('servidor consulta páginas, resume e retorna apenas 50 registros',async()=
 test('falha de banco é erro, fonte ausente não retorna um total apurado',async()=>{await assert.rejects(()=>consultarIndicadores(fakeDB([],true),{fonte:'custos',...p}),/Não foi possível/);const r=await consultarIndicadores(fakeDB([]),{fonte:'custos',...p});assert.equal(r.disponivel,false);assert.equal(r.qualidade,'Indisponível');});
 test('todos os valores ausentes deixam o total indisponível, sem zero fictício',()=>{const s=M.resumir([{valor:null},{valor:null}]);assert.equal(s.valor,null);assert.equal(s.comValor,0);});
 test('diferença entre trilha e controle mensal aparece e impede apuração completa',()=>{const r=M.caixa([reg([event('1',100)],{cells:[{code:'1',value:150}]})],p,'entrada');assert.equal(r.qualidade,'Parcial');assert.match(r.avisos.join(' '),/diferença entre trilha/);assert.equal(M.resumir(r.rows).valor,100);});
+test('histórico de gráficos mantém lacunas, filtros e separação de empresas',()=>{
+ const r=reg([event('a',100),event('b',null)],{company:'Impresilk + Universo',basis:'Caixa'});
+ let h=M.historicoCaixa([r],p,'recebimentos');assert.equal(h.length,12);assert.equal(h.at(-2).valor,null);assert.equal(h.at(-1).valor,100);assert.equal(h.at(-1).parcial,true);
+ h=M.historicoCaixa([r],p,'recebimentos',{query:'inexistente'});assert.equal(h.at(-1).valor,null);
+ const ago={...r,label:'Ago/2026',company:'Impresilk',eventos:[event('ago',50,{data:'2026-08-02'})]};
+ h=M.historicoCaixa([r,ago],p,'recebimentos');assert.equal(h.at(-2).valor,null);assert.match(h.at(-2).nota,/Empresa/);
+});
+test('gráfico dos pares não mistura custos sem venda nem a página visível',()=>{
+ const m={disponivel:true,...M.resumir([{valor:80,custo:80,venda:100},{valor:50,custo:50,venda:null}],{tamanho:1})};
+ assert.equal(m.valor,130);assert.deepEqual(M.comparativoPares(m).map(x=>x.valor),[100,80]);assert.deepEqual(M.comparativoPares({...m,pares:0}),[]);
+});
+test('histórico não perde centavos ou estornos e resultado respeita o grupo',()=>{
+ const r=reg([event('a',100),event('b',-20),event('c',30,{natureza:'saida'})],{company:'Impresilk + Universo',basis:'Caixa'});
+ assert.equal(M.historicoCaixa([r],p,'variacao').at(-1).valor,50);
+ assert.equal(M.historicoCaixa([r],p,'variacao',{grupo:'Pagamentos'}).at(-1).valor,-30);
+});

@@ -72,3 +72,26 @@ export function compararCaixa(records,p,natureza){
  const x=caixa(records,a,natureza),y=caixa(records,b,natureza);if(!x.disponivel||!y.disponivel||x.avisos.length||y.avisos.length)return {disponivel:false,motivo:'A trilha apresenta lacunas ou repetições a conferir.'};
  const va=soma(x.rows.map(r=>r.valor)),vb=soma(y.rows.map(r=>r.valor));return {disponivel:va!=null&&vb!=null,atual:va,anterior:vb,delta:va==null||vb==null?null:(cent(va)-cent(vb))/100,percentual:vb>0&&va!=null?((cent(va)-cent(vb))/cent(vb))*100:null,a,b,dias};
 }
+
+// Histórico da mesma base. Lacunas, mudança de empresa e falta de valor não viram zero.
+export function historicoCaixa(records,periodo,fonte,filtros={}){
+ const fim=new Date(periodo.ate+'T00:00:00Z');
+ const ref=records.find(r=>periodoRotulo(r.label)?.de.slice(0,7)===periodo.ate.slice(0,7));
+ return Array.from({length:12},(_,i)=>{
+  const d=new Date(Date.UTC(fim.getUTCFullYear(),fim.getUTCMonth()-11+i,1));
+  const de=d.toISOString().slice(0,10),ate=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).toISOString().slice(0,10);
+  const r=records.find(x=>periodoRotulo(x.label)?.de===de);
+  const ponto={nome:d.toLocaleDateString('pt-BR',{month:'short',timeZone:'UTC'}).replace('.',''),periodo:de.slice(0,7),valor:null,nota:'Sem fonte',parcial:true};
+  if(!r)return ponto;
+  if(!ref?.company||!ref?.basis||r.company!==ref.company||r.basis!==ref.basis||r.qualidade?.escopo!==ref.qualidade?.escopo||r.qualidade?.regra!==ref.qualidade?.regra)return {...ponto,nota:'Empresa ou base diferente; não comparada'};
+  const a=caixa(records,{de,ate},'entrada'),b=caixa(records,{de,ate},'saida');
+  const base=fonte==='variacao'?{disponivel:a.disponivel&&b.disponivel,rows:[...a.rows.map(x=>({...x,grupo:'Recebimentos'})),...b.rows.map(x=>({...x,grupo:'Pagamentos',valor:x.valor==null?null:-x.valor}))],qualidade:a.qualidade==='Apurado'&&b.qualidade==='Apurado'?'Apurado':'Parcial'}:fonte==='recebimentos'?a:b;
+  const s=resumir(base.rows,filtros),parcial=base.qualidade!=='Apurado'||!s.somaCompleta;
+  return {...ponto,valor:base.disponivel&&s.comValor>0?s.valor:null,parcial,nota:parcial?'Leitura parcial; cobertura a conferir':'Mesma base, mês completo'};
+ });
+}
+
+export function comparativoPares(modelo){
+ if(!modelo.disponivel||!modelo.pares)return [];
+ return [{nome:'Venda informada',valor:numero(modelo.venda),tom:'entrada'},{nome:'Custo informado',valor:numero(modelo.custo),tom:'saida'}];
+}

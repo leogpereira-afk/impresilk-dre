@@ -13,3 +13,28 @@
 .ind-panel>.ind-table{max-height:440px;overscroll-behavior:contain}.ind-panel>.ind-table th{position:sticky;top:0;z-index:1}
 @media(max-width:650px){.ind-panel>.ind-table{max-height:340px}}
 @media print{#indPrint .ind-table{max-height:none}}
+/* Indicadores: gráficos visíveis antes da planilha, com a mesma semântica de cores. */
+.indicadores .ind-analysis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:10px 0}
+.indicadores .ind-analysis>.ind-panel{margin:0;min-width:0;padding:11px 13px;box-shadow:0 2px 7px #152e5910;border-top:2px solid #5275cc}
+.indicadores[data-fonte="custos"] .ind-analysis>.ind-panel,.indicadores[data-fonte="compras"] .ind-analysis>.ind-panel,.indicadores[data-fonte="pagamentos"] .ind-analysis>.ind-panel{border-top-color:#bd4658}
+.indicadores .ind-chart-title{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.indicadores .ind-chart h3{font-size:13px;margin:0;color:var(--text,#253047)}
+.ind-chart-title>span{font-size:10px;color:var(--muted,#606b7b)}
+.ind-plot{position:relative;margin-top:5px}.ind-plot svg{display:block;width:100%;height:auto;max-height:180px;overflow:visible}
+.ind-zero{stroke:#d4dbe7;stroke-width:1}.ind-fill-entrada{fill:#315fd0}.ind-fill-saida{fill:#c44353}.ind-fill-aviso{fill:#bd841e}.ind-fill-neutro{fill:#77859e}.ind-partial{opacity:.7}
+.ind-value{font:11px Inter,Arial,sans-serif;fill:var(--text,#253047);font-weight:600}.ind-axis{font:10px Inter,Arial,sans-serif;fill:var(--muted,#606b7b)}
+.indicadores .ind-chart-caption{margin:5px 0 0;font-size:11px;line-height:1.4;color:var(--muted,#606b7b)}
+.ind-chart-empty{position:absolute;top:30%;left:12%;right:12%;text-align:center;font-size:12px;color:var(--muted,#606b7b);margin:0;background:var(--surface,#fff)}
+.ind-chart-data{margin-top:6px;font-size:11px}.ind-chart-data summary{font-size:11px!important;color:var(--ind-blue,#284ac7);cursor:pointer}.ind-chart-data table{width:100%;border-collapse:collapse;margin-top:8px;font-size:11px}.ind-chart-data td,.ind-chart-data th{padding:5px;border-bottom:1px solid var(--line,#e1e5ed);text-align:left}.ind-chart-data td:nth-child(2){white-space:nowrap}
+.indicadores .ind-analysis>.ind-composition:last-child:nth-child(odd){grid-column:1/-1}
+.indicadores .ind-composition .ind-bars{grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 18px;margin-top:8px}.indicadores .ind-composition .ind-bar{grid-template-columns:minmax(90px,1fr) minmax(30px,1fr) auto;min-height:32px;gap:8px}.indicadores .ind-composition .ind-bar:hover{background:var(--ind-tint);border-radius:6px}.indicadores .ind-composition .ind-bar>span:first-child{overflow-wrap:anywhere}
+.indicadores .ind-return-row{display:grid;grid-template-columns:35px 1fr auto;align-items:center;gap:8px;padding:14px 0;border-bottom:1px solid var(--line,#e1e5ed);font-size:11px}.ind-return-row>b{color:#7553ab}.ind-return-row>strong{font-size:11px;color:var(--muted,#606b7b)}
+.indicadores .ind-metrics{margin:8px 0}.indicadores .ind-metric{padding:8px 11px!important}.indicadores .ind-metric strong{font-size:20px}.indicadores .ind-metric small{font-size:10px}
+.indicadores .ind-note{font-size:11px;padding:7px 10px;margin:7px 0}.indicadores .ind-context{gap:5px 9px;font-size:11px;margin:8px 0}.indicadores .ind-filters{margin:7px 0}.indicadores .ind-heading{margin-bottom:7px}.indicadores .ind-nav,.indicadores .ind-subnav{margin-bottom:7px}
+.indicadores[data-fonte="custos"] .ind-nav .selected,.indicadores[data-fonte="compras"] .ind-nav .selected,.indicadores[data-fonte="pagamentos"] .ind-nav .selected{background:#aa3748;border-color:#aa3748}
+.indicadores[data-fonte="margem"] .ind-nav .selected,.indicadores[data-fonte="rentabilidade"] .ind-nav .selected{background:#65459c;border-color:#65459c}
+@media(max-width:700px){.indicadores .ind-analysis{grid-template-columns:1fr}.indicadores .ind-analysis>.ind-composition:last-child:nth-child(odd){grid-column:auto}.indicadores .ind-composition .ind-bars{grid-template-columns:1fr}.ind-plot svg{min-height:128px}.indicadores .ind-chart-empty{font-size:11px}.indicadores .ind-return-row{grid-template-columns:30px 1fr}.ind-return-row>strong{grid-column:2}.ind-chart-data{overflow:auto}.ind-axis{font-size:11px}.indicadores .ind-context>span:nth-child(n+3){font-size:10px}.indicadores .ind-metric strong{font-size:18px}}
+@media print{#indPrint .ind-analysis{display:grid;grid-template-columns:1fr 1fr;gap:8px}#indPrint .ind-chart{break-inside:avoid;padding:8px;margin:6px 0}#indPrint .ind-chart-data{display:none}#indPrint .ind-composition{grid-column:1/-1}#indPrint svg{max-height:145px}#indPrint .ind-fill-entrada{fill:#315fd0;print-color-adjust:exact}#indPrint .ind-fill-saida{fill:#c44353;print-color-adjust:exact}#indPrint .ind-track i.negative{background:#c44353}}
+.indicadores .ind-comparison-limit{font-size:10px;line-height:1.4;margin:7px 0 0;padding:6px 8px;border-radius:6px;background:#fff7e7;color:#80551e}
+.indicadores .ind-analysis>.ind-composition:nth-child(2) .ind-bars{grid-template-columns:1fr}.indicadores .ind-analysis>.ind-chart:only-child{grid-column:1/-1}
+.ind-plot-empty svg{min-height:0!important;max-height:92px}.ind-plot-empty .ind-chart-empty{top:20%;font-size:11px}.dark .ind-comparison-limit{background:#3d3321;color:#f3d69a}
