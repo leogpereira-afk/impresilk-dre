@@ -19,7 +19,7 @@ var PDFCFO = (()=>{
    if(bloco.barras?.length){
     if(y>210){doc.addPage();y=20;}
     const max=Math.max(1,...bloco.barras.map(x=>Math.abs(x.valor||0)));
-    for(const x of bloco.barras){texto(x.nome+' · '+cfoValor(x.valor),9);doc.setFillColor(...(x.cor||(x.valor<0?[172,65,76]:[48,125,114])));doc.rect(16,y,Math.abs(x.valor||0)/max*170,3,'F');y+=8;}y+=7;
+    for(const x of bloco.barras){texto(x.nome+' · '+cfoValor(x.valor),9);doc.setFillColor(...(x.cor||(x.valor<0?[172,65,76]:[47,98,208])));doc.rect(16,y,Math.abs(x.valor||0)/max*170,3,'F');y+=8;}y+=7;
    }
    if(bloco.linhas){doc.autoTable({startY:y,head:[bloco.colunas.map(pdfTexto)],body:bloco.linhas.map(row=>row.map(pdfTexto)),margin:{left:16,right:16,top:18,bottom:18},styles:{font:'helvetica',fontSize:9,cellPadding:2.7,overflow:'linebreak',textColor:[40,52,76]},headStyles:{fillColor:[35,62,143],textColor:[255,255,255],fontSize:9},alternateRowStyles:{fillColor:[245,247,251]},rowPageBreak:'avoid',showHead:'everyPage',didDrawPage:()=>{}});y=doc.lastAutoTable.finalY+10;}
   }
@@ -76,7 +76,7 @@ function relatorioCFO(op={}){
   table('Contas da seleção · '+cells.length,['Código','Descrição',label,...(state.comparar?[state.comparar,'Diferença']:[])],cells.map(c=>{const cmp=F.compararConta(reg,anterior,c.code);return [c.code,c.name,cfoValor(F.valorConta(reg,c.code)),...(state.comparar?[cfoValor(cmp.anterior),cmp.permitida?cfoValor(cmp.delta):'Não comparável']:[])];}),'Totais e subcontas são níveis da mesma árvore: não devem ser somados entre si. Comparações exigem a mesma cobertura e classificação.');return r;
  }
  table('Retrato do período',['Indicador','Registrado'],[['Entradas',cfoValor(a.entradas)],['Saídas',cfoValor(a.saidas)],['Variação',cfoValor(a.variacao)]]);
- r.blocos.push({titulo:'Composição visual',barras:[{nome:'Entradas',valor:a.entradas,cor:[48,125,114]},{nome:'Saídas',valor:a.saidas,cor:[185,107,67]},{nome:'Variação',valor:a.variacao,cor:[53,79,165]}].filter(x=>x.valor!=null)});
+ r.blocos.push({titulo:'Composição visual',barras:[{nome:'Entradas',valor:a.entradas,cor:[47,98,208]},{nome:'Saídas',valor:a.saidas,cor:[199,66,76]},{nome:'Variação',valor:a.variacao,cor:a.variacao<0?[199,66,76]:[47,98,208]}].filter(x=>x.valor!=null)});
  table('Onde investigar',['Grupo','Valor','Peso','Pergunta para conferência'],a.ranking.map(x=>[x.name,cfoValor(x.value),x.peso==null?'—':x.peso.toFixed(1)+'%',x.pergunta]));
  if(state.comparar)table('Comparação com '+state.comparar,['Conta','Anterior','Atual','Diferença'],a.variacoes.map(x=>[x.name,cfoValor(x.anterior),cfoValor(x.atual),cfoValor(x.delta)]),a.comparavel?(a.comp?.ressalva?'Variações mensuradas. Cobertura da coleta ainda não validada nos dois meses — confira a origem antes de decidir.':'Variações mensuradas; as causas precisam de conferência.'):(a.comp?.motivo||'Comparação suspensa por cobertura ou critérios incompatíveis.'));
  if(op.tipo==='custos'){

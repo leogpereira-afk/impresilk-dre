@@ -65,7 +65,7 @@ function rankingCustos(reg,code='2',limite=6){
  const mostrados=items.slice(0,limite),resto=items.slice(limite);
  if(resto.length)mostrados.push({code,name:`Demais categorias (${resto.length})`,value:resto.reduce((n,x)=>n+Math.round(x.value*100),0)/100});
  const max=Math.max(...mostrados.map(x=>Math.abs(x.value)),1);
- return `<div class="expense-ranking">${mostrados.map((x,i)=>`<button class="expense-row" ${x.residuo?'data-go="detalhe"':`data-cost="${esc(x.code)}"`}><span class="expense-name"><i style="--serie:var(--cost-${i%5})"></i>${esc(x.name)}</span><b class="${x.value<0?'neg':''}">${money(x.value)}</b><span class="expense-track" aria-hidden="true"><i style="width:${Math.abs(x.value)/max*100}%;--serie:var(--cost-${i%5})"></i></span></button>`).join('')}</div>${c.incompleta?'<p class="hint">Há contas sem valor válido; composição incompleta.</p>':''}`;
+ return `<div class="expense-ranking">${mostrados.map((x,i)=>`<button class="expense-row" ${x.residuo?'data-go="detalhe"':`data-cost="${esc(x.code)}"`}><span class="expense-name"><i style="--serie:var(--cost-${i%5})"></i>${esc(x.name)}</span><b class="${tomDoValor('saidas',x.value)}">${money(x.value)}</b><span class="expense-track" aria-hidden="true"><i style="width:${Math.abs(x.value)/max*100}%;--serie:var(--cost-${i%5})"></i></span></button>`).join('')}</div>${c.incompleta?'<p class="hint">Há contas sem valor válido; composição incompleta.</p>':''}`;
 }
 function atalhosCustos(){
  const atalhos=[['⚡','Energia','2.5.3'],['💧','Água','2.5.1'],['📡','Telefone e internet','2.5.4'],['🏠','Aluguel','2.5.2']];

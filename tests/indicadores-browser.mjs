@@ -28,7 +28,7 @@ try{
  await page.getByRole('button',{name:'Receita',exact:true}).waitFor();assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);
  await page.screenshot({path:'entregas/revisao/indicadores-desktop.png',fullPage:true});
  for(const area of ['Custos','Despesas','Resultado','Margem','Rentabilidade','Receita']){await page.getByRole('navigation',{name:'Áreas dos indicadores'}).getByRole('button',{name:area,exact:true}).click();await page.waitForTimeout(70);assert.equal(await page.locator('.ind-heading h2').innerText(),area);}
- await page.locator('[data-group="Serviços de impressão"]').click();assert.match(await page.locator('.ind-metrics').innerText(),/4\.000,00/);assert.match(await page.locator('.ind-table').innerText(),/Serviços de impressão/);
+ await page.locator('.ind-composition summary').click();await page.locator('[data-group="Serviços de impressão"]').click();assert.match(await page.locator('.ind-metrics').innerText(),/4\.000,00/);assert.match(await page.locator('.ind-table').innerText(),/Serviços de impressão/);
  const dlP=page.waitForEvent('download');await page.locator('[data-export]').click();const dl=await dlP;await dl.saveAs('entregas/revisao/indicadores-filtro.csv');const csv=await fs.readFile('entregas/revisao/indicadores-filtro.csv','utf8');assert.match(csv,/4000,00/);assert.match(csv,/Serviços de impressão/);
  await page.locator('[data-clear]').click();await page.locator('[data-page="1"]').click();assert.equal(await page.locator('.ind-table tbody tr').count(),10);
  await page.locator('[data-row="0"]').click();await page.locator('#detailDialog').waitFor({state:'visible'});assert.match(await page.locator('#detailContent').innerText(),/pagamento/);await page.locator('#detailClose').click();
