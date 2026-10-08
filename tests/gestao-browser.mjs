@@ -11,6 +11,12 @@ await ctx.addInitScript(()=>{localStorage.setItem('impresilk_dre_cracha','fixtur
 try{
  await page.goto('http://127.0.0.1:8793/#tela=inicio&mes=Set%2F2026&comparar=Ago%2F2026');await page.locator('#syncState').filter({hasText:'Dados aplicados'}).waitFor();
  assert.match(await page.locator('.cards').first().innerText(),/1\.200,00/);assert.match(await page.locator('#syncState').innerText(),/sem cópia offline/);assert.equal(await page.locator('#viewTabs button').count(),7);
+ for(const view of ['inicio','dre','caixa','indicadores','detalhe','conferencia']){
+  await page.locator('[data-view="'+view+'"]').click();assert.equal(await page.locator('#monthChips button').count(),12);
+  await page.locator('#monthChips [data-period="Ago/2026"]').click();assert.equal(await page.locator('#monthChips [aria-pressed=true]').getAttribute('data-period'),'Ago/2026');assert.match(await page.locator('#footMeta').innerText(),/Ago\/2026/);
+  await page.locator('#monthChips [data-period="Set/2026"]').click();assert.equal(await page.locator('#monthChips [aria-pressed=true]').getAttribute('data-period'),'Set/2026');
+ }
+ await page.locator('[data-view="inicio"]').click();await page.locator('#periodCompare summary').click();await page.locator('#compareSelect').selectOption('Ago/2026');await page.locator('#periodCompare summary').click();assert.match(await page.locator('#compareSummary').innerText(),/Ago\/2026/);
  await page.screenshot({path:dir+'/resumo-desktop.png',fullPage:true});assert.ok((await page.locator('.finance-kpis').boundingBox()).height<100);assert.ok((await page.locator('.cfo-intro').boundingBox()).y>(await page.locator('.dashboard-grid').boundingBox()).y);
  const dashboardCSV=page.waitForEvent('download');await page.locator('#pageSheet').click();await (await dashboardCSV).saveAs(dir+'/dashboard.csv');assert.match(await fs.readFile(dir+'/dashboard.csv','utf8'),/1.200,00/);
  await page.locator('#gestaoPlanejamento').click();await page.locator('[name="entradas"]').fill('1500');await page.locator('[name="saidas"]').fill('1000');await page.locator('[name="fonte"]').fill('Planejamento isolado de teste');await page.getByRole('button',{name:'Salvar orçamento',exact:true}).click();await page.locator('#detailDialog').waitFor({state:'hidden'});assert.equal(cfg.gestao['orcamento:Set_2026'].entradas,1500);

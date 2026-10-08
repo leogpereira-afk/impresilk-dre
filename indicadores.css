@@ -38,3 +38,20 @@
 .indicadores .ind-comparison-limit{font-size:10px;line-height:1.4;margin:7px 0 0;padding:6px 8px;border-radius:6px;background:#fff7e7;color:#80551e}
 .indicadores .ind-analysis>.ind-composition:nth-child(2) .ind-bars{grid-template-columns:1fr}.indicadores .ind-analysis>.ind-chart:only-child{grid-column:1/-1}
 .ind-plot-empty svg{min-height:0!important;max-height:92px}.ind-plot-empty .ind-chart-empty{top:20%;font-size:11px}.dark .ind-comparison-limit{background:#3d3321;color:#f3d69a}
+
+/* Um espaço próprio para cada mês, sem comprimir os rótulos. */
+.indicadores .ind-chart-months{grid-column:1/-1}
+.indicadores .ind-plot-months{overflow-x:auto;overflow-y:hidden}
+.indicadores .ind-plot-months svg{min-width:var(--plot-width);height:166px;max-height:none}
+.ind-month{cursor:pointer;outline:none}.ind-month-hit{fill:transparent;stroke:transparent;stroke-width:1.5}
+.ind-month:hover .ind-month-hit{fill:var(--ind-tint,#eef2ff)}
+.ind-month.selected .ind-month-hit{fill:var(--ind-tint,#eef2ff);stroke:#5275cc}
+.ind-month:focus-visible .ind-month-hit{stroke:var(--text,#253047);stroke-width:2.5}
+.ind-month.selected .ind-axis{fill:var(--text,#253047);font-weight:700}
+.indicadores .ind-month-hint{font-size:11px;margin:5px 0;color:var(--ind-blue,#284ac7)}
+@media print{#indPrint .ind-chart-months{grid-column:1/-1}#indPrint .ind-plot-months{overflow:visible}#indPrint .ind-plot-months svg{min-width:0;height:auto;max-height:160px}#indPrint .ind-month-hint{display:none}}
+
+.ind-filters .ind-range{flex:0 1 auto;min-width:0;position:relative;font-size:12px}
+.ind-range>summary{cursor:pointer;padding:7px 10px;border:1px solid var(--line);border-radius:18px;background:var(--surface);min-height:34px}
+.ind-range[open]{flex:1 1 100%}.ind-range-fields{display:flex;flex-wrap:wrap;gap:8px;padding-top:8px}.ind-range-fields label{flex:1;min-width:130px}
+@media(max-width:700px){.ind-range-fields{display:grid;grid-template-columns:1fr 1fr}.ind-range-fields label{min-width:0}.ind-range-fields label:first-child{grid-column:1/-1}}

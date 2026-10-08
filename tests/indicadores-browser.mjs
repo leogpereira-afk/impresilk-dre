@@ -27,7 +27,7 @@ await page.route('https://heveemylixartyijxewh.supabase.co/**',async route=>{
 await page.addInitScript(()=>localStorage.setItem('impresilk_dre_cracha','fixture.'+btoa(JSON.stringify({sub:'teste'}))+'.fixture'));
 try{
  await page.goto('http://127.0.0.1:8793/');await page.locator('#appShell').waitFor({state:'visible'});
- await page.locator('[data-view="indicadores"]').click();await page.locator('#monthSelect').selectOption('Set/2026');
+ await page.locator('[data-view="indicadores"]').click();await page.locator('#monthChips [data-period="Set/2026"]').click();
  await page.getByRole('button',{name:'Receita',exact:true}).waitFor();assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);
  await page.screenshot({path:'entregas/revisao/indicadores-desktop.png',fullPage:true});
  for(const area of ['Custos','Despesas','Resultado','Margem','Rentabilidade','Receita']){await page.getByRole('navigation',{name:'Áreas dos indicadores'}).getByRole('button',{name:area,exact:true}).click();await page.waitForTimeout(70);assert.equal(await page.locator('.ind-heading h2').innerText(),area);assert.ok(await page.locator('.ind-analysis svg').count()>0,area+' possui gráfico visível');assert.ok(await page.locator('.ind-analysis').isVisible());if(area==='Rentabilidade')assert.match(await page.locator('.ind-return').innerText(),/Não apurado/);}
@@ -44,21 +44,39 @@ try{
  await page.getByRole('button',{name:'Margem',exact:true}).click();await page.locator('[data-source="competencia"]').click();assert.match(await page.locator('.ind-analysis svg').first().getAttribute('aria-label'),/40%/);
  await page.getByRole('button',{name:'Receita',exact:true}).click();
  await page.locator('[data-formula]').first().focus();await page.keyboard.press('Enter');await page.locator('#detailDialog').waitFor({state:'visible'});await page.keyboard.press('Escape');
- await page.reload();await page.locator('[data-view="indicadores"]').click();await page.locator('#monthSelect').selectOption('Set/2026');assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);
+ await page.reload();await page.locator('[data-view="indicadores"]').click();await page.locator('#monthChips [data-period="Set/2026"]').click();assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);
  // Cenários que reproduzem as telas vazias e o histórico cortado do usuário.
- await page.locator('#yearSelect').selectOption('2025');assert.equal(await page.locator('#monthSelect').inputValue(),'Dez/2025');
- await page.locator('#yearSelect').selectOption('2026');await page.locator('#monthSelect').selectOption('Set/2026');
+ await page.locator('#yearSelect').selectOption('2025');assert.equal(await page.locator('#monthChips [aria-pressed=true]').getAttribute('data-period'),'Dez/2025');
+ await page.locator('#yearSelect').selectOption('2026');await page.locator('#monthChips [data-period="Set/2026"]').click();
  assert.match(await page.locator('.ind-analysis svg').first().getAttribute('aria-label'),/jan:.*6.000,00/);
  assert.match(await page.locator('.ind-chart-data').first().innerHTML(),/Impresilk/);
  assert.equal(await page.locator('.ind-analysis svg').first().locator('g').count(),12);
- await page.locator('#monthSelect').selectOption('Out/2026');await page.getByRole('button',{name:'Custos',exact:true}).click();await page.locator('[data-recorte]').waitFor();
+ // O mês do gráfico deve comandar o período global e manter os valores legíveis.
+ const checkLabels=async()=>{const boxes=await page.locator('.ind-chart-months .ind-value').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect();return {left:r.left,right:r.right};}));assert.equal(boxes.length,12);for(let i=1;i<boxes.length;i++)assert.ok(boxes[i-1].right+4<=boxes[i].left,'Valores de meses adjacentes não se sobrepõem');};
+ await checkLabels();
+ await page.locator('.ind-range summary').click();await page.locator('[name=preset]').selectOption('ano');await page.getByRole('button',{name:'Aplicar',exact:true}).click();assert.equal(await page.locator('#monthChips [aria-pressed=true]').count(),0);
+ await page.locator('#monthChips [data-period="Set/2026"]').click();assert.equal(await page.locator('[name=preset]').inputValue(),'mes');assert.equal(await page.locator('[name=de]').inputValue(),'2026-09-01');assert.equal(await page.locator('.ind-range').getAttribute('open'),null);
+ await page.locator('.ind-month[data-ind-period="Jan/2026"] .ind-axis').click();
+ assert.equal(await page.locator('#monthChips [aria-pressed=true]').getAttribute('data-period'),'Jan/2026');assert.equal(await page.locator('#yearSelect').inputValue(),'2026');
+ assert.equal(await page.locator('[name=de]').inputValue(),'2026-01-01');assert.equal(await page.locator('[name=ate]').inputValue(),'2026-01-31');assert.equal(await page.locator('[name=preset]').inputValue(),'mes');
+ assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);assert.match(await page.locator('#footMeta').innerText(),/Jan\/2026/);assert.match(await page.locator('.ind-table').innerText(),/Histórico sem detalhamento/);assert.equal(await page.locator('.ind-month.selected').getAttribute('data-ind-period'),'Jan/2026');
+ await page.locator('.ind-month[data-ind-period="Set/2026"]').focus();await page.keyboard.press('Enter');
+ assert.equal(await page.locator('#monthChips [aria-pressed=true]').getAttribute('data-period'),'Set/2026');assert.equal(await page.locator('.ind-table tbody tr').count(),50);
+ await page.locator('[data-group="Serviços de impressão"]').click();await page.locator('.ind-month[data-ind-period="Set/2026"]').press('Space');assert.match(await page.locator('.ind-metrics').innerText(),/4\.000,00/);await page.locator('[data-clear]').click();
+ await page.setViewportSize({width:390,height:844});await checkLabels();assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Rolagem deve ficar dentro do gráfico');
+ await page.locator('.ind-month[data-ind-period="Jan/2026"]').click();assert.equal(await page.locator('#monthChips [aria-pressed=true]').getAttribute('data-period'),'Jan/2026');
+ await page.screenshot({path:'entregas/revisao/mes-clicavel-v99-mobile.png',fullPage:true});await page.setViewportSize({width:1440,height:1000});
+ await page.locator('.ind-month[data-ind-period="Nov/2026"]').click();assert.equal(await page.locator('#monthChips [aria-pressed=true]').getAttribute('data-period'),'Nov/2026');assert.equal(await page.locator('.ind-metrics').count(),0);
+ await page.locator('#monthChips [data-period="Set/2026"]').click();
+
+ await page.locator('#monthChips [data-period="Out/2026"]').click();await page.getByRole('button',{name:'Custos',exact:true}).click();await page.locator('[data-recorte]').waitFor();
  assert.equal(await page.locator('.ind-metrics').count(),0);assert.equal(await page.locator('.ind-analysis').count(),0);
  assert.match(await page.locator('.source-empty').innerText(),/01.09.2026.*30.09.2026/);
  await page.screenshot({path:'entregas/revisao/custos-sem-periodo-v98.png',fullPage:true});
  await page.locator('[data-recorte]').click();await page.locator('.ind-metrics').waitFor();assert.match(await page.locator('.ind-metrics').innerText(),/600,00/);assert.equal(await page.locator('[name=de]').inputValue(),'2026-09-01');
- await page.locator('#monthSelect').selectOption('Set/2026');await page.locator('#monthSelect').selectOption('Out/2026');await page.getByRole('button',{name:'Resultado',exact:true}).click();await page.locator('[data-source="competencia"]').click();
+ await page.locator('#monthChips [data-period="Set/2026"]').click();await page.locator('#monthChips [data-period="Out/2026"]').click();await page.getByRole('button',{name:'Resultado',exact:true}).click();await page.locator('[data-source="competencia"]').click();
  assert.equal(await page.locator('.ind-metrics').count(),0);await page.locator('[data-dre]').click();assert.match(await page.locator('.source-empty').innerText(),/Falta a apuração de Out/);assert.equal(await page.locator('#editarCompetencia').isVisible(),true);assert.equal(await page.locator('#editarCompetencia').isDisabled(),true);
- assert.equal(await page.locator('.source-periods button').count(),12);await page.locator('.source-periods [data-period="Set/2026"]').click();assert.match(await page.locator('.finance-kpis').innerText(),/400,00/);
- await page.locator('#monthSelect').selectOption('Out/2026');await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'entregas/revisao/competencia-v98-mobile.png',fullPage:true});
+ assert.equal(await page.locator('#monthChips button').count(),12);await page.locator('#monthChips [data-period="Set/2026"]').click();assert.match(await page.locator('.finance-kpis').innerText(),/400,00/);
+ await page.locator('#monthChips [data-period="Out/2026"]').click();await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'entregas/revisao/competencia-v98-mobile.png',fullPage:true});
  assert.deepEqual(errors,[]);console.log('Browser OK: 6 áreas, filtros, paginação, detalhes, CSV, PDF, falha preservando leitura, teclado, recarga e celular 390px.');
 }finally{await browser.close();}
