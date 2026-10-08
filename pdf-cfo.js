@@ -69,6 +69,12 @@ function relatorioCFO(op={}){
   for(let start=0;start<12;start+=3){const cols=d.cols.slice(start,start+3);r.blocos.push({titulo:(start/3+1)+'º trimestre',pagina:start>0,colunas:['Rubrica',...cols.map(x=>x.label)],linhas:[['Cobertura',...cols.map(x=>d.competencia?statusCompetencia(x.comp):F.qualidade(x.reg).rotulo)],['Empresas',...cols.map(x=>(d.competencia?x.comp:x.reg)?.company||'Não informado')],['Fonte',...cols.map(x=>d.competencia?x.comp?.fonte||'Não informada':x.reg?.origem||'Não informada')],...rows.map(x=>[x.nome,...d.valores.slice(start,start+3).map(v=>cfoValor(v[x.id],x.tipo==='ratio'))])]});}
   table('Acumulado de janeiro até '+label,['Rubrica','Acumulado'],rows.map(x=>[x.nome,cfoValor(d.soma[x.id],x.tipo==='ratio')]),'Sem valor quando falta mês ou há escopos diferentes. Meses parciais permanecem parciais.');return r;
  }
+ if(op.tipo==='contas'){
+  r.titulo='Contas detalhadas · '+label;
+  const cells=filtrarContas(reg),anterior=state.records.find(x=>x.label===state.comparar);
+  r.notas.push('Filtros: busca '+(state.consulta||'todas')+' · movimento '+({todos:'entradas e saídas','1':'entradas','2':'saídas'}[state.tipo]||state.tipo)+' · grupo '+(state.grupo==='todos'?'todos':state.grupo)+'.');
+  table('Contas da seleção · '+cells.length,['Código','Descrição',label,...(state.comparar?[state.comparar,'Diferença']:[])],cells.map(c=>{const cmp=F.compararConta(reg,anterior,c.code);return [c.code,c.name,cfoValor(F.valorConta(reg,c.code)),...(state.comparar?[cfoValor(cmp.anterior),cmp.permitida?cfoValor(cmp.delta):'Não comparável']:[])];}),'Totais e subcontas são níveis da mesma árvore: não devem ser somados entre si. Comparações exigem a mesma cobertura e classificação.');return r;
+ }
  table('Retrato do período',['Indicador','Registrado'],[['Entradas',cfoValor(a.entradas)],['Saídas',cfoValor(a.saidas)],['Variação',cfoValor(a.variacao)]]);
  r.blocos.push({titulo:'Composição visual',barras:[{nome:'Entradas',valor:a.entradas,cor:[48,125,114]},{nome:'Saídas',valor:a.saidas,cor:[185,107,67]},{nome:'Variação',valor:a.variacao,cor:[53,79,165]}].filter(x=>x.valor!=null)});
  table('Onde investigar',['Grupo','Valor','Peso','Pergunta para conferência'],a.ranking.map(x=>[x.name,cfoValor(x.value),x.peso==null?'—':x.peso.toFixed(1)+'%',x.pergunta]));
@@ -76,10 +82,6 @@ function relatorioCFO(op={}){
  if(op.tipo==='custos'){
   const cols=F.serieAnual(state.records,label,'2'),rows=linhasCustos();r.titulo='Despesas por mês · seleção de custos';
   for(let i=0;i<12;i+=3)table('Despesas · '+(i/3+1)+'º trimestre',['Conta',...cols.slice(i,i+3).map(x=>x.label)],rows.map(c=>[c.name,...cols.slice(i,i+3).map(x=>cfoValor(F.valorConta(x.reg,c.code)))]),'Seleção: '+(custoUI.busca||contaConhecida(custoUI.grupo))+'. Cada valor preserva a classificação e cobertura do seu mês.');
- } else if(op.tipo==='contas'){
-  r.titulo='Contas detalhadas · '+label;
-  const cells=filtrarContas(reg);
-  table('Contas da seleção · '+cells.length,['Código','Descrição','Valor'],cells.map(c=>[c.code,c.name,cfoValor(F.valorConta(reg,c.code))]),'Totais e subcontas são níveis da mesma árvore: não devem ser somados entre si. Busca: '+(state.consulta||'todas')+'.');
  } else {
   table('Regra gerencial, linha por linha',['Rubrica','Valor'],linhasCaixa.map(x=>[x.nome,cfoValor(reg&&a.entradas!=null&&a.saidas!=null?F.resumo(reg)[x.id]:null)]));
   table('Conferências pendentes',['Ocorrência','Valor'],(reg?.pendencias||[]).map(x=>[x.texto||x.tipo,cfoValor(x.valor)]),'Ausência de pendência cadastrada não comprova conciliação.');
