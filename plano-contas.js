@@ -11,7 +11,7 @@ const PlanoContas=(()=>{
  }
  function filtrar(rows,{query='',tipo='todos',grupo='todos',conta=''}={}){
   const q=normalize(query.trim()),terms=q==='agua'?['agua','copasa']:['energia','cemig'].includes(q)?['energia','cemig']:[q];
-  return rows.filter(c=>(tipo==='todos'||c.tipo===tipo)&&(grupo==='todos'||c.code===grupo||c.code.startsWith(grupo+'.'))&&(!conta||c.code===conta||c.code.startsWith(conta+'.'))&&(!q||terms.some(t=>normalize(c.code+' '+c.names.join(' ')).includes(t))));
+  return rows.filter(c=>(tipo==='todos'||c.tipo===tipo)&&(grupo==='todos'||c.code===grupo||c.code.startsWith(grupo+'.'))&&(!conta||c.code===conta||c.code.startsWith(conta+'.'))&&(!q||terms.some(t=>q==='agua'?normalize(c.names.join(' ')).split(/[^a-z0-9]+/).some(w=>w===t||w===t+'s'):normalize(c.code+' '+c.names.join(' ')).includes(t))));
  }
  function comparacao(a,b,code){return F.compararConta(a,b,code);}
  return {catalogo,filtrar,comparacao};
