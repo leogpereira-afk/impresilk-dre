@@ -1,4 +1,4 @@
-import * as M from './indicadores-modelo.mjs?v=97';
+import * as M from './indicadores-modelo.mjs?v=98';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const br=v=>v==null?'Não informado':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const data=s=>s?new Date(s.length===10?s+'T12:00:00':s).toLocaleString('pt-BR',s.length===10?{dateStyle:'short'}:{dateStyle:'short',timeStyle:'short'}):'Não registrada';
@@ -78,20 +78,20 @@ function painelGrafico(titulo,nota,items,op={}){
 function historicoCompetencia(){
  const d=new Date(ui.periodo.ate+'T00:00:00Z');
  return Array.from({length:12},(_,i)=>{
-  const p=M.periodoRotulo(['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()-11+i,1)).getUTCMonth()]+'/'+new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()-11+i,1)).getUTCFullYear());
+  const p=M.periodoRotulo(['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][new Date(Date.UTC(d.getUTCFullYear(),i,1)).getUTCMonth()]+'/'+new Date(Date.UTC(d.getUTCFullYear(),i,1)).getUTCFullYear());
   const dt=new Date(p.de+'T00:00:00Z'),label=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][dt.getUTCMonth()]+'/'+dt.getUTCFullYear(),r=ui.ctx.cfg?.demonstrativosCompetencia?.meses?.[label.replace('/','_')];
-  const v=r&&String(r.company||'').trim().toLowerCase()==='impresilk + universo'?window.DREModelo.calcular(r.valores||{}):{};
+  const v=r?window.DREModelo.calcular(r.valores||{}):{};
   const key=ui.area==='Margem'?'margemLiquida':ui.area==='Receita'?'liquida':'liquido';
-  return {nome:label.slice(0,3),periodo:label,valor:v[key]??null,nota:'Competência informada; conferir origem e apuração'};
+  return {nome:label.slice(0,3),periodo:label,valor:v[key]??null,nota:r?[r.company,r.fonte,'Competência informada; conferir apuração'].filter(Boolean).join(' · '):'Sem apuração para este mês'};
  });
 }
 function analises(m){
  const saida=['custos','compras','pagamentos'].includes(ui.fonte);let html='';
  if(['recebimentos','pagamentos','variacao'].includes(ui.fonte)){
   const serie=M.historicoCaixa(ui.ctx.records,ui.periodo,ui.fonte,filtros());
-  html+=painelGrafico(ui.fonte==='variacao'?'Evolução da variação de caixa':'Comparativo mensal',`12 meses até ${ui.periodo.ate.slice(0,7)} · mesmos filtros de busca. * Leitura parcial. Bases diferentes e lacunas não são comparadas.`,serie,{saida});
+  html+=painelGrafico(ui.fonte==='variacao'?'Evolução da variação de caixa':'Comparativo mensal',`Janeiro a dezembro de ${ui.periodo.ate.slice(0,4)} · mesmos filtros. * Cobertura a conferir. Consulte a base de cada mês nos valores e critérios.`,serie,{saida});
   if(ui.fonte!=='variacao'&&!ui.query&&!ui.grupo){
-   const cp=serie.slice(-2).some(x=>x.nota.includes('Empresa ou base diferente'))?{disponivel:false,motivo:'Empresa ou base diferente; os meses não são comparáveis.'}:M.compararCaixa(ui.ctx.records,ui.periodo,saida?'saida':'entrada');
+   const cp=M.compararCaixa(ui.ctx.records,ui.periodo,saida?'saida':'entrada');
    if(cp.disponivel)html+=painelGrafico('Mês atual × anterior',`Mesmos ${cp.dias} dias · variação ${br(cp.delta)} (${pct(cp.percentual)}).`,[{nome:'Anterior',valor:cp.anterior},{nome:'Atual',valor:cp.atual}],{saida});else html=html.replace('</section>',`<p class="ind-comparison-limit"><b>Variação percentual indisponível.</b> ${esc(cp.motivo)}</p></section>`);
   }else if(ui.fonte==='variacao'){
    const rows=m.allRows||[],s=M.resumir(rows,{...filtros(),pagina:0,tamanho:Math.max(1,rows.length)}).rows;
@@ -117,13 +117,18 @@ function analises(m){
 
 function resultado(m){
  if(!m)return ui.busy?'<p class="ind-empty" role="status">Consultando esta análise…</p>':'';
- if(ui.fonte==='rentabilidade')return `${analises(m)}<div class="ind-note">${esc(m.limite)}</div>${dependencias()}<button data-dre>Consultar DRE e resultado</button>`;
+ if(!m.disponivel){
+  const comp=ui.fonte==='competencia',capital=ui.fonte==='rentabilidade';
+  const title=comp?'Competência ainda não preenchida':capital?'Rentabilidade depende da base de capital':'Sem importação para o intervalo selecionado';
+  const history=(comp||capital)&&historicoCompetencia().some(x=>x.valor!=null);
+  return `<section class="source-empty"><h3>${title}</h3><p>${comp?'A base de caixa está disponível. Para apurar lucro e margens, informe as rubricas reconhecidas no mês e a fonte da apuração.':capital?'O cálculo precisa do resultado por competência e dos saldos de capital compatíveis com o período.':m.recorte?'A fonte mais recente disponível cobre '+data(m.recorte.de)+' a '+data(m.recorte.ate)+'. Esses valores não pertencem ao período selecionado.':'Esta fonte ainda não tem uma importação concluída.'}</p><div class="actions">${m.recorte?bot('Ver dados de '+data(m.recorte.de)+' a '+data(m.recorte.ate),'data-recorte','primary'):''}${comp||capital?bot('Abrir apuração por competência','data-dre','primary'):''}</div><details><summary>Fontes e dados necessários</summary><p>${esc(m.limite||M.DICIONARIO[ui.fonte].limite)}</p>${(m.avisos||[]).map(a=>`<p>${esc(a)}</p>`).join('')}${(m.fontes||[]).map(f=>`<p>${esc(f.periodo)} · atualização ${data(f.em)}</p>`).join('')}</details></section>${history?analises(m):''}${capital?dependencias():''}`;
+ }
  let metrics='';if(ui.fonte==='competencia'){metrics=metric('Receita líquida',br(m.values.liquida),'Competência informada')+metric('Lucro / prejuízo líquido',br(m.values.liquido),'Não é variação de caixa')+metric('Margem líquida',pct(m.values.margemLiquida),'Resultado ÷ receita líquida');}
  else if(ui.fonte==='margem')metrics=metric('Margem parcial',m.disponivel?pct(m.margem):'Indisponível',`${m.pares} O.S. com venda positiva e custo · mesma fonte e recorte`)+metric('Custo maior que venda',m.disponivel?String(m.negativas):'Indisponível','Investigar composição; não comprova prejuízo','warn')+metric('Sem par de valores',m.disponivel?String(m.total-m.pares):'Indisponível','Margem indeterminada');
  else metrics=metric(M.DICIONARIO[ui.fonte].nome,m.disponivel?br(m.valor):'Indisponível',m.somaCompleta===false?'Soma conhecida, há valores ausentes':M.DICIONARIO[ui.fonte].base)+metric('Registros no filtro',m.disponivel?String(m.total):'Indisponível','Recorte consultado, não universo do ERP')+metric('Com valor informado',m.disponivel?`${m.comValor} de ${m.total}`:'Indisponível','Cobertura dentro dos registros filtrados');
  const sources=`<details class="ind-panel ind-sources"><summary>Origem, atualização e memória de cálculo</summary><p>${esc(M.DICIONARIO[ui.fonte].formula)}</p><p>${esc(m.limite||M.DICIONARIO[ui.fonte].limite)}</p>${(m.fontes||[]).map(f=>`<p><b>${esc(f.periodo||'Fonte')}</b> · atualizado ${esc(data(f.em))} · corte ${esc(f.corte||'Não confirmado')}${['recebimentos','pagamentos'].includes(ui.fonte)?' · conciliação bancária '+(f.conciliado?'registrada':'não comprovada'):' · validar período e população da fonte'}</p>`).join('')}${bot('Como este valor foi calculado?','data-formula','ind-text')}</details>`;
  const table=m.rows.length?`<section class="ind-panel"><div class="ind-heading"><h3>Registros e origem</h3><span>${m.total} registros · página ${m.pagina+1}/${m.paginas}</span></div>${tabela(m.rows)}<div class="ind-pagination">${bot('Anterior',`data-page="${m.pagina-1}" ${m.pagina===0?'disabled':''}`)}${bot('Próxima',`data-page="${m.pagina+1}" ${m.pagina+1>=m.paginas?'disabled':''}`)}</div></section>`:`<p class="ind-empty">${m.disponivel?'Nenhum registro encontrado nesse filtro. Confira cobertura e período antes de concluir ausência de movimentação.':'Não há fonte suficiente para calcular neste intervalo.'}</p>`;
- return `<div class="ind-metrics" data-tone="${moneyTone(m.valor)}">${metrics}</div><div class="ind-note">${esc(m.limite||'')}${(m.avisos||[]).map(s=>`<span>${esc(s)}</span>`).join('')}${!m.disponivel&&m.recorte?bot('Abrir período importado','data-recorte','ind-text'):''}</div>${analises(m)}${table}${['custos','margem','compras'].includes(ui.fonte)?dependencias():''}${ui.fonte==='competencia'?bot('Abrir DRE mensal para conferir rubricas','data-dre'):''}${sources}`;
+ return `<div class="ind-metrics" data-tone="${moneyTone(m.valor)}">${metrics}</div><div class="ind-note">${esc(m.limite||'')}${m.avisos?.length?`<details><summary>Critérios e cobertura da fonte</summary>${m.avisos.map(s=>`<p>${esc(s)}</p>`).join('')}</details>`:''}</div>${analises(m)}${table}${['custos','margem','compras'].includes(ui.fonte)?dependencias():''}${ui.fonte==='competencia'?bot('Abrir DRE mensal para conferir rubricas','data-dre'):''}${sources}`;
 }
 function pintar(){
  if(!ui.container?.isConnected)return;const m=ui.modelo,remote=!fonteLocal();
@@ -139,9 +144,9 @@ function ligar(){const c=ui.container,all=(s,fn)=>c.querySelectorAll(s).forEach(
  for(const k of ['de','ate'])form.elements[k].oninput=()=>form.elements.preset.value='personalizado';
  form.onsubmit=e=>{e.preventDefault();try{ui.periodo=M.validarPeriodo(form.elements.de.value,form.elements.ate.value);ui.preset=form.elements.preset.value;ui.excecao=form.elements.excecao?.value||'todas';ui.query=form.elements.query?.value.trim()||'';ui.dimensao=form.elements.dimensao?.value||'grupo';ui.grupo='';ui.pagina=0;ui.seq++;carregar();}catch(e){ui.erro=e.message;pintar();}};
  all('[data-group]',b=>b.onclick=()=>{ui.grupo=b.dataset.group;ui.pagina=0;carregar();});all('[data-clear]',b=>b.onclick=()=>{ui.grupo='';carregar();});all('[data-page]',b=>b.onclick=()=>{ui.pagina=Number(b.dataset.page);carregar();});
- all('[data-recorte]',b=>b.onclick=()=>{ui.periodo={...ui.modelo.recorte};ui.preset='personalizado';carregar();});
+ all('[data-recorte]',b=>b.onclick=()=>{ui.periodo={...ui.modelo.recorte};ui.preset='personalizado';ui.pagina=0;ui.seq++;carregar();});
  all('[data-refresh]',b=>b.onclick=async()=>{if(fonteLocal()){b.disabled=true;await ui.ctx.refresh();}else carregar(true);});all('[data-formula]',b=>b.onclick=formula);all('[data-row]',b=>b.onclick=()=>detalhe(ui.modelo.rows[Number(b.dataset.row)]));
- all('[data-dre]',b=>b.onclick=()=>ui.ctx.onDRE());all('[data-export]',b=>b.onclick=()=>exportar(false,b));all('[data-pdf]',b=>b.onclick=()=>exportar(true,b));
+ all('[data-dre]',b=>b.onclick=()=>ui.ctx.onDRE(ui.periodo));all('[data-export]',b=>b.onclick=()=>exportar(false,b));all('[data-pdf]',b=>b.onclick=()=>exportar(true,b));
 }
 function formula(){const d=M.DICIONARIO[ui.fonte];ui.ctx.dialog('Como este valor foi calculado?',`<div class="indicadores"><h3>${esc(d.nome)}</h3><p><b>Base:</b> ${esc(d.base)} · ${M.ESCOPO}</p><p>${esc(d.formula)}</p><p><b>Fonte:</b> ${esc(d.fonte)}</p><p>${esc(d.limite)}</p><p>Período: ${data(ui.periodo.de)} a ${data(ui.periodo.ate)}. Busca: ${esc(ui.query||'Todas')}. Grupo: ${esc(ui.grupo||'Todos')}.</p><p>Valores monetários calculados em centavos. Ausência não vira zero. IDs de origem são preservados; notas e pagamentos não são somados a O.S.</p></div>`);}
 function detalhe(r){ui.ctx.dialog('Registro '+(r.numero||r.id),`<div class="indicadores"><h3>${esc(r.nome)}</h3><p>${esc(r.origem)}</p><p>ID: ${esc(r.id)} · Data: ${esc(r.data||'Não atribuída ao registro')}</p><p>Valor: <b class="${moneyTone(r.valor)}">${esc(br(r.valor))}</b></p>${r.venda!=null?`<p>Venda: ${esc(br(r.venda))} · Custo informado: ${esc(br(r.custo))} · Margem parcial: ${esc(pct(M.margem(r.venda,r.custo)))}</p>`:''}${r.os?.length?`<p>Referências de O.S. na fonte: ${esc(r.os.join(', '))}. Em notas, são IDs internos.</p>`:''}${r.processos?`<h4>Processos registrados na origem</h4>${['previstos','realizados'].map(k=>`<details open><summary>${k==='previstos'?'Previstos':'Apontamentos registrados'}</summary><ul>${(r.processos[k]||[]).map(p=>`<li>${esc(p.nome)}: ${esc(p.tempo??'não informado')} (unidade da origem, não convertida em custo)</li>`).join('')||'<li>Não informado</li>'}</ul></details>`).join('')}<p>Tempo registrado não comprova tempo produtivo líquido. Componentes de materiais, mão de obra, equipamentos e rateios ainda não foram conciliados.</p>`:''}${r.itens?`<h4>Itens da nota</h4><ul>${r.itens.map(i=>`<li>${esc(i.descricao)} · ${esc(i.quantidade??'Não informado')} ${esc(i.unidade)} · ${br(i.total==null?null:i.total/100)}</li>`).join('')}</ul><p>Quantidade na unidade original, sem conversão automática.</p>`:''}<p>${esc(M.DICIONARIO[ui.fonte].limite)}</p></div>`);}

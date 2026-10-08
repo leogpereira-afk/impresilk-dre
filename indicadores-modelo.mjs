@@ -66,6 +66,7 @@ export function compararCaixa(records,p,natureza){
  if(!per||p.ate!==per.ate)return {disponivel:false,motivo:'A comparação equivalente está disponível para um mês selecionado por inteiro.'};
  const ini=new Date(p.de+'T00:00:00Z'),antDe=new Date(Date.UTC(ini.getUTCFullYear(),ini.getUTCMonth()-1,1)).toISOString().slice(0,10),antFim=new Date(Date.UTC(ini.getUTCFullYear(),ini.getUTCMonth(),0)).toISOString().slice(0,10);
  const ant=records.find(r=>periodoRotulo(r.label)?.de===antDe);
+ if(ant&&(atual.company!==ant.company||atual.basis!==ant.basis||atual.qualidade?.escopo!==ant.qualidade?.escopo||atual.qualidade?.regra!==ant.qualidade?.regra))return {disponivel:false,motivo:'Empresas ou critérios diferentes entre os meses. Os valores históricos continuam visíveis.'};
  if(!ant||!atual.qualidade?.ate||!ant.qualidade?.ate||atual.qualidade.ate<p.de||ant.qualidade.ate<antDe||atual.qualidade.apiContratoValidado===false||ant.qualidade.apiContratoValidado===false||!atual.eventos?.length||!ant.eventos?.length)return {disponivel:false,motivo:'Faltam trilhas datadas ou validação de cobertura para comparar intervalos equivalentes.'};
  const dias=Math.min(Number(per.ate.slice(-2)),Number(antFim.slice(-2)),Number((atual.qualidade.ate<per.ate?atual.qualidade.ate:per.ate).slice(-2)),Number((ant.qualidade.ate<antFim?ant.qualidade.ate:antFim).slice(-2)));
  const a={de:p.de,ate:p.de.slice(0,8)+String(dias).padStart(2,'0')},b={de:antDe,ate:antDe.slice(0,8)+String(dias).padStart(2,'0')};
@@ -73,21 +74,21 @@ export function compararCaixa(records,p,natureza){
  const va=soma(x.rows.map(r=>r.valor)),vb=soma(y.rows.map(r=>r.valor));return {disponivel:va!=null&&vb!=null,atual:va,anterior:vb,delta:va==null||vb==null?null:(cent(va)-cent(vb))/100,percentual:vb>0&&va!=null?((cent(va)-cent(vb))/cent(vb))*100:null,a,b,dias};
 }
 
-// Histórico da mesma base. Lacunas, mudança de empresa e falta de valor não viram zero.
+// Exibir não é comparar: o ano civil preserva cada fonte, inclusive mudanças de base.
 export function historicoCaixa(records,periodo,fonte,filtros={}){
  const fim=new Date(periodo.ate+'T00:00:00Z');
  const ref=records.find(r=>periodoRotulo(r.label)?.de.slice(0,7)===periodo.ate.slice(0,7));
  return Array.from({length:12},(_,i)=>{
-  const d=new Date(Date.UTC(fim.getUTCFullYear(),fim.getUTCMonth()-11+i,1));
+  const d=new Date(Date.UTC(fim.getUTCFullYear(),i,1));
   const de=d.toISOString().slice(0,10),ate=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).toISOString().slice(0,10);
   const r=records.find(x=>periodoRotulo(x.label)?.de===de);
   const ponto={nome:d.toLocaleDateString('pt-BR',{month:'short',timeZone:'UTC'}).replace('.',''),periodo:de.slice(0,7),valor:null,nota:'Sem fonte',parcial:true};
   if(!r)return ponto;
-  if(!ref?.company||!ref?.basis||r.company!==ref.company||r.basis!==ref.basis||r.qualidade?.escopo!==ref.qualidade?.escopo||r.qualidade?.regra!==ref.qualidade?.regra)return {...ponto,nota:'Empresa ou base diferente; não comparada'};
+  const mesmaBase=!!ref?.company&&!!ref?.basis&&r.company===ref.company&&r.basis===ref.basis&&r.qualidade?.escopo===ref.qualidade?.escopo&&r.qualidade?.regra===ref.qualidade?.regra;
   const a=caixa(records,{de,ate},'entrada'),b=caixa(records,{de,ate},'saida');
   const base=fonte==='variacao'?{disponivel:a.disponivel&&b.disponivel,rows:[...a.rows.map(x=>({...x,grupo:'Recebimentos'})),...b.rows.map(x=>({...x,grupo:'Pagamentos',valor:x.valor==null?null:-x.valor}))],qualidade:a.qualidade==='Apurado'&&b.qualidade==='Apurado'?'Apurado':'Parcial'}:fonte==='recebimentos'?a:b;
   const s=resumir(base.rows,filtros),parcial=base.qualidade!=='Apurado'||!s.somaCompleta;
-  return {...ponto,valor:base.disponivel&&s.comValor>0?s.valor:null,parcial,nota:parcial?'Leitura parcial; cobertura a conferir':'Mesma base, mês completo'};
+  return {...ponto,valor:base.disponivel&&s.comValor>0?s.valor:null,parcial,empresa:r.company,mesmaBase,nota:[r.company||'Empresa não informada',r.basis||'Base não informada',!mesmaBase?'Base diferente do mês selecionado; sem variação percentual':'',parcial?'Leitura parcial; cobertura a conferir':'Mês completo'].filter(Boolean).join(' · ')};
  });
 }
 

@@ -14,7 +14,7 @@ await page.route('https://heveemylixartyijxewh.supabase.co/**',async route=>{
  let b={};try{b=route.request().postDataJSON()||{};}catch{}let r={ok:true};
  if(b.acao==='eu')r={ok:true};
  if(b.action==='permissions')r={ok:true,permissoes:{leitura:true,edicao:false,admin:false}};
- if(b.action==='list')r={ok:true,itens:[reg],nextOffset:null};
+ if(b.action==='list')r={ok:true,itens:[reg,{...reg,id:'Jan_2026',label:'Jan/2026',company:'Impresilk',eventos:[]},{...reg,id:'Dez_2025',label:'Dez/2025',company:'Impresilk',eventos:[]}],nextOffset:null};
  if(b.action==='getCfg')r={ok:true,cfg,atualizadoEm:null};
  if(b.action==='coletaStatus')r={ok:true,coleta:{estado:'concluida'}};
  if(b.action==='indicadores'){
@@ -45,5 +45,20 @@ try{
  await page.getByRole('button',{name:'Receita',exact:true}).click();
  await page.locator('[data-formula]').first().focus();await page.keyboard.press('Enter');await page.locator('#detailDialog').waitFor({state:'visible'});await page.keyboard.press('Escape');
  await page.reload();await page.locator('[data-view="indicadores"]').click();await page.locator('#monthSelect').selectOption('Set/2026');assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);
+ // Cenários que reproduzem as telas vazias e o histórico cortado do usuário.
+ await page.locator('#yearSelect').selectOption('2025');assert.equal(await page.locator('#monthSelect').inputValue(),'Dez/2025');
+ await page.locator('#yearSelect').selectOption('2026');await page.locator('#monthSelect').selectOption('Set/2026');
+ assert.match(await page.locator('.ind-analysis svg').first().getAttribute('aria-label'),/jan:.*6.000,00/);
+ assert.match(await page.locator('.ind-chart-data').first().innerHTML(),/Impresilk/);
+ assert.equal(await page.locator('.ind-analysis svg').first().locator('g').count(),12);
+ await page.locator('#monthSelect').selectOption('Out/2026');await page.getByRole('button',{name:'Custos',exact:true}).click();await page.locator('[data-recorte]').waitFor();
+ assert.equal(await page.locator('.ind-metrics').count(),0);assert.equal(await page.locator('.ind-analysis').count(),0);
+ assert.match(await page.locator('.source-empty').innerText(),/01.09.2026.*30.09.2026/);
+ await page.screenshot({path:'entregas/revisao/custos-sem-periodo-v98.png',fullPage:true});
+ await page.locator('[data-recorte]').click();await page.locator('.ind-metrics').waitFor();assert.match(await page.locator('.ind-metrics').innerText(),/600,00/);assert.equal(await page.locator('[name=de]').inputValue(),'2026-09-01');
+ await page.locator('#monthSelect').selectOption('Set/2026');await page.locator('#monthSelect').selectOption('Out/2026');await page.getByRole('button',{name:'Resultado',exact:true}).click();await page.locator('[data-source="competencia"]').click();
+ assert.equal(await page.locator('.ind-metrics').count(),0);await page.locator('[data-dre]').click();assert.match(await page.locator('.source-empty').innerText(),/Falta a apuração de Out/);assert.equal(await page.locator('#editarCompetencia').isVisible(),true);assert.equal(await page.locator('#editarCompetencia').isDisabled(),true);
+ assert.equal(await page.locator('.source-periods button').count(),12);await page.locator('.source-periods [data-period="Set/2026"]').click();assert.match(await page.locator('.finance-kpis').innerText(),/400,00/);
+ await page.locator('#monthSelect').selectOption('Out/2026');await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'entregas/revisao/competencia-v98-mobile.png',fullPage:true});
  assert.deepEqual(errors,[]);console.log('Browser OK: 6 áreas, filtros, paginação, detalhes, CSV, PDF, falha preservando leitura, teclado, recarga e celular 390px.');
 }finally{await browser.close();}

@@ -23,10 +23,10 @@ test('todos os valores ausentes deixam o total indisponível, sem zero fictício
 test('diferença entre trilha e controle mensal aparece e impede apuração completa',()=>{const r=M.caixa([reg([event('1',100)],{cells:[{code:'1',value:150}]})],p,'entrada');assert.equal(r.qualidade,'Parcial');assert.match(r.avisos.join(' '),/diferença entre trilha/);assert.equal(M.resumir(r.rows).valor,100);});
 test('histórico de gráficos mantém lacunas, filtros e separação de empresas',()=>{
  const r=reg([event('a',100),event('b',null)],{company:'Impresilk + Universo',basis:'Caixa'});
- let h=M.historicoCaixa([r],p,'recebimentos');assert.equal(h.length,12);assert.equal(h.at(-2).valor,null);assert.equal(h.at(-1).valor,100);assert.equal(h.at(-1).parcial,true);
- h=M.historicoCaixa([r],p,'recebimentos',{query:'inexistente'});assert.equal(h.at(-1).valor,null);
+ let h=M.historicoCaixa([r],p,'recebimentos');assert.equal(h.length,12);assert.equal(h[7].valor,null);assert.equal(h[8].valor,100);assert.equal(h[8].parcial,true);
+ h=M.historicoCaixa([r],p,'recebimentos',{query:'inexistente'});assert.equal(h[8].valor,null);
  const ago={...r,label:'Ago/2026',company:'Impresilk',eventos:[event('ago',50,{data:'2026-08-02'})]};
- h=M.historicoCaixa([r,ago],p,'recebimentos');assert.equal(h.at(-2).valor,null);assert.match(h.at(-2).nota,/Empresa/);
+ h=M.historicoCaixa([r,ago],p,'recebimentos');assert.equal(h[7].valor,50);assert.equal(h[7].mesmaBase,false);assert.match(h[7].nota,/Base diferente/);assert.equal(h[0].periodo,'2026-01');assert.equal(h[11].periodo,'2026-12');
 });
 test('gráfico dos pares não mistura custos sem venda nem a página visível',()=>{
  const m={disponivel:true,...M.resumir([{valor:80,custo:80,venda:100},{valor:50,custo:50,venda:null}],{tamanho:1})};
@@ -34,6 +34,13 @@ test('gráfico dos pares não mistura custos sem venda nem a página visível',(
 });
 test('histórico não perde centavos ou estornos e resultado respeita o grupo',()=>{
  const r=reg([event('a',100),event('b',-20),event('c',30,{natureza:'saida'})],{company:'Impresilk + Universo',basis:'Caixa'});
- assert.equal(M.historicoCaixa([r],p,'variacao').at(-1).valor,50);
- assert.equal(M.historicoCaixa([r],p,'variacao',{grupo:'Pagamentos'}).at(-1).valor,-30);
+ assert.equal(M.historicoCaixa([r],p,'variacao')[8].valor,50);
+ assert.equal(M.historicoCaixa([r],p,'variacao',{grupo:'Pagamentos'})[8].valor,-30);
+});
+
+test('comparação percentual continua bloqueada entre empresas apesar do histórico visível',()=>{
+ const atual=reg([event('a',100)],{company:'Impresilk + Universo',basis:'Caixa'});
+ const anterior={...atual,label:'Ago/2026',company:'Impresilk',qualidade:{ate:'2026-08-31',apiContratoValidado:true},eventos:[event('b',50,{data:'2026-08-02'})]};
+ assert.equal(M.historicoCaixa([anterior,atual],p,'recebimentos')[7].valor,50);
+ assert.equal(M.compararCaixa([anterior,atual],p,'entrada').disponivel,false);
 });

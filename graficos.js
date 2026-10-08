@@ -51,7 +51,7 @@ function graficoBarras(rows,series,label){
  return `${legendaGrafico(series)}<div class="chart-scroll" tabindex="0" role="region" aria-label="${esc(label)}. Role horizontalmente em telas pequenas."><div class="bar-chart"><div class="chart-y" aria-hidden="true">${ticks.map(v=>`<span style="top:${y(v)}px">${esc(compacto(v))}</span>`).join('')}</div><div class="chart-plot"><div class="chart-grid" aria-hidden="true">${ticks.map(v=>`<i style="top:${y(v)}px"></i>`).join('')}<i class="zero-line" style="top:${zero}px"></i></div><div class="chart-columns">${rows.map(r=>{
  const text=series.map(s=>s.nome+': '+valorTexto(r[s.chave])).join(' · ');
  const status=r.qualidade.rotulo,known=series.some(s=>r[s.chave]!=null);
- return `<button class="chart-column ${r.label===state.periodo?'chosen':''} ${r.qualidade.comparavel?'':'unverified'}" data-period="${esc(r.label)}" ${!r.reg?'disabled':''} aria-label="${esc(r.label+' · '+text+' · '+status)}"><span class="column-bars" aria-hidden="true">${series.map(s=>{const v=r[s.chave];return v==null?'<span class="missing-bar">—</span>':`<i style="--serie:${s.cor};top:${Math.min(y(v),zero)}px;height:${v===0?2:Math.max(1,Math.abs(zero-y(v)))}px"></i>`;}).join('')}</span><span class="chart-month">${esc(r.label.split('/')[0])}${known&&!r.qualidade.comparavel?'<b aria-hidden="true">*</b>':''}</span><span class="chart-tooltip"><b>${esc(r.label)}</b>${series.map(s=>`<span>${esc(s.nome)} <strong>${valorTexto(r[s.chave])}</strong></span>`).join('')}<small>${esc(r.name||status)}</small></span></button>`;
+ return `<button class="chart-column ${r.label===state.periodo?'chosen':''} ${r.qualidade.comparavel?'':'unverified'}" data-period="${esc(r.label)}" ${!r.reg?'disabled':''} aria-label="${esc(r.label+' · '+text+' · '+status)}"><span class="column-bars" aria-hidden="true">${series.map(s=>{const v=r[s.chave];return v==null?'<span class="missing-bar">—</span>':`<i style="--serie:${s.cor};top:${Math.min(y(v),zero)}px;height:${v===0?2:Math.max(1,Math.abs(zero-y(v)))}px"></i>`;}).join('')}</span><span class="chart-month">${esc(r.label.split('/')[0])}${known&&!r.qualidade.comparavel?'<b aria-hidden="true">*</b>':''}</span><span class="chart-tooltip"><b>${esc(r.label)}</b>${series.map(s=>`<span>${esc(s.nome)} <strong>${valorTexto(r[s.chave])}</strong></span>`).join('')}<small>${esc([r.name||status,r.reg?.company,r.reg?.basis].filter(Boolean).join(' · '))}</small></span></button>`;
  }).join('')}</div></div></div></div><p class="chart-foot">Valores em R$ · Passe sobre uma barra ou use Tab para ver os valores. Clique no mês para abrir. — significa ausência de dados.</p>`;
 }
 function graficoEvolucao(){
@@ -303,9 +303,12 @@ function miniSerie(valores,opts={}){
    desenhado: somar só os grupos escolhidos fazia qualquer par de grupos virar
    "100%". "Demais grupos" sai sempre em cinza (--muted), qualquer que seja a
    posição, para não se passar por um grupo de verdade. */
+function corCategoria(code,index=0){
+ const fixas={'2.14':0,'2.1':1,'2.12':2,'2.2':3,'2.6':4};
+ return code==='~outros'?'var(--muted)':`var(--cost-${fixas[code]??index%5})`;
+}
 function graficoEstrutura(meses,grupos,label){
- const cores=['var(--cost-0)','var(--cost-1)','var(--cost-2)','var(--cost-3)','var(--cost-4)'];
- const cor=(g,i)=>g.id==='~outros'?'var(--muted)':cores[i%cores.length];
+ const cor=(g,i)=>corCategoria(g.id,i);
  const legenda=`<div class="chart-legend">${grupos.map((g,i)=>`<span><i style="--serie:${cor(g,i)}"></i>${esc(g.nome)}</span>`).join('')}</div>`;
  return `${legenda}<div class="chart-scroll" tabindex="0" role="region" aria-label="${esc(label)}"><div class="estrutura-chart">${meses.map(m=>{
   const soma=grupos.reduce((n,g)=>n+(m.valores[g.id]||0),0);
@@ -335,10 +338,10 @@ function graficoLinhas(meses,series,label,sufixo='%'){
  return `<div class="chart-legend">${series.map(s=>`<span><i style="--serie:${s.cor}"></i>${esc(s.nome)}</span>`).join('')}</div>
   <div class="chart-scroll" tabindex="0" role="region" aria-label="${esc(label)}"><svg class="linhas-chart" viewBox="0 0 ${W} ${H}">
    ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="linhas-grade"/><text x="${PL-6}" y="${y(v)+3}" class="linhas-eixo">${esc(v.toLocaleString('pt-BR',{maximumFractionDigits:1})+sufixo)}</text>`).join('')}
-   ${series.map(s=>`<path d="${caminho(s)}" class="linhas-path" style="--serie:${s.cor}"/>`).join('')}
+   ${series.map((s,i)=>`<path d="${caminho(s)}" class="linhas-path" style="--serie:${s.cor}" stroke-dasharray="${['none','7 3','2 3','10 3 2 3'][i%4]}"/>`).join('')}
    ${series.map(s=>meses.map((m,i)=>m.valores[s.id]==null?'':`<circle cx="${x(i)}" cy="${y(m.valores[s.id])}" r="${m.label===state.periodo?4:2.4}" style="--serie:${s.cor}" class="linhas-ponto"><title>${esc(m.label+' · '+s.nome+': '+m.valores[s.id].toLocaleString('pt-BR',{maximumFractionDigits:1})+sufixo)}</title></circle>`).join('')).join('')}
    ${meses.map((m,i)=>`<text x="${x(i)}" y="${H-10}" class="linhas-mes">${esc(m.label.split('/')[0])}</text>`).join('')}
-  </svg></div><p class="chart-foot">Mês sem dado ou com outro escopo interrompe a linha — não é tratado como zero.</p>`;
+  </svg></div><p class="chart-foot">Mês sem dado interrompe a linha. Cada ponto usa a base original do mês; mudanças de empresa ou classificação exigem conferência.</p>`;
 }
 
 /* ── RELATÓRIOS DO DRE ───────────────────────────────────────────────────
@@ -393,8 +396,7 @@ function relatorioPeso(){
  const base=state.records.find(r=>r.label===state.periodo)||[...state.records].reverse()[0];
  if(!base)return '';
  const {topo}=gruposDeSaida(base,4);
- const cores=['var(--cost-0)','var(--cost-1)','var(--cost-2)','var(--cost-3)'];
- const series=topo.map((g,i)=>({id:g.id,nome:g.nome,cor:cores[i%cores.length]}));
+ const series=topo.map((g,i)=>({id:g.id,nome:g.nome,cor:corCategoria(g.id,i)}));
  const meses=F.serieAnual(state.records,state.periodo,'2').map(m=>{
   const valores={},total=m.reg?F.valorConta(m.reg,'2'):null;
   for(const g of topo){const v=m.reg?F.valorConta(m.reg,g.id):null;valores[g.id]=(v!=null&&total)?v/total*100:null;}
