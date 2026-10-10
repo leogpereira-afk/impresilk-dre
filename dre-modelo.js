@@ -6,7 +6,7 @@ var DREModelo=(()=>{
   ['outrasVendas','Outras receitas de vendas','Receitas','Outras receitas da atividade principal. Não inclua empréstimos.'],
   ['devolucoes','Devoluções e cancelamentos','Deduções','Informe o valor da redução, como número positivo.'],
   ['descontos','Descontos incondicionais','Deduções','Descontos que reduzem o valor da venda.'],
-  ['tributosVendas','Tributos sobre vendas','Deduções','Tributos incidentes na receita do período.'],
+  ['tributosVendas','Tributos sobre vendas','Deduções','No Simples: o DAS da competência e o ISS pago fora dele. ICMS e DIFAL das compras ficam nos custos.'],
   ['custos','Custo dos produtos e serviços vendidos','Operação','Materiais consumidos, mão de obra e demais custos correspondentes às vendas; não são todas as compras do mês.'],
   ['despesasVendas','Despesas com vendas','Operação','Comissões, divulgação e estrutura comercial do período.'],
   ['administrativas','Despesas administrativas','Operação','Despesas administrativas incorridas, pagas ou não.'],
@@ -110,11 +110,11 @@ var DRESimples=(()=>{
   '2.3':R('ocupacao'),
   '2.4':R('taxas','Imposto lançado sem subconta'),
   '2.4.1':R('das','DAS fora das subcontas da Impresilk e da Universo'),'2.4.1.1':R('dividas','','Parcelamento do DAS é dívida'),'2.4.1.2':R('das'),'2.4.1.3':R('das'),
-  '2.4.2':R('impostosVendas','','ICMS e DIFAL pagos fora do DAS'),'2.4.8':R('impostosVendas','','ISS pago fora do DAS'),
-  '2.4.3':R('taxas','','DARF: confirmar se é tributo da folha, da venda ou parcelamento'),
+  '2.4.2':R('variaveis','','ICMS e DIFAL das compras em outros estados: custo da compra'),'2.4.8':R('impostosVendas','','ISS pago fora do DAS'),
+  '2.4.3':R('dividas','','DARF de parcelamento: é dívida, não despesa do mês'),
   '2.4.4':R('taxas'),'2.4.5':R('taxas'),'2.4.6':R('taxas'),'2.4.7':R('despesasFinanceiras'),
   '2.5':R('ocupacao'),
-  '2.6':R('maquinas','','Se for parcela de financiamento da máquina, é investimento'),'2.6.1':R('investimentos','','Compra de máquina é investimento'),
+  '2.6':R('variaveis','','Manutenção e insumos das máquinas (tintas etc.): acompanham a produção'),'2.6.1':R('investimentos','','Compra de máquina é investimento'),
   '2.7':R('veiculos'),'2.7.1':R('investimentos','','Compra de veículo é investimento'),
   '2.8':R('administrativas'),'2.8.5':R('variaveis','','Comissão acompanha a venda'),
   '2.9':R('pessoal'),'2.10':R('variaveis'),'2.11':R('variaveis'),'2.12':R('variaveis','','Compras pagas no mês, não o custo do que foi vendido'),
@@ -127,12 +127,12 @@ var DRESimples=(()=>{
  // [id, nome, tipo, sentido]: sentido +1 entra, −1 sai (para a cor e a cascata)
  const LINHAS=[
   ['vendas','Receita bruta de vendas','total',1],
-  ['das','(−) DAS do mês','deducao',-1],['impostosVendas','(−) ICMS, DIFAL e ISS fora do DAS','deducao',-1],['devolucoes','(−) Devoluções a clientes','deducao',-1],
+  ['das','(−) DAS do mês','deducao',-1],['impostosVendas','(−) ISS fora do DAS','deducao',-1],['devolucoes','(−) Devoluções a clientes','deducao',-1],
   ['receitaLiquida','(=) Receita líquida','subtotal',1],
   ['variaveis','(−) Custos variáveis pagos','custo',-1],
   ['margemContribuicao','(=) Margem de contribuição','subtotal',1],
   ['fixas','(−) Despesas fixas','grupo',-1],
-  ['pessoal','Pessoal','detalhe',-1],['ocupacao','Ocupação e utilidades','detalhe',-1],['administrativas','Administrativas e terceiros','detalhe',-1],['veiculos','Veículos','detalhe',-1],['maquinas','Máquinas e equipamentos','detalhe',-1],['marketing','Marketing','detalhe',-1],['taxas','Taxas, IPTU e DARF','detalhe',-1],['fixasOutras','Saídas sem linha na DRE','detalhe',-1],
+  ['pessoal','Pessoal','detalhe',-1],['ocupacao','Ocupação e utilidades','detalhe',-1],['administrativas','Administrativas e terceiros','detalhe',-1],['veiculos','Veículos','detalhe',-1],['marketing','Marketing','detalhe',-1],['taxas','Taxas e IPTU','detalhe',-1],['fixasOutras','Saídas sem linha na DRE','detalhe',-1],
   ['ebitda','(=) Resultado operacional (EBITDA de caixa)','subtotal',1],
   ['receitasFinanceiras','(+) Rendimentos e outras receitas','financeiro',1],['despesasFinanceiras','(−) Juros, tarifas e IOF','financeiro',-1],
   ['resultado','(=) Resultado do mês, antes dos sócios','resultado',1],
@@ -141,7 +141,7 @@ var DRESimples=(()=>{
   ['variacao','(=) Variação do caixa no mês','resultado',1]
  ].map(([id,nome,tipo,sentido])=>({id,nome,tipo,sentido}));
  const BASICAS=LINHAS.filter(l=>!['receitaLiquida','margemContribuicao','fixas','ebitda','resultado','variacao'].includes(l.id)).map(l=>l.id);
- const FIXAS=['pessoal','ocupacao','administrativas','veiculos','maquinas','marketing','taxas','fixasOutras'];
+ const FIXAS=['pessoal','ocupacao','administrativas','veiculos','marketing','taxas','fixasOutras'];
  const cent=v=>Math.round(Number(v)*100);
  // Conta nova ou renomeada pelo ERP (sufixo 51 em diante, sem regra própria) sob
  // uma mãe que mistura despesa com compra ou dívida: a linha é só um palpite.

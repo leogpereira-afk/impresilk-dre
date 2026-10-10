@@ -68,7 +68,7 @@ test('cards: DAS pago no mês sem o parcelamento e impostos fora do DAS pela con
 test('textos da tela seguem os fatos do negócio',()=>{
  const h=tela(context());
  assert.match(h,/guia de cada competência \(2\.4\.1\.2 e 2\.4\.1\.3\) é paga no mês seguinte; o parcelamento \(2\.4\.1\.1\) é dívida e fica de fora/);
- assert.match(h,/A folha do Fator R não inclui retiradas: não há pró-labore/);assert.match(h,/O DIFAL é pago na conta de ICMS \(2\.4\.2\)/);
+ assert.match(h,/A folha do Fator R não inclui retiradas: não há pró-labore/);assert.match(h,/O ICMS e o DIFAL das compras em outros estados são pagos na conta 2\.4\.2: informe no local a UF de origem das compras\. O DARF \(2\.4\.3\) é parcelamento\./);
 });
 test('guia da competência é a do mês seguinte; mês em andamento é marcado com a data do corte',()=>{
  const ago=tela(context({periodo:'Ago/2026'}));assert.match(ago,/<dd><span class="tom-sai">R\$\s1\.200,00<\/span> pagos em Set\/2026\.<\/dd>/,'só o valor em vermelho');

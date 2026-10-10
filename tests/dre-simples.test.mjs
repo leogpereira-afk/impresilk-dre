@@ -4,8 +4,8 @@ import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:asser
 const ler=f=>fs.readFileSync(new URL('../'+f,import.meta.url),'utf8');
 const cel=(code,name,value)=>({code,name,value});
 const q=ate=>({ate,estado:'aguardando-conferencia',regra:'caixa-v2',escopo:'compõe DRE'});
-// Set completo: vendas 10.000; DAS 600 (+ parcelamento 300); ICMS 100; devolução 50; variáveis 4.000
-// (materiais 3.000 com 200 sem subconta, frete 500, comissão 500); fixas 2.820; financeiro +20 −80;
+// Set completo: vendas 10.000; DAS 600 (+ parcelamento 300); devolução 50; variáveis 4.100 (materiais 3.000
+// com 200 sem subconta, frete 500, comissão 500 e ICMS/DIFAL das compras 100); fixas 2.820; financeiro +20 −80;
 // retiradas 1.000; máquina comprada 700; empréstimo pago 900 (+ 300 parcelamento); empréstimo recebido 2.000.
 const SET=[cel('1','Receitas',12020),cel('1.1','Comunicação Visual',8000),cel('1.1.1','Produtos',8000),cel('1.2','Portas/Painéis',2000),cel('1.3','Rendimentos',20),cel('1.3.2','Juros',20),cel('1.4','Empréstimos',2000),cel('1.4.2','Pessoal',2000),
  cel('2','Despesas',10550),cel('2.1','Despesas Funcionários',2000),cel('2.1.4','Salário',1500),cel('2.1.12','Comissão Interna',500),cel('2.2','Despesas Administrativas',250),cel('2.2.1','Material de Escritório',200),cel('2.2.6','Devolução Cliente',50),
@@ -38,8 +38,8 @@ test('cada conta cai na linha certa pela regra mais específica; o que não é d
  const c=context(),k=code=>c.run(`DRESimples.classificar(${JSON.stringify(code)}).linha`),conf=code=>c.run(`DRESimples.classificar(${JSON.stringify(code)}).conferir`);
  const esperado={'1.1.1':'vendas','1.2.51':'vendas','1.5.2':'vendas','1.6.2':'vendas','1.3.2':'receitasFinanceiras','1.4.2':'emprestimos','1.7':'aIdentificar',
   '2.1.4':'pessoal','2.1.12':'variaveis','2.9.2':'pessoal','2.2.1':'administrativas','2.2.6':'devolucoes','2.8.3':'administrativas','2.8.5':'variaveis',
-  '2.4.1.2':'das','2.4.1.3':'das','2.4.1.51':'das','2.4.1.1':'dividas','2.4.2':'impostosVendas','2.4.8':'impostosVendas','2.4.5.1':'taxas','2.4.6.2':'taxas','2.4.7':'despesasFinanceiras',
-  '2.5.3':'ocupacao','2.3.2':'ocupacao','2.6.9':'maquinas','2.6.1':'investimentos','2.7.2':'veiculos','2.7.1':'investimentos','2.10.1':'variaveis','2.11.4':'variaveis','2.12.1':'variaveis',
+  '2.4.1.2':'das','2.4.1.3':'das','2.4.1.51':'das','2.4.1.1':'dividas','2.4.2':'variaveis','2.4.3':'dividas','2.4.3.1':'dividas','2.4.8':'impostosVendas','2.4.5.1':'taxas','2.4.6.2':'taxas','2.4.7':'despesasFinanceiras',
+  '2.5.3':'ocupacao','2.3.2':'ocupacao','2.6.9':'variaveis','2.6.3':'variaveis','2.6.1':'investimentos','2.7.2':'veiculos','2.7.1':'investimentos','2.10.1':'variaveis','2.11.4':'variaveis','2.12.1':'variaveis',
   '2.12.11':'marketing','2.12.12':'marketing','2.12.51':'marketing','2.12.52':'marketing',
   '2.13.1':'despesasFinanceiras','2.13.5':'despesasFinanceiras','2.13.6':'dividas','2.13.7.1.3':'dividas','2.13.7.1.1':'investimentos','2.13.7.1.2':'investimentos','2.13.52':'semDetalhamento','2.13':'semDetalhamento','2.13.8':'semDetalhamento',
   '2.14.1.1':'socios','2.14.2':'socios','2.14.3':'dividas','2.14.3.4':'investimentos','2.15.7':'marketing','2.16.3':'investimentos','2.16.51':'dividas','2.17.3':'dividas','2.18':'transferencias','2.99':'semDetalhamento','2.20':'fixasOutras','1.8':'foraOutras'};
@@ -49,13 +49,14 @@ test('cada conta cai na linha certa pela regra mais específica; o que não é d
  assert.equal(conf('2.4'),'Imposto lançado sem subconta');assert.equal(conf('2.4.5.1'),'','IPTU não acende alarme');
  assert.match(conf('2.13.8'),/Bancária fora das subcontas de tarifa e juros/,'bancária nova não vira juros sem aviso');
  assert.match(conf('2.6.51'),/Conta nova ou renomeada no ERP/);assert.match(conf('2.7.51'),/Conta nova ou renomeada no ERP/);
- assert.equal(conf('2.1.51'),'','renomeada em Funcionários continua pessoal sem alarme');assert.equal(conf('2.6.3'),'','dúvida de todo mês vai em nota');
+ assert.equal(conf('2.1.51'),'','renomeada em Funcionários continua pessoal sem alarme');
+ assert.match(c.run("DRESimples.classificar('2.4.3').nota"),/parcelamento/);assert.match(c.run("DRESimples.classificar('2.4.2').nota"),/compras em outros estados/);assert.match(c.run("DRESimples.classificar('2.6.4').nota"),/tintas/);assert.equal(conf('2.6.3'),'','dúvida de todo mês vai em nota');
  assert.equal(conf('2.20'),'Saída sem linha na DRE');assert.match(conf('3.1'),/fora do plano/);
 });
 test('apuração: subtotais, resíduo da conta mãe e percentual sobre as vendas',()=>{
  const a=apurar(context()),l=a.linhas;
- assert.equal(l.vendas,10000);assert.equal(l.das,600);assert.equal(l.impostosVendas,100);assert.equal(l.devolucoes,50);assert.equal(l.receitaLiquida,9250);
- assert.equal(l.variaveis,4000,'materiais 3.000 (com 200 sem subconta) + frete 500 + comissão 500');assert.equal(l.margemContribuicao,5250);
+ assert.equal(l.vendas,10000);assert.equal(l.das,600);assert.equal(l.impostosVendas,0,'ICMS e DIFAL são das compras: custo, não imposto da venda');assert.equal(l.devolucoes,50);assert.equal(l.receitaLiquida,9350);
+ assert.equal(l.variaveis,4100,'materiais 3.000 (com 200 sem subconta) + frete 500 + comissão 500 + ICMS/DIFAL das compras 100');assert.equal(l.margemContribuicao,5250);
  assert.equal(l.fixas,2820);assert.equal(l.ebitda,2430);assert.equal(l.receitasFinanceiras,20);assert.equal(l.despesasFinanceiras,80);assert.equal(l.resultado,2370);
  assert.equal(a.margens.margemContribuicao,52.5);assert.equal(a.margens.resultado,23.7);
  const mat=a.composicao.variaveis.find(x=>x.code==='2.12');assert.deepEqual([mat.valor,mat.residuo],[200,true]);
@@ -65,7 +66,7 @@ test('a DRE fecha com entradas menos saídas, e cada linha da ponte entra com o 
  assert.equal(l.socios,1000);assert.equal(l.investimentos,700);assert.equal(l.dividas,1200);assert.equal(l.emprestimos,2000);assert.equal(a.caixa,1470);assert.equal(l.variacao,1470);assert.equal(a.diferenca,0);
  const extra=troca(SET,{'1':12210,'2':11550,'2.4':1050,'2.6':820},[cel('2.7','Despesas Veículos',300),cel('2.7.2','Combustível',300),cel('2.4.5','IPTU',50),cel('2.6.9','U.V',120),cel('2.20','Nova',30),cel('1.7','A identificar',150),cel('1.8','Nova entrada',40),cel('2.18','Transferência',500)]);
  const b=apurar(context({registros:[reg('Set/2026','2026-09-30',extra)]})),m=b.linhas;
- assert.deepEqual([m.veiculos,m.taxas,m.maquinas,m.fixasOutras],[300,50,120,30]);assert.equal(m.fixas,3320);assert.equal(m.ebitda,1930);
+ assert.deepEqual([m.veiculos,m.taxas,m.fixasOutras],[300,50,30]);assert.equal(m.variaveis,4220,'manutenção e insumos das máquinas (tintas) acompanham a produção');assert.equal(m.fixas,3200);assert.equal(m.ebitda,1930);
  assert.deepEqual([m.aIdentificar,m.foraOutras,m.transferencias],[150,40,500]);assert.equal(b.caixa,660);assert.equal(b.diferenca,0);
  const pulo=troca(SET,{},[cel('2.13.7.1.1','Máquina financiada',400)]);
  const p=apurar(context({registros:[reg('Set/2026','2026-09-30',pulo)]}));assert.equal(p.diferenca,0,'filha sem o nível do meio desconta da avó');assert.equal(p.linhas.investimentos,1100);assert.equal(p.linhas.dividas,800);
@@ -157,7 +158,7 @@ test('competência: DAS pago ao lado do informado, comparação de outro ano, pe
  const c5=context({periodo:'Ago/2026',cfg:ir});c5.run("dreUI.base='competencia'");assert.match(c5.run('renderDRE()'),/\(−\) IRPJ e CSLL fora do Simples\n-R\$\s300,00/,'IRPJ informado aparece como degrau');
  const sem={demonstrativosCompetencia:{versao:1,meses:{Ago_2026:comp('Ago/2026',{...VALORES,tributosVendas:null})}}};
  const c6=context({periodo:'Ago/2026',cfg:sem});c6.run("dreUI.base='competencia'");const h6=c6.run('renderDRE()');
- assert.match(h6,/Informado em “Tributos sobre vendas”: não informado\./);assert.match(h6,/<th scope="row">\(−\) Tributos sobre vendas \(DAS e fora dele\)<\/th><td class="num">Não apurado<\/td>/,'tributo vazio não vira zero na cascata');
+ assert.match(h6,/Informado em “Tributos sobre vendas”: não informado\./);assert.match(h6,/<th scope="row">\(−\) Tributos sobre vendas \(DAS e ISS fora dele\)<\/th><td class="num">Não apurado<\/td>/,'tributo vazio não vira zero na cascata');
  const set=context({periodo:'Set/2026',cfg:{demonstrativosCompetencia:{versao:1,meses:{Set_2026:comp('Set/2026')}}}});set.run("dreUI.base='competencia'");
  const hs=set.run('renderDRE()');assert.match(hs,/DAS da competência Set\/2026 pago em Out\/2026: R\$\s700,00 [^.]*, até 08\/10 \(mês em andamento\)\./);assert.doesNotMatch(hs,/menor que o DAS pago/,'mês de pagamento incompleto não acusa diferença');
 });
