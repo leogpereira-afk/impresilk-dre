@@ -114,3 +114,61 @@
  .estado-vazio dt{margin-top:4px}
  .grafico-reservado{min-height:140px}
 }
+/* ── Parâmetros (Fase 2): Simples em destaque, impostos por local, prazos e metas ── */
+.cards-controle .metric-param{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:14px 16px;border:0;border-right:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0;background:transparent;box-shadow:none;margin:-1px -1px 0 0}
+.cards-controle .metric-param .label{font-size:12px;font-weight:600;color:var(--muted)}
+.cards-controle .metric-param strong{font-size:22px;line-height:1.2;font-weight:650;color:var(--text);font-variant-numeric:tabular-nums}
+.cards-controle .metric-param strong.tom-sai{color:var(--red)}
+.cards-controle .metric-param small{font-size:12px;line-height:1.45;color:var(--muted)}
+.origem-dado.origem-padrao{background:color-mix(in srgb,var(--amber) 14%,var(--surface));color:var(--amber);border:1px dashed color-mix(in srgb,var(--amber) 55%,var(--line))}
+.param-bloco{margin:16px 0;padding:16px 18px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.param-bloco-topo h2{margin:0;font-size:17px}
+.param-bloco-topo p{margin:4px 0 10px;font-size:12px;line-height:1.5;color:var(--muted);max-width:90ch}
+.param-bloco.bloco-simples{border:1px solid color-mix(in srgb,var(--blue) 40%,var(--line));border-left:5px solid var(--blue);background:color-mix(in srgb,var(--selected) 55%,var(--surface))}
+.bloco-simples .param-bloco-topo h2{color:var(--blue)}
+.param-empresas{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.param-empresa{min-width:0;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.param-empresa>header{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.param-empresa h3{margin:0;font-size:16px}
+.param-revisado{font-size:11px;color:var(--muted)}
+.param-resumo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 14px;margin:10px 0}
+.param-resumo dt{font-size:11px;font-weight:600;color:var(--muted)}
+.param-resumo dd{margin:2px 0 0;font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--text)}
+.param-resumo dd small{font-weight:400;color:var(--muted)}
+.param-resumo dd .tom-sai{color:var(--red)}
+/* rótulo com dica não desalinha o campo do vizinho: o campo vai para o pé */
+.param-form .form-grid>label{display:flex;flex-direction:column}
+.param-form .form-grid>label>input,.param-form .form-grid>label>select{margin-top:auto}
+.param-avisos{margin:8px 0;padding:8px 10px 8px 26px;border-left:3px solid var(--amber);border-radius:6px;background:color-mix(in srgb,var(--amber) 10%,var(--surface));font-size:12px;line-height:1.45}
+.param-form label small{display:block;font-size:11px;font-weight:400;color:var(--muted);margin-bottom:2px}
+.param-form input:disabled,.param-form select:disabled{opacity:.65}
+.param-erro{margin:6px 0 0;font-size:12px;color:var(--red)}
+.param-erro.param-info{color:var(--blue)}
+.param-erro:empty{display:none}
+.param-cadastro-empresa{margin-top:8px;font-size:12px}
+.param-cadastro-empresa>summary{cursor:pointer;color:var(--blue);font-weight:600;min-height:32px;display:inline-flex;align-items:center}
+.param-grade-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.param-aliq-grade{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.param-aliq h4{margin:0 0 2px;font-size:13px}
+.param-locais{font-size:12px;margin:0 0 8px}
+.param-sugestao,.param-conta{font-size:11px;font-weight:400;color:var(--muted)}
+.param-sit{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:650;white-space:nowrap}
+.param-sit.sit-ok{background:color-mix(in srgb,var(--green) 13%,var(--surface));color:var(--green)}
+.param-sit.sit-atencao{background:color-mix(in srgb,var(--amber) 14%,var(--surface));color:var(--amber)}
+.param-sit.sit-neutra{background:var(--bg);color:var(--muted)}
+.tabela-tributos td.num.tom-sai{color:var(--red)}
+.tabela-tributos td.num.tom-entra{color:var(--blue)}
+.tabela-controle span.nao-apurado{color:var(--muted)}
+/* DAS é dinheiro que saiu: as guias ficam nos tons de saída, nunca no azul de entrada */
+.param-das .g-cor-serie-1{fill:var(--g-saida);background:var(--g-saida);stroke:var(--g-saida)}
+.param-das .g-cor-serie-2{fill:var(--g-risco-1);background:var(--g-risco-1);stroke:var(--g-risco-1)}
+.param-das .g-cor-serie-3{fill:var(--g-outros);background:var(--g-outros);stroke:var(--g-outros)}
+.param-grafico .chart-heading h3{margin:0;font-size:16px;color:var(--blue);font-weight:650}
+.param-pendente{margin:6px 0 0;font-size:12px;color:var(--amber);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.param-pendente[hidden]{display:none}
+.param-orfaos ul{margin:4px 0 0;padding-left:18px}
+.tabela-tributos caption{text-align:left;font-size:12px;padding:6px 0;color:var(--muted)}
+.tabela-tributos tfoot th,.tabela-tributos tfoot td{font-weight:700;border-top:2px solid var(--line)}
+@media (max-width:900px){.param-empresas,.param-aliq-grade{grid-template-columns:1fr}.param-grade-3{grid-template-columns:1fr 1fr}}
+@media (max-width:600px){.param-bloco{padding:12px}.param-grade-3,.param-resumo{grid-template-columns:1fr}}
+@media (max-width:900px),(pointer:coarse){#pageContent .param-form button,#pageContent .param-form input,#pageContent .param-form select,#pageContent .param-cadastro-empresa>summary,#pageContent .tabela-tributos .link-cadastro,#pageContent .g-tabela>summary{min-height:44px}}
