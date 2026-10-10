@@ -680,7 +680,8 @@ function gCascata(passos,op={}){
  const {num,e,p,curto,pct,moeda,sinal}=GX,H=220;
  if(!passos?.length)return GX.aviso('cascata','Não apurado: nenhum degrau informado.');
  const base=op.base??(passos[0].total&&num(passos[0].valor)?Number(passos[0].valor):null);
- let corrente=null;const barras=passos.map(s=>{
+ // −0 vira 0 (senão o degrau zerado sai como "Soma" azul com "-0%")
+ let corrente=null;const barras=passos.map(s0=>{const s={...s0,valor:num(s0.valor)?Number(s0.valor)+0:s0.valor};
   if(s.total){if(num(s.valor)){corrente=Number(s.valor);return {...s,de:0,ate:corrente};}corrente=null;return {...s,semDado:true};}
   if(corrente!=null&&num(s.valor)){const de=corrente;corrente+=Number(s.valor);return {...s,de,ate:corrente};}
   corrente=null;return {...s,semDado:true};
@@ -688,17 +689,26 @@ function gCascata(passos,op={}){
  const valores=barras.filter(b=>!b.semDado).flatMap(b=>[b.de,b.ate]);
  if(!valores.length)return GX.aviso('cascata','Não apurado: os degraus ainda não têm valor.');
  const esc=GX.escala(Math.min(...valores),Math.max(...valores)),g=GX.grade(esc,H),n=barras.length,banda=GX.W/n,bw=banda*.56;
- const margem=b=>base&&num(b.valor)?(b.total?Number(b.valor):Number(b.valor))/base*100:null;
+ // percentual só sobre base positiva: venda negativa (estorno) não vira "400%"
+ const margem=b=>base>0&&num(b.valor)?Number(b.valor)/base*100:null;
  let formas='',rot='',lacunas='';
+ // Com muitos degraus a faixa fica estreita: o primeiro e o último rótulo se
+ // alinham à borda do gráfico em vez de centralizar e vazar para fora do card.
+ // Com mais de 8 degraus, o rótulo dos degraus intermediários mostra só o
+ // percentual (o valor fica na dica e na tabela), para não se sobreporem.
+ const borda=i=>n>6&&i===0?'ini':n>6&&i===n-1?'fim':'';
+ const xRot=(i,cx)=>borda(i)==='ini'?'left:0;transform:none;text-align:left':borda(i)==='fim'?'left:auto;right:0;transform:none;text-align:right':`left:${p(cx,GX.W)}`;
+ const vRot=(i,cx)=>borda(i)==='ini'?'left:0;transform:translate(0,-115%)':borda(i)==='fim'?'left:auto;right:0;transform:translate(0,-115%)':`left:${p(cx,GX.W)};transform:translate(-50%,-115%)`;
  barras.forEach((b,i)=>{
   const x=i*banda+(banda-bw)/2,cx=i*banda+banda/2;
-  rot+=`<span class="g-rot g-rot-x${b.total?' g-rot-forte':' g-opcional'}" style="left:${p(cx,GX.W)}">${e(b.curto||b.rotulo)}</span>`;
+  // no estreito, com muitos degraus, só o primeiro e o último nome ficam (o resto não cabe)
+  rot+=`<span class="g-rot g-rot-x${b.total?' g-rot-forte':''}${!b.total||(n>8&&!borda(i))?' g-opcional':''}" style="${xRot(i,cx)}">${e(b.curto||b.rotulo)}</span>`;
   if(b.semDado){lacunas+=`<span class="g-sem-dado" style="left:${p(i*banda+banda*.1,GX.W)};width:${p(banda*.8,GX.W)}"></span>`;return;}
-  const y1=esc.y(Math.max(b.de,b.ate),H),y2=esc.y(Math.min(b.de,b.ate),H),cor=b.total?'resultado':Number(b.valor)>=0?'entrada':'saida';
+  const y1=esc.y(Math.max(b.de,b.ate),H),y2=esc.y(Math.min(b.de,b.ate),H),cor=b.total||!Number(b.valor)?'resultado':Number(b.valor)>0?'entrada':'saida';
   const m=margem(b);const dica=`${b.rotulo}\n${moeda(b.valor)}${m!=null?` · ${pct(m)} da base`:''}`;
   formas+=`<rect class="g-marca-dado g-cor-${cor}" x="${x.toFixed(2)}" y="${y1.toFixed(2)}" width="${bw.toFixed(2)}" height="${Math.max(1.5,y2-y1).toFixed(2)}" vector-effect="non-scaling-stroke" data-dica="${e(dica)}"/>`;
   const prox=barras[i+1];if(prox&&!prox.semDado)formas+=`<line class="g-ligacao" x1="${(x+bw).toFixed(2)}" x2="${((i+1)*banda+(banda-bw)/2).toFixed(2)}" y1="${esc.y(b.ate,H).toFixed(2)}" y2="${esc.y(b.ate,H).toFixed(2)}" vector-effect="non-scaling-stroke"/>`;
-  rot+=`<span class="g-rot${b.total?' g-rot-forte':''} g-opcional" style="left:${p(cx,GX.W)};top:${p(y1,H)};transform:translate(-50%,-115%)">${e(b.total?curto(b.valor):sinal(Number(b.valor))+curto(Math.abs(b.valor)))}${m!=null?` · ${e(pct(m,0))}`:''}</span>`;
+  rot+=`<span class="g-rot${b.total?' g-rot-forte':''} g-opcional" style="${vRot(i,cx)};top:${p(y1,H)}">${n>8&&!b.total&&m!=null?e((m>0?'+':'')+pct(m,0)):`${e(b.total?curto(b.valor):sinal(Number(b.valor))+curto(Math.abs(b.valor)))}${m!=null?` · ${e(pct(m,0))}`:''}`}</span>`;
  });
  const tot=barras.filter(b=>b.total&&!b.semDado),ult=tot[tot.length-1];
  const leitura=`Cascata de ${passos[0].rotulo} até ${passos[n-1].rotulo}. `+tot.map(b=>`${b.rotulo}: ${moeda(b.valor)}${margem(b)!=null?` (${pct(margem(b))})`:''}`).join('; ')+(barras.some(b=>b.semDado)?'. Há degraus sem dado.':'.');

@@ -120,4 +120,11 @@ test('cores de texto, grade e superfície seguem o tema escuro (não ficam presa
  assert.doesNotMatch(raiz,/var\(--(text|muted|surface|line)\b|--g-hachura/,'apelido no :root congela a cor do tema claro');
  for(const t of ['--g-superficie','--g-texto','--g-texto-2','--g-grade','--g-hachura'])assert.match(corpo,new RegExp(t+':'),t+' no body');
 });
+test('cascata com muitos degraus alinha o primeiro e o último rótulo à borda (não vaza do card)',()=>{
+ const passos=Array.from({length:11},(_,i)=>({rotulo:'Degrau '+i,valor:i%2?-10:100+i,total:!(i%2)}));
+ const h=g('gCascata',passos),xs=[...h.matchAll(/<span class="g-rot g-rot-x[^"]*" style="([^"]*)">/g)].map(m=>m[1]);
+ assert.equal(xs[0],'left:0;transform:none;text-align:left');assert.equal(xs.at(-1),'left:auto;right:0;transform:none;text-align:right');assert.match(xs[5],/^left:\d/);
+ assert.match(h,/style="left:auto;right:0;transform:translate\(0,-115%\);top:/,'o valor do último degrau também');
+ const poucos=g('gCascata',passos.slice(0,5));assert.doesNotMatch(poucos,/right:0/,'com poucos degraus continua centralizado');
+});
 test('ligar as dicas sem DOM não quebra o carregamento',()=>{assert.doesNotThrow(()=>c.run('ligarDicasGraficos(null);ligarDicasGraficos({})'));});

@@ -172,3 +172,27 @@
 @media (max-width:900px){.param-empresas,.param-aliq-grade{grid-template-columns:1fr}.param-grade-3{grid-template-columns:1fr 1fr}}
 @media (max-width:600px){.param-bloco{padding:12px}.param-grade-3,.param-resumo{grid-template-columns:1fr}}
 @media (max-width:900px),(pointer:coarse){#pageContent .param-form button,#pageContent .param-form input,#pageContent .param-form select,#pageContent .param-cadastro-empresa>summary,#pageContent .tabela-tributos .link-cadastro,#pageContent .g-tabela>summary{min-height:44px}}
+/* ── DRE Simples (Fase 3) ── */
+.dre-grafico .chart-heading h3{margin:0;font-size:16px;color:var(--blue);font-weight:650}
+.dre-das-ref{margin:10px 0}
+.dre-comparacao caption,.dre-composicao-tabela caption{text-align:left;font-size:12px;padding:6px 0;color:var(--muted)}
+.dre-comparacao .delta-bom{color:var(--blue)}.dre-comparacao .delta-ruim{color:var(--red)}
+.dre-composicao-grupo th{background:var(--bg);font-weight:700;color:var(--text);text-transform:none}
+.dre-composicao-tabela th button{border:0;background:none;padding:0;color:var(--blue);font:inherit;cursor:pointer;text-align:left}
+.dre-composicao-tabela .dre-nota{display:block;font-size:11px;font-weight:400;color:var(--muted)}
+.dre-composicao-tabela td.num.tom-sai,.dre-comparacao td.num.tom-sai,.dre-simples-meses td.num.tom-sai{color:var(--red)}
+.dre-composicao-tabela td.num.tom-entra,.dre-comparacao td.num.tom-entra,.dre-simples-meses td.num.tom-entra{color:var(--blue)}
+@media (max-width:900px),(pointer:coarse){.dre-composicao-tabela th button{min-height:44px}}
+.graficos-controle .dre-grafico-largo{grid-column:1/-1}
+.cards-controle .metric-param strong.tom-entra{color:var(--blue)}
+/* DRE Simples: hierarquia nas tabelas novas, cards que levam à origem e alvos de toque */
+.dre-comparacao tr.dre-l-subtotal>*,.dre-comparacao tr.dre-l-resultado>*,.dre-simples-meses tr.dre-l-subtotal>*,.dre-simples-meses tr.dre-l-resultado>*{font-weight:700;background:var(--selected)}
+.dre-comparacao tr.dre-l-total>*,.dre-simples-meses tr.dre-l-total>*{font-weight:700}
+.dre-comparacao tr.dre-l-detalhe th,.dre-simples-meses tr.dre-l-detalhe th{padding-left:22px;font-weight:400;color:var(--muted)}
+.dre-comparacao tr.dre-l-ponte th,.dre-simples-meses tr.dre-l-ponte th{font-style:italic;font-weight:400}
+.dre-comparacao th,.dre-simples-meses th,.dre-composicao-tabela th small,.dre-composicao-tabela .origem-dado{text-transform:none}
+.cards-controle button.metric-param{font:inherit;color:inherit;text-align:left;cursor:pointer;width:100%}
+.cards-controle button.metric-param:hover .label{color:var(--blue)}
+.cards-controle button.metric-param:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+@media (max-width:900px),(pointer:coarse){.dre-composicao-tabela th button{min-width:44px;display:inline-flex;align-items:center}.dre-criteria>summary,.dre-movimento>summary{min-height:44px;display:flex;align-items:center}.source-grid button{min-height:44px}}
+@media (max-width:900px),(pointer:coarse){#pageContent .dre-controls button,#pageContent .dre-period-control>summary,#pageContent .management-chips button,#pageContent .dre-compact td button,#pageContent .dre-table td button{min-height:44px}}
