@@ -4,13 +4,13 @@ const gestaoUI={evolucao:'mensal',serie:'variacao',dre:'mes',pendTipo:'todos',pe
 const mesmoEscopo=(a,b)=>!!a&&!!b&&[a.company,a.basis,a.qualidade?.escopo,a.qualidade?.regra].join('|')===[b.company,b.basis,b.qualidade?.escopo,b.qualidade?.regra].join('|');
 function navContexto(){
  const groups={inicio:[['inicio','Resumo'],['cfo','O que mudou'],['detalhe','Contas e origem']],dre:[['dre','Demonstrativo'],['glossario','Entenda os conceitos']],caixa:[['caixa','Movimento e previsão'],['resultado','Composição']],indicadores:[['indicadores','Indicadores'],['cfo','Investigar variações'],['custos','Despesas e categorias'],['detalhe','Contas e origem']],conferencia:[['conferencia','Conferência'],['config','Configurações']]};
- if(['inicio','dre','detalhe','glossario'].includes(state.view))return '';
+ if(['inicio','dre','detalhe','glossario','dfc','balanco','giro','recebiveis','precos','parametros'].includes(state.view))return '';
  const group=['cfo','custos'].includes(state.view)?'indicadores':state.view==='resultado'?'caixa':state.view==='glossario'?'dre':state.view==='config'?'conferencia':state.view;
  return `<nav class="context-nav" aria-label="Seções desta área">${(groups[group]||[]).filter(([v])=>v!==state.view&&!['inicio','detalhe','glossario'].includes(v)).map(([v,t])=>`<button data-go="${v}" aria-current="${v===state.view?'page':'false'}">${t}</button>`).join('')}</nav>`;
 }
 function restaurarRota(){
  if(typeof location==='undefined')return;const q=new URLSearchParams(location.hash.replace(/^#/,''));
- const views=['inicio','dre','caixa','indicadores','cfo','custos','detalhe','resultado','conferencia','config','ajuda','glossario'];
+ const views=typeof METADATA_TELAS!=='undefined'?Object.keys(METADATA_TELAS):['inicio','dre','caixa','indicadores','cfo','custos','detalhe','resultado','conferencia','config','ajuda','glossario'];
  if(views.includes(q.get('tela')))state.view=q.get('tela');if(F.periodo(q.get('mes')))state.periodo=q.get('mes');
  if(q.has('comparar'))state.comparar=q.get('comparar');
  if(['caixa','competencia'].includes(q.get('base')))dreUI.base=q.get('base');
@@ -105,3 +105,122 @@ function wireGestao(){
   $$('planSalvar').onclick=async()=>{const b=$$('planSalvar');b.disabled=true;try{plano=await salvarGestao('plano',structuredClone(plano),planoBase);planoBase=structuredClone(plano);planoSujo=false;$$('planEstado').textContent='Confirmado na nuvem: '+dataBR(plano.atualizadoEm);}catch(err){$$('planEstado').textContent=err.message;}finally{b.disabled=false;}};
  }
 }
+
+/* ── SEIS CONTROLES · FASE 1 (esqueleto, sem cálculo) ─────────────────────
+   Cada tela já segue a ordem do padrão visual: faixa de cards, gráficos e a
+   tabela detalhada fechada. Nada é calculado: todo número aparece como "Não
+   apurado" e diz o que falta para existir e de onde virá. A origem segue o
+   diagnóstico da Fase 0: (a) já existe nos meses; (b) falta mapear contas;
+   (c*) o Painel já coleta, falta integrar; (d) cadastro revisado. */
+const ORIGEM_CONTROLE={a:'Dado já existe nos meses coletados',b:'Falta mapear contas do plano',c:'O Painel já coleta; falta integrar',d:'Cadastro manual revisado',e:'Calculado a partir dos outros'};
+// Destino do link de cada card: onde a pessoa resolve o que falta. Cadastro
+// vai a Parâmetros; mapeamento de contas, ao Plano de contas; Painel e cálculo
+// não têm o que fazer agora, então não ganham link.
+const DESTINO_ORIGEM={d:['parametros','Ver o que será cadastrado em Parâmetros →'],b:['detalhe','Ver as contas no Plano de contas →']};
+const CONTROLES={
+ dfc:{fase:'Fase 4',cards:[
+   ['Caixa da operação (FCO)','Separar fornecedores, folha e as guias mensais do DAS (2.4.1.2 e 2.4.1.3) no plano de contas. O parcelamento (2.4.1.1) vai para financiamento.','b'],
+   ['Investimentos (FCI)','O dado já existe (2.16 e parcelas de ativos); o cálculo entra na Fase 4.','a'],
+   ['Financiamentos (FCF)','O dado já existe (empréstimos, dívidas, sócios e transferências); o cálculo entra na Fase 4.','a'],
+   ['Saldo final','Saldo inicial mais a geração do mês. Hoje: saldos bancários do Painel (foto do dia); para meses passados, saldo inicial informado em Parâmetros.','c','parametros']],
+  graficos:[['Para onde foi o caixa em cada mês?','Barras empilhadas de operação, investimento e financiamento, com a linha do saldo acumulado.'],
+   ['A operação se paga sozinha?','Linha do caixa da operação nos últimos 12 meses, com o mês selecionado marcado.']],
+  tabela:['DFC mês a mês',['Linha','Mês selecionado','Acumulado no ano'],['Caixa da operação','Investimentos','Financiamentos','Geração de caixa','Saldo inicial','Saldo final'],[1,2]],
+  vazio:['O mapeamento das saídas em operação, investimento e financiamento, a marca das guias do DAS e o saldo inicial do mês.','Plano de contas do Mubisys, já coletado, e saldos bancários do Painel ou informados em Parâmetros.','Mapear as contas e ler os saldos do Painel; o saldo inicial informado entra com o cadastro de Parâmetros (Fase 2).']},
+ balanco:{fase:'Fase 8',cards:[
+   ['Ativo total','Caixa e contas a receber (Painel), estoque e imobilizado (cadastro).','c'],
+   ['Passivo total','Fornecedores (Painel); empréstimos, tributos a recolher (DAS e DIFAL), parcelamento do DAS e salários a pagar (cadastro).','c'],
+   ['Patrimônio líquido','Capital e lucros acumulados em cadastro revisado.','d'],
+   ['Diferença do fechamento','Ativo menos passivo e patrimônio. Aparece quando os três estiverem apurados e nunca é forçada a zero.','e']],
+  graficos:[['Do que é feito o ativo?','Barras horizontais por grupo patrimonial, em ordem de valor.'],
+   ['O balanço fecha?','Ativo contra passivo mais patrimônio, com a diferença destacada.']],
+  tabela:['Balanço por conta',['Conta','Saldo','Revisado em'],['Caixa e bancos','Contas a receber','Estoques','Imobilizado','Fornecedores','Empréstimos','Parcelamento do DAS','Tributos a recolher (DAS e DIFAL)','Patrimônio líquido'],[1]],
+  vazio:['Saldos patrimoniais do fim do mês: hoje o sistema guarda só o movimento de caixa.','Títulos a receber e a pagar e saldos bancários do Painel; estoque, imobilizado, empréstimos e patrimônio por cadastro revisado.','Fase 8: ler os saldos do Painel, cadastrar os demais e validar Ativo = Passivo + Patrimônio líquido.']},
+ giro:{fase:'Fase 6',cards:[
+   ['Necessidade de giro (NCG)','Contas a receber e fornecedores (Painel) e estoque (cadastro).','c'],
+   ['Prazo de recebimento','Títulos a receber e o histórico de prazo que o Painel já calcula.','c'],
+   ['Prazo de pagamento','Títulos a pagar e compras do Painel.','c'],
+   ['Ciclo financeiro','Estoque, recebimento e pagamento: o prazo de estoque depende de cadastro.','d']],
+  graficos:[['Quantos dias o dinheiro fica preso?','Linha do tempo com prazo de estoque, de recebimento e de pagamento, e o ciclo resultante destacado.'],
+   ['A necessidade de giro está crescendo?','Linha com área dos últimos 12 meses, com o mês selecionado marcado.']],
+  tabela:['Prazos e saldos por mês',['Mês','Estoque (dias)','Recebimento (dias)','Pagamento (dias)','Ciclo','NCG'],['Mês selecionado'],[1,2,3,4,5]],
+  vazio:['Contas a receber, fornecedores e estoque do fim de cada mês.','O Painel já guarda os títulos a receber e a pagar; o estoque entra por cadastro revisado.','Fase 6: integrar os títulos do Painel; o estoque informado entra com o cadastro de Parâmetros (Fase 2).']},
+ recebiveis:{fase:'Fase 5',cards:[
+   ['A receber','Títulos em aberto do Painel, com cliente e vencimento.','c'],
+   ['Vencido','Mesma base: soma dos títulos com vencimento passado.','c'],
+   ['Acima de 90 dias','Títulos do Painel vencidos há mais de 90 dias. A provisão (PDD) segue a política de Parâmetros.','c','parametros'],
+   ['Maior cliente devedor','Concentração por cliente nos títulos vencidos.','c']],
+  graficos:[['Quanto do que vou receber já está atrasado?','Barra 100% empilhada: a vencer, 1 a 15, 16 a 30, 31 a 90 e acima de 90 dias.'],
+   ['Quem concentra os atrasos?','Barras dos dez maiores títulos vencidos, por cliente.'],
+   ['E o que eu devo, vence quando?','A mesma régua de faixas para as contas a pagar.']],
+  tabela:['Títulos em aberto',['Tipo','Cliente','Vencimento','Dias','Faixa','Valor'],['A receber','A pagar'],[3,5]],
+  vazio:['Títulos a receber em aberto, com cliente e vencimento: a coleta do DRE só traz títulos pagos.','O Painel já guarda os títulos a receber e a pagar; esta tela vai ler essa base e mostrar a data do corte.','Fase 5: integrar os títulos do Painel; a política de provisão entra com o cadastro de Parâmetros (Fase 2).']},
+ precos:{fase:'Fase 7',cards:[
+   ['Margem de contribuição','Classificar as contas fixas e variáveis e informar a alíquota efetiva do Simples e os tributos pagos fora do DAS, como o DIFAL.','b','parametros'],
+   ['Ponto de equilíbrio','Custos fixos divididos pelo índice de margem de contribuição.','b'],
+   ['Distância do equilíbrio','Faturamento do mês comparado ao ponto de equilíbrio, em reais.','b'],
+   ['Custos fixos do mês','Classificação fixo ou variável das contas do plano.','b']],
+  graficos:[['Quanto falta vender para empatar?','Cruzamento da receita com o custo total, com o mês atual marcado e a distância em reais.'],
+   ['Qual preço sustenta a margem?','Simulador: preço, margem, índice e faturamento necessário para empatar.']],
+  tabela:['Margem por produto',['Produto','Preço médio','Custo variável','Tributos (Simples e DIFAL)','Comissão','Margem','Índice'],['Produtos','Serviços'],[1,2,3,4,5,6]],
+  vazio:['Separação entre custo fixo e variável, a alíquota efetiva do Simples, o DIFAL pago fora do DAS e, para margem por produto, preço e custo por O.S.','Plano de contas (já coletado), Parâmetros e as O.S. que o Painel já guarda.','Fase 7: classificar as contas fixas e variáveis; a alíquota entra com o cadastro de Parâmetros (Fase 2).']},
+ parametros:{fase:'Fase 2',cards:[
+   ['Anexo do Simples','Informar por empresa: Impresilk e Universo, as duas no Simples.','d'],
+   ['RBT12','Receita bruta dos 12 meses anteriores, por empresa. O histórico do sistema começa em Dez/2025.','d'],
+   ['Alíquota efetiva do mês','Calculada da faixa e do RBT12. Para conferir: a guia mensal de cada empresa (2.4.1.2 e 2.4.1.3), paga no mês seguinte ao da competência; o parcelamento (2.4.1.1) fica de fora.','d'],
+   ['Fator R','Folha de 12 meses sobre o RBT12. Retiradas dos sócios não entram: não há pró-labore.','d']],
+  graficos:[['A alíquota efetiva está subindo?','Linha da alíquota mês a mês, por empresa.'],
+   ['Quanto falta para a próxima faixa?','Barra de meta com o RBT12 contra o limite da faixa atual.']],
+  tabela:['Histórico por mês e empresa',['Empresa','Mês','Anexo','RBT12','Alíquota efetiva','Revisado em'],['Impresilk','Universo'],[3,4]],
+  vazio:['Anexo, RBT12 e alíquota efetiva de cada empresa, mês a mês; prazos contratados, estoque, metas e política de provisão.','Cadastro revisado por administrador, com histórico por mês. A alíquota efetiva muda todo mês.','Cadastro com gravação versionada, disponível na Fase 2.']}
+};
+function renderControle(id){
+ const d=CONTROLES[id];if(!d)return '';const cadastro=id!=='parametros';
+ const link=(origem,destino)=>{const [go,rotulo]=destino==='parametros'?DESTINO_ORIGEM.d:DESTINO_ORIGEM[origem]||[];return go&&go!==id?`<button type="button" class="link-cadastro" data-go="${go}">${esc(rotulo)}</button>`:'';};
+ const cards=d.cards.map(([rotulo,falta,origem,destino])=>`<div class="metric metric-vazio"><span class="label">${esc(rotulo)}</span><strong>Não apurado</strong><small>${esc(falta)}</small><span class="origem-dado origem-${origem}">${esc(ORIGEM_CONTROLE[origem])}</span>${link(origem,destino)}</div>`).join('');
+ const vazio=`<section class="estado-vazio" aria-label="O que falta nesta tela"><div><h2>Esta tela ainda não tem números</h2><dl><dt>O que falta</dt><dd>${esc(d.vazio[0])}</dd><dt>De onde virá</dt><dd>${esc(d.vazio[1])}</dd><dt>Próximo passo</dt><dd>${esc(d.vazio[2])} <span class="fase-chip">${esc(d.fase)}</span></dd></dl></div>${cadastro?'<button type="button" data-go="parametros">Ver o que será cadastrado em Parâmetros</button>':'<button type="button" disabled>Cadastro disponível na Fase 2</button>'}</section>`;
+ const graficos=`<div class="graficos-controle">${d.graficos.map(([pergunta,desenho])=>painelGrafico(pergunta,desenho,`<div class="grafico-reservado" role="img" aria-label="${esc('Gráfico ainda sem dados: '+pergunta)}"><span>Sem dado</span><small>O desenho entra quando a fonte existir. Mês sem dado nunca aparece como zero.</small></div>`)).join('')}</div>`;
+ const [titulo,cols,linhas,numericas=[]]=d.tabela;
+ const tabela=card(titulo,`<div class="table-scroll"><table class="tabela-controle"><thead><tr>${cols.map((c,i)=>`<th scope="col"${numericas.includes(i)?' class="num"':''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>${linhas.map(l=>`<tr><th scope="row">${esc(l)}</th>${cols.slice(1).map((_,j)=>`<td class="${numericas.includes(j+1)?'num ':''}nao-apurado">Não apurado</td>`).join('')}</tr>`).join('')}</tbody></table></div><p class="hint">A mesma informação dos gráficos, para quem quiser o detalhe. ${esc(d.fase)}.</p>`,false);
+ return `<div class="cards cards-controle">${cards}</div>${vazio}${graficos}${tabela}`;
+}
+
+/* ── MENU LATERAL EM GRUPOS ────────────────────────────────────────────────
+   O grupo da tela ativa fica sempre aberto; os outros lembram o último estado
+   neste aparelho. Setas percorrem o menu; no celular e no tablet (até 900px)
+   o menu vira um painel que empurra o conteúdo, sem cobri-lo. */
+const MENU_KEY='dre_menu_grupos';
+function lerGruposMenu(){try{return JSON.parse(localStorage.getItem(MENU_KEY))||{};}catch(_){return {};}}
+function sincronizarMenu(){
+ if(typeof document==='undefined'||typeof document.querySelector!=='function')return;
+ const ativo=document.querySelector(`#viewTabs [data-view="${state.view}"]`);const grupo=ativo?.closest?.('details.nav-grupo');if(grupo&&!grupo.open)grupo.open=true;
+}
+// foco: 'titulo' depois de escolher uma tela, 'botao' ao fechar com Esc. Só no
+// modo celular/tablet (botão Menu visível): no computador o menu nunca some.
+function abrirMenuCelular(abrir,foco=''){
+ const lateral=document.querySelector('.sidebar'),botao=document.getElementById('menuToggle');if(!lateral||!botao)return;
+ const modoCelular=botao.offsetParent!==null;
+ lateral.classList.toggle('menu-aberto',abrir);botao.setAttribute('aria-expanded',abrir?'true':'false');
+ if(abrir||!foco||!modoCelular)return;
+ requestAnimationFrame(()=>{const ativo=document.activeElement;if(ativo&&ativo!==document.body&&!ativo.closest?.('.menu-lateral'))return;
+  const titulo=document.getElementById('pageTitle');(foco==='titulo'&&titulo?titulo:botao).focus({preventScroll:false});});
+}
+function wireMenuLateral(){
+ const nav=document.getElementById('viewTabs');if(!nav)return;const salvo=lerGruposMenu();
+ nav.querySelectorAll('details.nav-grupo').forEach(d=>{
+  if(salvo[d.dataset.grupo]===false)d.open=false;
+  d.addEventListener('toggle',()=>{const atual=lerGruposMenu();atual[d.dataset.grupo]=d.open;try{localStorage.setItem(MENU_KEY,JSON.stringify(atual));}catch(_){}});
+ });
+ sincronizarMenu();
+ nav.addEventListener('keydown',e=>{
+  if(!['ArrowDown','ArrowUp','Home','End'].includes(e.key))return;
+  const itens=[...nav.querySelectorAll('summary, details[open] > button')].filter(el=>el.offsetParent!==null);const i=itens.indexOf(document.activeElement);if(i<0)return;
+  e.preventDefault();const alvo=e.key==='Home'?0:e.key==='End'?itens.length-1:Math.min(itens.length-1,Math.max(0,i+(e.key==='ArrowDown'?1:-1)));itens[alvo].focus();
+ });
+ const botao=document.getElementById('menuToggle');document.getElementById('pageTitle')?.setAttribute('tabindex','-1');
+ if(botao)botao.addEventListener('click',()=>abrirMenuCelular(botao.getAttribute('aria-expanded')!=='true'));
+ document.querySelector('.sidebar')?.addEventListener('click',e=>{const alvo=e.target.closest?.('[data-view], #settingsBtn, #helpBtn');if(alvo)abrirMenuCelular(false,'titulo');});
+ document.addEventListener('keydown',e=>{if(e.key!=='Escape'||!botao||botao.getAttribute('aria-expanded')!=='true')return;abrirMenuCelular(false,'botao');});
+}
+if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',wireMenuLateral);
+

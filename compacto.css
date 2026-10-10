@@ -48,3 +48,69 @@
 .period-compare>summary{cursor:pointer;border:1px solid var(--line);border-radius:18px;padding:6px 11px;background:var(--surface)}
 .period-compare>label{position:absolute;right:0;top:100%;z-index:5;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px;box-shadow:0 3px 12px #152e591a}
 @media(max-width:700px){.month-chips{order:3;flex-basis:100%;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));min-width:0}.month-chips button{padding:5px 2px;min-height:40px;font-size:12px}.period-compare{margin-left:auto}.period #yearSelect{min-height:40px}.period-compare>label{min-width:240px;flex-direction:column;align-items:stretch}}
+
+/* ── MENU LATERAL EM GRUPOS (Fase 1, 10/10/2026) ───────────────────────────
+   Computador: a lateral da Central do Léo, agora com quatro grupos
+   recolhíveis. Até 900px: barra com botão "Menu"; o menu abre empurrando o
+   conteúdo para baixo, sem cobri-lo. Também corrige o tablet (701–900px), em
+   que a lateral virava um bloco de 218px e o conteúdo começava no meio da tela. */
+.menu-toggle,#appShell>.sidebar .menu-toggle{display:none}
+.menu-lateral{display:contents}
+.nav-grupo{margin:0 0 6px}
+.nav-grupo>summary{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:30px;padding:8px 10px 4px;border-radius:8px;cursor:pointer;list-style:none;color:var(--muted);font:650 11px/1.2 var(--font-ui);letter-spacing:.08em;text-transform:uppercase;user-select:none}
+.nav-grupo>summary::-webkit-details-marker{display:none}
+.nav-grupo>summary::after{content:'▾';font-size:11px;letter-spacing:0;transition:transform .15s}
+.nav-grupo:not([open])>summary::after{transform:rotate(-90deg)}
+.nav-grupo>summary:hover{color:var(--text)}
+.nav-grupo>summary:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+@media (prefers-reduced-motion:reduce){.nav-grupo>summary::after{transition:none}}
+@media (pointer:coarse){.nav-grupo>summary{min-height:44px}}
+@media(max-width:900px){
+ #appShell>.sidebar{position:static;inset:auto;width:100%;height:auto;max-height:none;overflow:visible;display:flex;flex-direction:row;flex-wrap:wrap;align-items:center;justify-content:flex-start;gap:0;padding:8px 12px;border-right:0;border-bottom:1px solid var(--line);background:var(--surface)}
+ #appShell>.workspace{margin-left:0}
+ #appShell>.sidebar .brand{display:none}
+ .menu-toggle,#appShell>.sidebar .menu-toggle{display:inline-flex;width:auto;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--text);font:600 14px/1 var(--font-ui)}
+ .menu-toggle[aria-expanded="true"]{background:var(--selected);color:var(--blue);border-color:var(--blue)}
+ .menu-lateral{display:none;flex-basis:100%;padding-top:10px}
+ .sidebar.menu-aberto .menu-lateral{display:block;width:100%}
+ #appShell>.sidebar nav#viewTabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:2px 14px;overflow:visible}
+ #appShell>.sidebar nav#viewTabs button{width:100%;justify-content:flex-start;flex:none;min-height:44px;font-size:14px;white-space:normal}
+ #appShell>.sidebar nav#viewTabs button .ic{display:flex}
+ #appShell>.sidebar .sidebar-bottom{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-start;padding:8px 0 4px;margin-top:6px;border-top:1px solid var(--line)}
+ #appShell>.sidebar .sidebar-bottom button{width:auto;min-height:44px}
+}
+
+/* ── TELAS DOS SEIS CONTROLES · esqueleto sem cálculo ───────────────────── */
+.cards-controle{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:0;margin:14px 0;border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden}
+.cards-controle .metric-vazio{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:14px 16px;border:0;border-right:1px solid var(--line);border-bottom:1px solid var(--line);border-radius:0;background:transparent;box-shadow:none;margin:-1px -1px 0 0}
+.cards-controle .metric-vazio .label{font-size:12px;font-weight:600;color:var(--muted)}
+.cards-controle .metric-vazio strong{font-size:22px;line-height:1.2;font-weight:650;color:var(--muted);font-variant-numeric:tabular-nums}
+.cards-controle .metric-vazio small{font-size:12px;line-height:1.45;color:var(--text)}
+.origem-dado{display:inline-block;margin-top:2px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:var(--bg);color:var(--muted)}
+.origem-dado.origem-c,.origem-dado.origem-d{background:color-mix(in srgb,var(--amber) 12%,var(--surface));color:var(--amber)}
+.link-cadastro{margin-top:2px;padding:0;min-height:32px;border:0;background:none;color:var(--blue);font-size:12px;font-weight:600;cursor:pointer;text-align:left}
+.link-cadastro:hover{text-decoration:underline}
+@media (max-width:900px),(pointer:coarse){.link-cadastro{min-height:44px;display:inline-flex;align-items:center}}
+.origem-dado.origem-e{background:var(--selected);color:var(--blue)}
+#pageTitle:focus{outline:none}#pageTitle:focus-visible{outline:2px solid var(--blue);outline-offset:4px;border-radius:4px}
+.tabela-controle td.nao-apurado{color:var(--muted)}
+.estado-vazio{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 20px;margin:0 0 14px;padding:14px 16px;border:1px dashed var(--line);border-radius:12px;background:var(--surface)}
+.estado-vazio h2{margin:0 0 6px;font-size:15px}
+.estado-vazio dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0;font-size:13px;line-height:1.5}
+.estado-vazio dt{font-weight:650;color:var(--muted)}
+.estado-vazio dd{margin:0}
+.estado-vazio button{min-height:40px}
+.fase-chip{display:inline-block;margin-left:4px;padding:1px 8px;border-radius:999px;background:var(--selected);color:var(--blue);font-size:11px;font-weight:650}
+.graficos-controle{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:14px;margin-bottom:14px}
+.graficos-controle .chart-card{margin:0}
+.grafico-reservado{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:180px;margin-top:8px;border:1px dashed var(--line);border-radius:10px;background:repeating-linear-gradient(135deg,transparent 0 10px,color-mix(in srgb,var(--line) 35%,transparent) 10px 11px);text-align:center;padding:12px}
+.grafico-reservado span{font-size:13px;font-weight:650;color:var(--muted)}
+.grafico-reservado small{max-width:34ch;font-size:12px;line-height:1.45;color:var(--muted)}
+.tabela-controle{width:100%;border-collapse:collapse;font-size:13px}
+.tabela-controle th,.tabela-controle td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+.tabela-controle .num{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+@media(max-width:600px){
+ .estado-vazio dl{grid-template-columns:1fr}
+ .estado-vazio dt{margin-top:4px}
+ .grafico-reservado{min-height:140px}
+}
