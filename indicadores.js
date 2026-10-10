@@ -1,4 +1,4 @@
-import * as M from './indicadores-modelo.mjs?v=104';
+import * as M from './indicadores-modelo.mjs?v=105';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const br=v=>v==null?'Não informado':Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const data=s=>s?new Date(s.length===10?s+'T12:00:00':s).toLocaleString('pt-BR',s.length===10?{dateStyle:'short'}:{dateStyle:'short',timeStyle:'short'}):'Não registrada';

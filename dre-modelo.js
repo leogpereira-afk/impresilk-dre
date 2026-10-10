@@ -63,7 +63,10 @@ var DREModelo=(()=>{
 var DRECompetencia=(()=>{
  const campo='demonstrativosCompetencia';
  const obter=(cfg,id)=>cfg?.[campo]?.meses?.[id]||null;
- const igual=(a,b)=>JSON.stringify(a||null)===JSON.stringify(b||null);
+ // O jsonb devolve as chaves em outra ordem: compara com chaves ordenadas em
+ // todos os níveis. A ordem dos itens de uma lista continua contando.
+ const canon=v=>Array.isArray(v)?v.map(canon):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canon(v[k])])):v;
+ const igual=(a,b)=>JSON.stringify(canon(a||null))===JSON.stringify(canon(b||null));
  async function salvar({api,admin,id,original,registro}){
   if(!admin)throw new Error('A gravação da competência exige acesso de administração.');
   if(!/^(Jan|Fev|Mar|Abr|Mai|Jun|Jul|Ago|Set|Out|Nov|Dez)_\d{4}$/.test(id)||id!==registro.label.replace('/','_'))throw new Error('Período inválido.');
