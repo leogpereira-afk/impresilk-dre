@@ -1,0 +1,149 @@
+/* ══ BIBLIOTECA DE GRÁFICOS (Fase 1.5, 10/10/2026) ══════════════════════
+   Tokens dos dois temas e o desenho das funções g* de graficos.js.
+   Cores com significado fixo no sistema inteiro: entrada (azul), saída
+   (vermelho), resultado/neutro, atenção e risco. Séries sem significado
+   próprio usam a cor da marca e duas neutras bem separadas (no máximo três
+   identidades por gráfico; o excedente vira "Outros"). Escalas ordenadas
+   (risco do aging, heatmap) são de uma tonalidade só, do claro ao escuro.
+   Todas as cores foram validadas (luminosidade, separação para daltonismo,
+   contraste) contra as superfícies reais: #ffffff no claro, #192235 no escuro.
+   Texto nunca usa a cor da série: valores e rótulos usam --g-texto/--g-texto-2. */
+:root{
+ --g-entrada:#2f62d0;--g-saida:#c7424c;--g-resultado:#5b6a86;--g-atencao:#b7790f;--g-risco:#c7424c;
+ --g-marca:#284ac7;--g-serie-2:#a4aec0;--g-serie-3:#4b5872;--g-outros:#cdd3dd;--g-avencer:#a4aec0;
+ --g-risco-1:#e88a85;--g-risco-2:#da5f5a;--g-risco-3:#c13e39;--g-risco-4:#6e1d1a;
+ --g-seq-1:#cde2fb;--g-seq-2:#86b6ef;--g-seq-3:#3987e5;--g-seq-4:#1c5cab;--g-seq-5:#0d366b;
+ --g-faixa-1:#e9edf3;--g-faixa-2:#d7dde7;--g-faixa-3:#c3cbd8;
+}
+/* apelidos das cores do app: ficam no body, onde o body.dark troca --text/--muted;
+   no :root eles seriam resolvidos uma vez só, com a cor do tema claro */
+body{
+ --g-superficie:var(--surface,#fff);--g-texto:var(--text,#28344c);--g-texto-2:var(--muted,#5f6c81);--g-grade:var(--line,#e0e5ee);
+ --g-hachura:repeating-linear-gradient(135deg,color-mix(in srgb,var(--g-texto-2) 38%,transparent) 0 1.5px,transparent 1.5px 6px);
+}
+body.dark{
+ --g-entrada:#3987e5;--g-saida:#e66767;--g-resultado:#b3bdd0;--g-atencao:#e0a93a;--g-risco:#e66767;
+ --g-marca:#3987e5;--g-serie-2:#4f5a72;--g-serie-3:#a9b4c8;--g-outros:#3a4459;--g-avencer:#5b6680;
+ --g-risco-1:#b84a47;--g-risco-2:#d5605c;--g-risco-3:#f4a29e;--g-risco-4:#fcc8c5;
+ --g-seq-1:#1c5cab;--g-seq-2:#2a78d6;--g-seq-3:#5598e7;--g-seq-4:#86b6ef;--g-seq-5:#cde2fb;
+ --g-faixa-1:#222c41;--g-faixa-2:#2b3650;--g-faixa-3:#36425e;
+}
+
+/* cores de marca por papel: uma classe, um significado */
+.g-cor-entrada{fill:var(--g-entrada);background:var(--g-entrada);stroke:var(--g-entrada)}
+.g-cor-saida{fill:var(--g-saida);background:var(--g-saida);stroke:var(--g-saida)}
+.g-cor-resultado{fill:var(--g-resultado);background:var(--g-resultado);stroke:var(--g-resultado)}
+.g-cor-atencao{fill:var(--g-atencao);background:var(--g-atencao);stroke:var(--g-atencao)}
+.g-cor-marca,.g-cor-serie-1{fill:var(--g-marca);background:var(--g-marca);stroke:var(--g-marca)}
+.g-cor-serie-2{fill:var(--g-serie-2);background:var(--g-serie-2);stroke:var(--g-serie-2)}
+.g-cor-serie-3{fill:var(--g-serie-3);background:var(--g-serie-3);stroke:var(--g-serie-3)}
+.g-cor-outros{fill:var(--g-outros);background:var(--g-outros);stroke:var(--g-outros)}
+.g-cor-avencer{fill:var(--g-avencer);background:var(--g-avencer)}
+.g-cor-risco-1{fill:var(--g-risco-1);background:var(--g-risco-1)}
+.g-cor-risco-2{fill:var(--g-risco-2);background:var(--g-risco-2)}
+.g-cor-risco-3{fill:var(--g-risco-3);background:var(--g-risco-3)}
+.g-cor-risco-4{fill:var(--g-risco-4);background:var(--g-risco-4)}
+.g-cor-seq-1{fill:var(--g-seq-1);background:var(--g-seq-1)}
+.g-cor-seq-2{fill:var(--g-seq-2);background:var(--g-seq-2)}
+.g-cor-seq-3{fill:var(--g-seq-3);background:var(--g-seq-3)}
+.g-cor-seq-4{fill:var(--g-seq-4);background:var(--g-seq-4)}
+.g-cor-seq-5{fill:var(--g-seq-5);background:var(--g-seq-5)}
+
+/* figura: SVG para as formas (escala livre), HTML para o texto (tamanho fixo) */
+.g-fig{container-type:inline-size;position:relative;margin:8px 0 0;font-family:var(--font-ui,inherit);color:var(--g-texto)}
+.g-plot{position:relative;width:100%;outline:none;border-radius:8px}
+.g-plot:focus-visible{box-shadow:0 0 0 2px var(--g-superficie),0 0 0 4px var(--blue,#284ac7)}
+.g-area{position:relative;margin:0 0 0 46px}
+.g-svg{display:block;width:100%;height:100%;overflow:visible}
+.g-svg .g-grade-linha{stroke:var(--g-grade);stroke-width:1}
+.g-svg .g-base{stroke:var(--g-texto-2);stroke-width:1}
+.g-svg .g-linha{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.g-svg .g-area-preenchida{opacity:.12;stroke:none}
+.g-svg .g-ligacao{stroke:var(--g-texto-2);stroke-width:1;stroke-dasharray:3 3;opacity:.7}
+.g-svg .g-marca-dado{stroke:var(--g-superficie);stroke-width:2;paint-order:stroke}
+.g-svg .g-alvo{fill:transparent;cursor:pointer}
+.g-svg .g-alvo:hover,.g-svg .g-alvo.g-ativo{fill:color-mix(in srgb,var(--g-texto-2) 10%,transparent)}
+.g-svg .g-marca-dado.g-ativo,.g-svg [data-dica]:not(.g-alvo).g-ativo{filter:brightness(1.12)}
+.g-rotulos{position:absolute;inset:0;pointer-events:none}
+.g-rot{position:absolute;font-size:11px;line-height:1.2;color:var(--g-texto-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+.g-rot-forte{color:var(--g-texto);font-weight:600;font-size:12px}
+.g-rot-y{left:-46px;width:40px;text-align:right;transform:translateY(-50%)}
+.g-rot-x{top:100%;padding-top:6px;transform:translateX(-50%);text-align:center}
+.g-rot-x.g-selecionado{color:var(--g-texto);font-weight:650}
+.g-ponto{position:absolute;width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;border:2px solid var(--g-superficie);box-sizing:border-box}
+.g-sem-dado{position:absolute;top:0;bottom:0;background:var(--g-hachura);border-radius:3px;pointer-events:none}
+.g-aviso{display:flex;align-items:center;justify-content:center;min-height:120px;border:1px dashed var(--g-grade);border-radius:10px;background:var(--g-hachura);color:var(--g-texto-2);font-size:13px;text-align:center;padding:12px}
+
+/* alturas e folgas: rótulos de valor acima das barras e meses abaixo do eixo */
+.g-cartesiano .g-plot{padding:22px 0 26px}
+.g-cascata .g-area,.g-empilhadas .g-area{height:220px}
+.g-linha-area .g-area{height:200px}
+.g-svg .g-faixa-1{fill:var(--g-faixa-1)}.g-svg .g-faixa-2{fill:var(--g-faixa-2)}.g-svg .g-faixa-3{fill:var(--g-faixa-3)}
+.g-svg .g-meta{stroke:var(--g-texto);stroke-width:2}
+.g-chave-meta{background:var(--g-texto)}
+.g-heat .g-sem-dado-cel{background:var(--g-hachura)}
+@container (max-width:520px){.g-cascata .g-area,.g-empilhadas .g-area,.g-linha-area .g-area{height:180px}}
+
+/* legenda: a chave carrega a cor; o texto fica na cor de texto */
+.g-legenda{display:flex;flex-wrap:wrap;gap:6px 16px;margin:12px 0 0;font-size:12px;color:var(--g-texto-2)}
+.g-leg{display:inline-flex;align-items:center;gap:6px}
+.g-chave{display:inline-block;width:10px;height:10px;border-radius:3px;flex:0 0 auto}
+.g-chave-linha{width:14px;height:2px;border-radius:1px}
+.g-chave.g-chave-sem-dado{background:var(--g-hachura);border:1px solid var(--g-grade)}
+.g-leg b{color:var(--g-texto);font-weight:650;font-variant-numeric:tabular-nums}
+
+/* dica por toque, teclado e mouse: valor forte, rótulo secundário */
+.g-dica{position:absolute;z-index:20;max-width:min(280px,90%);padding:8px 10px;border:1px solid var(--g-grade);border-radius:8px;background:var(--g-superficie);color:var(--g-texto);font-size:12px;line-height:1.45;box-shadow:0 6px 18px #0f1b3a24;pointer-events:none;white-space:pre-line}
+.g-dica[hidden]{display:none}
+
+/* tabela com a mesma informação, para quem quiser o detalhe */
+.g-tabela{margin-top:8px;font-size:12px}
+.g-tabela>summary{cursor:pointer;color:var(--g-texto-2);min-height:32px;display:inline-flex;align-items:center}
+.g-tab{width:100%;border-collapse:collapse;margin-top:4px}
+.g-tab th,.g-tab td{padding:5px 8px;border-bottom:1px solid var(--g-grade);text-align:left}
+.g-tab .num{text-align:right;font-variant-numeric:tabular-nums}
+
+/* formas horizontais (barras ordenadas, 100%, bullet, ciclo, heatmap) */
+.g-linhas{display:grid;gap:6px}
+.g-linha-h{display:grid;grid-template-columns:minmax(90px,30%) 1fr;align-items:center;gap:10px}
+.g-linha-h .g-nome{font-size:12px;color:var(--g-texto);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-trilho{position:relative;height:22px}
+.g-trilho .g-svg{height:22px}
+/* espaço fixo no fim do trilho: o valor da ponta nunca é cortado, nem no celular */
+.g-barras .g-trilho,.g-ciclo .g-trilho{margin-right:76px}
+.g-valor-ponta{position:absolute;top:50%;transform:translateY(-50%);padding-left:6px;font-size:11px;color:var(--g-texto);font-variant-numeric:tabular-nums;white-space:nowrap}
+.g-cem-barra{position:relative;height:28px}
+.g-cem-barra .g-svg{height:28px}
+.g-rot-dentro{position:absolute;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:650;white-space:nowrap}
+.g-rot-dentro.g-claro{color:#fff}
+.g-rot-dentro.g-escuro{color:#1b2333}
+.g-heat-grade{display:grid;gap:2px;align-items:center}
+.g-heat .g-celula{height:24px;border-radius:3px;cursor:pointer}
+.g-heat .g-celula.g-ativo{outline:2px solid var(--g-texto);outline-offset:-2px}
+.g-heat .g-cab{font-size:11px;color:var(--g-texto-2);text-align:center}
+.g-resumo-estreito{display:none;margin:12px 0 0;font-size:12px;color:var(--g-texto-2)}
+.g-resumo-estreito b{color:var(--g-texto);font-variant-numeric:tabular-nums}
+.g-heat .g-nome{font-size:12px;padding-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-escala{display:inline-flex;gap:2px;vertical-align:middle}
+.g-escala i{width:14px;height:10px;border-radius:2px}
+.g-spark{display:inline-block;position:relative;width:100%;max-width:140px;height:28px;vertical-align:middle}
+.g-spark .g-svg{height:28px}
+.g-spark .g-ponto{width:8px;height:8px;margin:-4px 0 0 -4px}
+
+/* entrada curta e discreta; nada se move para quem pediu menos movimento */
+@keyframes g-surge{from{opacity:0}to{opacity:1}}
+.g-svg .g-marca-dado,.g-svg .g-linha,.g-heat .g-celula,.g-ponto{animation:g-surge .18s ease-out}
+@media (prefers-reduced-motion:reduce){.g-svg .g-marca-dado,.g-svg .g-linha,.g-heat .g-celula,.g-ponto{animation:none}}
+
+/* no celular: menos rótulos, nunca fonte menor */
+@container (max-width:520px){
+ .g-opcional{display:none}
+ /* célula da grade nunca some (senão as outras andam de lugar): só o texto fica invisível */
+ .g-heat .g-cab-impar{visibility:hidden}
+ .g-resumo-estreito{display:block}
+ .g-area{margin-left:40px}
+ .g-rot-y{left:-40px;width:36px}
+ .g-linha-h{grid-template-columns:minmax(72px,34%) 1fr}
+}
+@media print{.g-dica{display:none}.g-tabela{display:block}.g-tabela[open]>*{display:block}}
+@media (forced-colors:active){.g-svg .g-marca-dado{stroke:CanvasText}.g-sem-dado,.g-aviso{background:none;border:1px dashed CanvasText}}
