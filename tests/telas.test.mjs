@@ -54,18 +54,33 @@ test('telas novas seguem a ordem cards, gráficos e tabela fechada, sem número 
 test('carregar os scripts sem DOM continua possível (menu só liga no navegador)',()=>{
  const c=context();assert.equal(c.run("typeof wireMenuLateral"),'function');assert.doesNotThrow(()=>c.run('sincronizarMenu()'));
 });
-test('cada card aponta para onde se resolve o que falta, e nenhum promete cadastro que a fase não faz',()=>{
+test('cada card aponta para onde se resolve o que falta, e nenhum promete cadastro que Parâmetros não tem',()=>{
  const c=context();
  const cards=v=>[...c.run(`renderControle(${JSON.stringify(v)})`).matchAll(/<div class="metric metric-vazio"><span class="label">([^<]+)<\/span>[\s\S]*?class="origem-dado origem-([a-e])"[\s\S]*?<\/div>/g)].map(m=>({rotulo:m[1],origem:m[2],link:(m[0].match(/data-go="([a-z]+)"/)||[])[1]||null}));
  for(const v of novas)for(const k of cards(v)){
   if(k.origem==='b')assert.ok(['detalhe','parametros'].includes(k.link),v+' '+k.rotulo+': mapeamento leva ao Plano de contas');
-  if(k.origem==='d'&&v!=='parametros')assert.equal(k.link,'parametros',v+' '+k.rotulo+': cadastro leva a Parâmetros');
+  if(k.origem==='d'&&v!=='parametros'&&k.rotulo!=='Patrimônio líquido')assert.equal(k.link,'parametros',v+' '+k.rotulo+': cadastro leva a Parâmetros');
   if(k.origem==='e')assert.equal(k.link,null,v+' '+k.rotulo+': valor calculado não tem cadastro');
  }
  assert.equal(cards('dfc').find(k=>k.rotulo.startsWith('Caixa da operação')).link,'detalhe');
  assert.deepEqual(cards('balanco').find(k=>k.rotulo==='Diferença do fechamento'),{rotulo:'Diferença do fechamento',origem:'e',link:null});
+ assert.deepEqual(cards('balanco').find(k=>k.rotulo==='Patrimônio líquido'),{rotulo:'Patrimônio líquido',origem:'d',link:null},'Parâmetros não tem campo de patrimônio (Fase 8): sem link de cadastro');
  assert.equal(cards('recebiveis').find(k=>k.rotulo==='Acima de 90 dias').origem,'c','a faixa vem dos títulos do Painel; só a PDD é cadastro');
  for(const v of novas)assert.doesNotMatch(c.run(`renderControle(${JSON.stringify(v)})`),/class="primary" data-go="parametros"/,v+': sem botão principal para uma tela que ainda não cadastra');
+});
+test('Parâmetros já existe: links e próximos passos falam no presente, sem prometer a Fase 2',()=>{
+ const c=context();
+ for(const v of ['dfc','balanco','giro','recebiveis','precos']){
+  const h=c.run(`renderControle(${JSON.stringify(v)})`);
+  assert.doesNotMatch(h,/será cadastrado|entra com o cadastro|\(Fase 2\)|Fase 2\b/,v+': nada de cadastro no futuro');
+  assert.match(h,/<button type="button" data-go="parametros">Cadastrar em Parâmetros<\/button><\/section>/,v+': botão do estado vazio leva ao cadastro');
+ }
+ assert.match(c.run("renderControle('dfc')"),/class="link-cadastro" data-go="parametros">Cadastrar em Parâmetros →<\/button>/);
+ const passo=v=>c.run(`renderControle(${JSON.stringify(v)})`).match(/<dt>Próximo passo<\/dt><dd>([^<]+)/)[1].trim();
+ assert.match(passo('dfc'),/^Fase 4: .*o saldo inicial informado em Parâmetros será usado quando esta tela ganhar cálculo\.$/);
+ assert.match(passo('giro'),/^Fase 6: .*o estoque informado em Parâmetros será usado quando esta tela ganhar cálculo\.$/);
+ assert.match(passo('recebiveis'),/^Fase 5: .*a provisão acima de 90 dias informada em Parâmetros será usada quando esta tela ganhar cálculo\.$/);
+ assert.match(passo('precos'),/^Fase 7: .*a alíquota efetiva de Parâmetros será usada quando esta tela ganhar cálculo\.$/);
 });
 test('tabelas têm o rótulo da linha na primeira coluna e só números alinhados como número',()=>{
  const c=context();const h=c.run("renderControle('parametros')");

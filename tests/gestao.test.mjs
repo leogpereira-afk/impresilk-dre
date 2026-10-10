@@ -14,3 +14,32 @@ test('PDF de contas contém só o recorte, filtros e comparação, sem relatóri
 
 test('histórico mensal mostra bases distintas com identificação sem alterar o acumulado',()=>{const c=context();const html=c.run(`gestaoUI.serie='entradas';state.periodo='Fev/2026';state.records=['Jan','Fev'].map((m,i)=>({label:m+'/2026',company:i?'Impresilk + Universo':'Impresilk',basis:'Caixa',cells:[{code:'1',value:100+i}]}));evolucaoCompacta()`);assert.match(html,/Jan\/2026/);assert.match(html,/Impresilk/);assert.match(html,/100,00/);assert.equal(c.run("acumularAno('1')[1].acumulado"),null);});
 test('cores de categorias são distintas e estáveis entre os dois gráficos',()=>{const c=context();const cores=c.run("['2.14','2.1','2.12','2.2','2.6'].map(id=>corCategoria(id))");assert.equal(new Set(cores).size,5);assert.equal(c.run("corCategoria('2.1',4)"),c.run("corCategoria('2.1',0)"));});
+
+// Ordem de chaves do jsonb do Postgres: por tamanho, depois por bytes.
+const jsonb=v=>Array.isArray(v)?v.map(jsonb):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort((a,b)=>a.length-b.length||(a<b?-1:a>b?1:0)).map(k=>[k,jsonb(v[k])])):v;
+// Nuvem simulada: getCfg devolve o cfg na ordem do jsonb; setCfg recusa base velha.
+function nuvem(c){const n={cfg:{},em:'t0',writes:0};c.api=async(a,b)=>{if(a==='getCfg')return {ok:true,cfg:jsonb(structuredClone(n.cfg)),atualizadoEm:n.em};if(b.baseAtualizadoEm!==n.em)return {conflito:true};n.cfg=structuredClone(b.cfg);n.em+='+';n.writes++;return {ok:true,atualizadoEm:n.em};};return n;}
+test('salvar de novo na mesma sessão não acusa conflito só porque o jsonb reordenou as chaves',async()=>{
+ const c=context();const n=nuvem(c);
+ // Revisão de ação usa o original padrão; orçamento e cenário, uma cópia do state.cfg depois da gravação.
+ await c.run("salvarGestao('acao:Fev_2026:1',{titulo:'Conferência',situacao:'Resolvida',responsavel:'Ana',notas:'Conferido'})");
+ await c.run("salvarGestao('acao:Fev_2026:1',{titulo:'Conferência',situacao:'Em análise',responsavel:'Ana',notas:'Nova evidência'})");
+ await c.run("salvarGestao('orcamento:Fev_2026',{entradas:1000,saidas:800,variacao:200,fonte:'Reunião'})");
+ await c.run("salvarGestao('orcamento:Fev_2026',{entradas:1000,saidas:700,variacao:300,fonte:'Reunião'},structuredClone(state.cfg.gestao['orcamento:Fev_2026']))");
+ // O plano passa o item devolvido como original, com objetos dentro da lista de movimentos.
+ c.base=await c.run("salvarGestao('plano',{saldo:1000,reserva:200,inicio:'2026-02-01',cenario:1,movimentos:[{descricao:'Aluguel',valor:-500,data:'2026-02-10'}]})");
+ await c.run("salvarGestao('plano',{...base,saldo:900},base)");
+ assert.equal(n.writes,6);assert.equal(n.cfg.gestao.historico.length,6);
+ assert.equal(n.cfg.gestao['acao:Fev_2026:1'].situacao,'Em análise');assert.equal(n.cfg.gestao['orcamento:Fev_2026'].saidas,700);assert.equal(n.cfg.gestao.plano.saldo,900);
+});
+test('mudança de verdade na nuvem continua recusada, inclusive a ordem dos itens de uma lista',async()=>{
+ const c=context();const n=nuvem(c);
+ await c.run("salvarGestao('alertas',{horas:24,variacao:500})");
+ n.cfg.gestao.alertas.horas=48;n.em+='*';
+ await assert.rejects(c.run("salvarGestao('alertas',{horas:12,variacao:500})"),/mudou na nuvem/);
+ c.run("state.cfg.gestao.alertas.horas=48");
+ await c.run("salvarGestao('plano',{saldo:1000,movimentos:[{descricao:'Aluguel',valor:-500},{descricao:'Luz',valor:-80}]})");
+ n.cfg.gestao.plano.movimentos.reverse();n.em+='*';
+ await assert.rejects(c.run("salvarGestao('plano',{saldo:900,movimentos:[]})"),/mudou na nuvem/);
+ assert.equal(n.writes,2);assert.equal(n.cfg.gestao.alertas.horas,48);assert.equal(n.cfg.gestao.plano.movimentos[0].descricao,'Luz');
+});

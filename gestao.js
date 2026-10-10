@@ -27,13 +27,18 @@ function gravarRota(){
 }
 if(typeof window!=='undefined')window.addEventListener('popstate',()=>{restaurarRota();render();});
 function carregarGestao(){if(!planoSujo){planoBase=structuredClone(state.cfg?.gestao?.plano??null);plano=planoBase?structuredClone(planoBase):{saldo:'',reserva:0,inicio:new Date().toLocaleDateString('sv-SE'),cenario:1,movimentos:[]};}}
+// Comparação que não depende da ordem das chaves: o jsonb do Postgres devolve
+// as chaves em outra ordem (por tamanho), e isso não é mudança de ninguém.
+// A ordem dos itens de uma lista continua contando.
+const gestaoCanon=v=>Array.isArray(v)?v.map(gestaoCanon):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,gestaoCanon(v[k])])):v;
+const gestaoIgual=(a,b)=>JSON.stringify(gestaoCanon(a??null))===JSON.stringify(gestaoCanon(b??null));
 async function salvarGestao(chave,valor,original=state.cfg?.gestao?.[chave]??null){
  if(!state.permissoes.admin)throw new Error('É necessário acesso administrativo para salvar planejamento e revisões.');
  if(gestaoSaving)throw new Error('Aguarde a gravação em andamento.');
  const sessao=STORE_KEY;gestaoSaving=true;
  try{
   const r=await api('getCfg');if(!r.ok)throw new Error('Não foi possível ler a versão compartilhada.');
-  const atual=r.cfg?.gestao?.[chave]??null;if(JSON.stringify(atual)!==JSON.stringify(original))throw new Error('Este planejamento mudou na nuvem. Sua edição continua aberta. Leia a base e confira antes de salvar.');
+  const atual=r.cfg?.gestao?.[chave]??null;if(!gestaoIgual(atual,original))throw new Error('Este planejamento mudou na nuvem. Sua edição continua aberta. Leia a base e confira antes de salvar.');
   const atualizadoEm=new Date().toISOString();const item={...valor,atualizadoEm};
   const cfg={...r.cfg,gestao:{...r.cfg?.gestao,[chave]:item,historico:[...(r.cfg?.gestao?.historico||[]),{chave,em:atualizadoEm,anterior:atual,novo:item}]}};
   const saved=await api('setCfg',{cfg,baseAtualizadoEm:r.atualizadoEm||null});if(!saved.ok)throw new Error(saved.conflito?'As configurações mudaram durante a gravação. Sua edição continua aberta.':'Gravação não confirmada: '+(saved.erro||'tente novamente.'));
@@ -115,8 +120,9 @@ function wireGestao(){
 const ORIGEM_CONTROLE={a:'Dado já existe nos meses coletados',b:'Falta mapear contas do plano',c:'O Painel já coleta; falta integrar',d:'Cadastro manual revisado',e:'Calculado a partir dos outros'};
 // Destino do link de cada card: onde a pessoa resolve o que falta. Cadastro
 // vai a Parâmetros; mapeamento de contas, ao Plano de contas; Painel e cálculo
-// não têm o que fazer agora, então não ganham link.
-const DESTINO_ORIGEM={d:['parametros','Ver o que será cadastrado em Parâmetros →'],b:['detalhe','Ver as contas no Plano de contas →']};
+// não têm o que fazer agora, então não ganham link. Cadastro que Parâmetros
+// ainda não tem (destino null, como o patrimônio da Fase 8) também não ganha.
+const DESTINO_ORIGEM={d:['parametros','Cadastrar em Parâmetros →'],b:['detalhe','Ver as contas no Plano de contas →']};
 const CONTROLES={
  dfc:{fase:'Fase 4',cards:[
    ['Caixa da operação (FCO)','Separar fornecedores, folha e as guias mensais do DAS (2.4.1.2 e 2.4.1.3) no plano de contas. O parcelamento (2.4.1.1) vai para financiamento.','b'],
@@ -126,11 +132,11 @@ const CONTROLES={
   graficos:[['Para onde foi o caixa em cada mês?','Barras empilhadas de operação, investimento e financiamento, com a linha do saldo acumulado.'],
    ['A operação se paga sozinha?','Linha do caixa da operação nos últimos 12 meses, com o mês selecionado marcado.']],
   tabela:['DFC mês a mês',['Linha','Mês selecionado','Acumulado no ano'],['Caixa da operação','Investimentos','Financiamentos','Geração de caixa','Saldo inicial','Saldo final'],[1,2]],
-  vazio:['O mapeamento das saídas em operação, investimento e financiamento, a marca das guias do DAS e o saldo inicial do mês.','Plano de contas do Mubisys, já coletado, e saldos bancários do Painel ou informados em Parâmetros.','Mapear as contas e ler os saldos do Painel; o saldo inicial informado entra com o cadastro de Parâmetros (Fase 2).']},
+  vazio:['O mapeamento das saídas em operação, investimento e financiamento, a marca das guias do DAS e o saldo inicial do mês.','Plano de contas do Mubisys, já coletado, e saldos bancários do Painel ou informados em Parâmetros.','Fase 4: mapear as contas e ler os saldos do Painel; o saldo inicial informado em Parâmetros será usado quando esta tela ganhar cálculo.']},
  balanco:{fase:'Fase 8',cards:[
    ['Ativo total','Caixa e contas a receber (Painel), estoque e imobilizado (cadastro).','c'],
    ['Passivo total','Fornecedores (Painel); empréstimos, tributos a recolher (DAS e DIFAL), parcelamento do DAS e salários a pagar (cadastro).','c'],
-   ['Patrimônio líquido','Capital e lucros acumulados em cadastro revisado.','d'],
+   ['Patrimônio líquido','Capital e lucros acumulados em cadastro revisado.','d',null],
    ['Diferença do fechamento','Ativo menos passivo e patrimônio. Aparece quando os três estiverem apurados e nunca é forçada a zero.','e']],
   graficos:[['Do que é feito o ativo?','Barras horizontais por grupo patrimonial, em ordem de valor.'],
    ['O balanço fecha?','Ativo contra passivo mais patrimônio, com a diferença destacada.']],
@@ -144,7 +150,7 @@ const CONTROLES={
   graficos:[['Quantos dias o dinheiro fica preso?','Linha do tempo com prazo de estoque, de recebimento e de pagamento, e o ciclo resultante destacado.'],
    ['A necessidade de giro está crescendo?','Linha com área dos últimos 12 meses, com o mês selecionado marcado.']],
   tabela:['Prazos e saldos por mês',['Mês','Estoque (dias)','Recebimento (dias)','Pagamento (dias)','Ciclo','NCG'],['Mês selecionado'],[1,2,3,4,5]],
-  vazio:['Contas a receber, fornecedores e estoque do fim de cada mês.','O Painel já guarda os títulos a receber e a pagar; o estoque entra por cadastro revisado.','Fase 6: integrar os títulos do Painel; o estoque informado entra com o cadastro de Parâmetros (Fase 2).']},
+  vazio:['Contas a receber, fornecedores e estoque do fim de cada mês.','O Painel já guarda os títulos a receber e a pagar; o estoque entra por cadastro revisado.','Fase 6: integrar os títulos do Painel; o estoque informado em Parâmetros será usado quando esta tela ganhar cálculo.']},
  recebiveis:{fase:'Fase 5',cards:[
    ['A receber','Títulos em aberto do Painel, com cliente e vencimento.','c'],
    ['Vencido','Mesma base: soma dos títulos com vencimento passado.','c'],
@@ -154,7 +160,7 @@ const CONTROLES={
    ['Quem concentra os atrasos?','Barras dos dez maiores títulos vencidos, por cliente.'],
    ['E o que eu devo, vence quando?','A mesma régua de faixas para as contas a pagar.']],
   tabela:['Títulos em aberto',['Tipo','Cliente','Vencimento','Dias','Faixa','Valor'],['A receber','A pagar'],[3,5]],
-  vazio:['Títulos a receber em aberto, com cliente e vencimento: a coleta do DRE só traz títulos pagos.','O Painel já guarda os títulos a receber e a pagar; esta tela vai ler essa base e mostrar a data do corte.','Fase 5: integrar os títulos do Painel; a política de provisão entra com o cadastro de Parâmetros (Fase 2).']},
+  vazio:['Títulos a receber em aberto, com cliente e vencimento: a coleta do DRE só traz títulos pagos.','O Painel já guarda os títulos a receber e a pagar; esta tela vai ler essa base e mostrar a data do corte.','Fase 5: integrar os títulos do Painel; a provisão acima de 90 dias informada em Parâmetros será usada quando esta tela ganhar cálculo.']},
  precos:{fase:'Fase 7',cards:[
    ['Margem de contribuição','Classificar as contas fixas e variáveis e informar a alíquota efetiva do Simples e os tributos pagos fora do DAS, como o DIFAL.','b','parametros'],
    ['Ponto de equilíbrio','Custos fixos divididos pelo índice de margem de contribuição.','b'],
@@ -163,7 +169,7 @@ const CONTROLES={
   graficos:[['Quanto falta vender para empatar?','Cruzamento da receita com o custo total, com o mês atual marcado e a distância em reais.'],
    ['Qual preço sustenta a margem?','Simulador: preço, margem, índice e faturamento necessário para empatar.']],
   tabela:['Margem por produto',['Produto','Preço médio','Custo variável','Tributos (Simples e DIFAL)','Comissão','Margem','Índice'],['Produtos','Serviços'],[1,2,3,4,5,6]],
-  vazio:['Separação entre custo fixo e variável, a alíquota efetiva do Simples, o DIFAL pago fora do DAS e, para margem por produto, preço e custo por O.S.','Plano de contas (já coletado), Parâmetros e as O.S. que o Painel já guarda.','Fase 7: classificar as contas fixas e variáveis; a alíquota entra com o cadastro de Parâmetros (Fase 2).']},
+  vazio:['Separação entre custo fixo e variável, a alíquota efetiva do Simples, o DIFAL pago fora do DAS e, para margem por produto, preço e custo por O.S.','Plano de contas (já coletado), Parâmetros e as O.S. que o Painel já guarda.','Fase 7: classificar as contas fixas e variáveis; a alíquota efetiva de Parâmetros será usada quando esta tela ganhar cálculo.']},
  parametros:{fase:'Fase 2',cards:[
    ['Anexo do Simples','Informar por empresa: Impresilk e Universo, as duas no Simples.','d'],
    ['RBT12','Receita bruta dos 12 meses anteriores, por empresa. O histórico do sistema começa em Dez/2025.','d'],
@@ -176,9 +182,9 @@ const CONTROLES={
 };
 function renderControle(id){
  const d=CONTROLES[id];if(!d)return '';const cadastro=id!=='parametros';
- const link=(origem,destino)=>{const [go,rotulo]=destino==='parametros'?DESTINO_ORIGEM.d:DESTINO_ORIGEM[origem]||[];return go&&go!==id?`<button type="button" class="link-cadastro" data-go="${go}">${esc(rotulo)}</button>`:'';};
+ const link=(origem,destino)=>{const [go,rotulo]=destino===null?[]:destino==='parametros'?DESTINO_ORIGEM.d:DESTINO_ORIGEM[origem]||[];return go&&go!==id?`<button type="button" class="link-cadastro" data-go="${go}">${esc(rotulo)}</button>`:'';};
  const cards=d.cards.map(([rotulo,falta,origem,destino])=>`<div class="metric metric-vazio"><span class="label">${esc(rotulo)}</span><strong>Não apurado</strong><small>${esc(falta)}</small><span class="origem-dado origem-${origem}">${esc(ORIGEM_CONTROLE[origem])}</span>${link(origem,destino)}</div>`).join('');
- const vazio=`<section class="estado-vazio" aria-label="O que falta nesta tela"><div><h2>Esta tela ainda não tem números</h2><dl><dt>O que falta</dt><dd>${esc(d.vazio[0])}</dd><dt>De onde virá</dt><dd>${esc(d.vazio[1])}</dd><dt>Próximo passo</dt><dd>${esc(d.vazio[2])} <span class="fase-chip">${esc(d.fase)}</span></dd></dl></div>${cadastro?'<button type="button" data-go="parametros">Ver o que será cadastrado em Parâmetros</button>':'<button type="button" disabled>Cadastro disponível na Fase 2</button>'}</section>`;
+ const vazio=`<section class="estado-vazio" aria-label="O que falta nesta tela"><div><h2>Esta tela ainda não tem números</h2><dl><dt>O que falta</dt><dd>${esc(d.vazio[0])}</dd><dt>De onde virá</dt><dd>${esc(d.vazio[1])}</dd><dt>Próximo passo</dt><dd>${esc(d.vazio[2])} <span class="fase-chip">${esc(d.fase)}</span></dd></dl></div>${cadastro?'<button type="button" data-go="parametros">Cadastrar em Parâmetros</button>':'<button type="button" disabled>Cadastro disponível na Fase 2</button>'}</section>`;
  const graficos=`<div class="graficos-controle">${d.graficos.map(([pergunta,desenho])=>painelGrafico(pergunta,desenho,`<div class="grafico-reservado" role="img" aria-label="${esc('Gráfico ainda sem dados: '+pergunta)}"><span>Sem dado</span><small>O desenho entra quando a fonte existir. Mês sem dado nunca aparece como zero.</small></div>`)).join('')}</div>`;
  const [titulo,cols,linhas,numericas=[]]=d.tabela;
  const tabela=card(titulo,`<div class="table-scroll"><table class="tabela-controle"><thead><tr>${cols.map((c,i)=>`<th scope="col"${numericas.includes(i)?' class="num"':''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>${linhas.map(l=>`<tr><th scope="row">${esc(l)}</th>${cols.slice(1).map((_,j)=>`<td class="${numericas.includes(j+1)?'num ':''}nao-apurado">Não apurado</td>`).join('')}</tr>`).join('')}</tbody></table></div><p class="hint">A mesma informação dos gráficos, para quem quiser o detalhe. ${esc(d.fase)}.</p>`,false);
