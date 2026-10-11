@@ -7,7 +7,7 @@ function view(){
  const c={document:{addEventListener(){},querySelectorAll:()=>[],querySelector:()=>null,getElementById:id=>elements[id]},
   localStorage:{getItem:k=>mem.has(k)?mem.get(k):null,setItem:(k,v)=>mem.set(k,String(v)),removeItem:k=>mem.delete(k)},navigator:{onLine:true}};
  vm.createContext(c);
- for(const f of ['financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','cfo-modelo.js','cfo.js','pdf-cfo.js','app.js'])
+ for(const f of ['financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','cfo-modelo.js','cfo.js','pdf-cfo.js','app.js','dfc.js'])
   vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c);
  c.run=(src)=>vm.runInContext(src,c);
  c.run(`var erp=(label,ate,cells,extra={})=>({id:label.replace('/','_'),label,company:extra.company||'Impresilk + Universo',basis:'Caixa gerencial',origem:'erp',atualizadoEm:ate+'T21:00:00Z',qualidade:{coletadoEm:ate+'T21:00:00Z',ate,regra:'caixa-v2',escopo:'compõe DRE',apiContratoValidado:false,estado:extra.estado||'aguardando-conferencia'},cells});
@@ -101,14 +101,17 @@ test('estrutura: a coluna de cada mês fecha com a conta 2 dele, não com os gru
 });
 
 test('caixa: saída sem detalhamento (2.99) não vira empréstimo nem dívida', () => {
+ // Desde a v109 o gráfico sai da DFC: 2.99 é "saída sem detalhamento", que fica na
+ // operação (marcada na DFC) — nunca no financiamento, onde estão empréstimo e dívida.
  const c=view();
- c.run(`state.records=[erp('Jul/2026','2026-07-31',cel({'1':1000,'1.1':1000,'1.2':0,'1.3':0,'1.4':0,'1.5':0,'1.6':0,'1.7':0,'2':1000,'2.5':600,'2.99':400,'2.14':0,'2.14.3':0,'2.13.7.1.1':0,'2.13.7.1.2':0,'2.14.3.4':0,'2.13.6':0,'2.17':0,'2.13.7.1.3':0,'2.18':0,'2.16':0}))];state.periodo='Ago/2026';`);
+ c.run(`state.records=[erp('Jul/2026','2026-07-31',cel({'1':1000,'1.1':1000,'2':900,'2.5':500,'2.99':400}))];state.periodo='Ago/2026';`);
  const html=c.run('blocosDoCaixa()');
- const jul=Object.fromEntries([...html.matchAll(/<title>Jul\/2026 · ([^:<]+): ([^<]+)<\/title>/g)].map(m=>[m[1],m[2]]));
- assert.deepEqual(Object.keys(jul).filter(k=>/Empréstimo/.test(k)),[],'mês sem empréstimo nem dívida não pode ter barra de empréstimo');
+ const jul=html.match(/<tr><th scope="row">Jul<\/th>((?:<td[^>]*>[^<]*<\/td>)+)<\/tr>/);
+ assert.ok(jul,'Jul tem linha na tabela do gráfico');
+ const [fco,fci,fcf]=[...jul[1].matchAll(/<td[^>]*>([^<]*)<\/td>/g)].map(m=>m[1]);
  // \s: o Intl põe espaço NÃO separável entre "R$" e o número
- assert.match(jul['Sem detalhamento'],/^-R\$\s400,00$/);
- assert.match(jul['Sobra da operação'],/^R\$\s400,00$/);
- assert.match(jul['variação do mês'],/^R\$\s0,00$/,'as barras continuam somando a variação do mês');
- assert.doesNotMatch(texto(html),/Empréstimo e outros/);
+ assert.match(fco,/^R\$\s100,00$/,'1.000 − 500 de fixas − 400 sem detalhamento: o 2.99 fica na operação');
+ assert.match(fci,/^R\$\s0,00$/);
+ assert.match(fcf,/^R\$\s0,00$/,'mês sem empréstimo nem dívida não tem financiamento');
+ assert.doesNotMatch(texto(html),/Empréstimo e outros|Sobra da operação/);
 });

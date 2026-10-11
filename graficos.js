@@ -559,65 +559,20 @@ function cascataRubricas(reg){
 }
 
 /* ── 3. OS BLOCOS QUE MEXERAM O CAIXA ────────────────────────────────────
-   Barras COM SINAL: o que a operação sobrou acima do zero, o que sócio e
-   dívida levaram abaixo. Responde "o mês foi salvo pela operação ou por
-   empréstimo?", que o total de entradas não responde.
-   O que o ERP não classificou tem barra PRÓPRIA, cinza. Antes ia junto com
-   empréstimo ("Empréstimo e outros"): R$ 400 de Saídas sem detalhamento
-   (2.99) num mês sem empréstimo nenhum apareciam como "Empréstimo e outros:
-   −R$ 400", e o rodapé mandava ler isso como dívida. Cinza não é dívida nem
-   empréstimo até alguém classificar. As quatro barras continuam somando a
-   variação do mês (o ponto branco).
-   As cores são fixas porque o painel é escuro nos dois temas (.painel-escuro,
-   fundo #0b0f16 também fora do body.dark); o cinza foi escolhido para ler
-   bem contra esse fundo e não se confundir com o ponto branco.             */
+   Operação, investimento e financiamento de cada mês, saídos da DFC (dfc.js:
+   dfcMes → dfcApurar → DRESimples.apurar) e no mesmo desenho do gráfico de lá
+   (gEmpilhadas). Antes tinha regra própria (F.resumo) e, no mesmo mês, dava
+   blocos diferentes da DFC: parcelamento do DAS e compra de máquina caíam na
+   operação. Mês sem dado ou parcial (*) fica hachurado, como na DFC: nunca
+   zero, nunca a cor de mês fechado. Hoje nenhuma tela chama relatoriosDRE; a função fica
+   correta para quem a usar.                                                  */
 function blocosDoCaixa(){
- const ano=state.periodo.split('/')[1];
- const centavos=n=>Math.round(n*100)/100;
- const meses=PT_MON.map((m,i)=>{
-  const label=m+'/'+ano,reg=state.records.find(r=>monthSortKey(r.label)===Number(ano)*12+i)||null;
-  if(!reg||F.valorConta(reg,'1')==null||F.valorConta(reg,'2')==null)return {label,m,vazio:true};
-  const r=F.resumo(reg);
-  if(Object.values(r).some(v=>v==null))return {label,m,vazio:true};
-  return {label,m,vazio:false,
-   operacao:r.saldoOperacional,
-   socios:-(r.socios+r.parcelasAtivos+r.investimentos),
-   divida:centavos(r.emprestimos+r.rendimentos-r.dividas),
-   semDetalhe:centavos(r.naoIdentificadas+r.outrasEntradas-(r.pendentes+r.transferencias)),
-   variacao:r.variacao};
- });
- const W=980,H=300,PL=58,PR=14,PT=18,PB=40;
- const series=[{id:'operacao',nome:'Sobra da operação',nota:' · falta em vermelho',cor:'#8fb0ff'},{id:'socios',nome:'Sócios, ativos e investimento',cor:'#c2a6e7'},{id:'divida',nome:'Empréstimo e dívida',cor:'#f3ae7f'},{id:'semDetalhe',nome:'Sem detalhamento',cor:'#8e98aa'}];
- const comDado=meses.filter(x=>!x.vazio);
- if(!comDado.length)return painelGrafico('O que mexeu o caixa em cada mês',ano,'<p class="empty">Não há decomposição completa neste ano. Consulte os totais de cada mês; componentes ausentes não são zero.</p>');
- const somaPos=x=>series.reduce((n,s)=>n+Math.max(0,x[s.id]||0),0),somaNeg=x=>series.reduce((n,s)=>n+Math.min(0,x[s.id]||0),0);
- let alto=Math.max(0,...comDado.map(somaPos)),baixo=Math.min(0,...comDado.map(somaNeg));
- const folga=(alto-baixo)*.08||1;alto+=folga;baixo-=folga;
- const passoX=(W-PL-PR)/12,larg=passoX*0.6;
- const x=i=>PL+i*passoX+(passoX-larg)/2, y=v=>PT+(alto-v)/(alto-baixo)*(H-PT-PB);
- const bruto=(alto-baixo)/4,ordem=10**Math.floor(Math.log10(Math.abs(bruto)||1));
- const pe=([1,2,2.5,5,10].find(k=>k*ordem>=bruto)||10)*ordem;
- const marcas=[];for(let v=Math.ceil(baixo/pe)*pe;v<=alto;v+=pe)marcas.push(v);
- return painelGrafico('O que mexeu o caixa em cada mês',`${ano} · a operação sobrou acima do zero; sócio e dívida puxam abaixo; cinza é o que o ERP não classificou`,
-  `<div class="painel-escuro"><div class="chart-legend escuro">${series.map(s=>`<span><i style="--serie:${s.cor}"></i>${esc(s.nome+(s.nota||''))}</span>`).join('')}<span><i class="pt-var"></i>Variação do mês</span></div>
-  <div class="chart-scroll" tabindex="0" role="region" aria-label="Blocos que mexeram o caixa"><svg class="blocos-svg" viewBox="0 0 ${W} ${H}">
-   ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="casc-grade"/><text x="${PL-7}" y="${y(v)+3}" class="casc-eixo">${esc(compacto(v))}</text>`).join('')}
-   <line x1="${PL}" y1="${y(0)}" x2="${W-PR}" y2="${y(0)}" class="casc-zero"/>
-   ${meses.map((m,i)=>{
-     if(m.vazio)return `<text x="${(x(i)+larg/2).toFixed(1)}" y="${y(0)-6}" class="casc-vazio">—</text>`;
-     let cimaAcc=0,baixoAcc=0,out='';
-     for(const s of series){
-      const v=m[s.id]||0;if(!v)continue;
-      const de=v>0?cimaAcc:baixoAcc,ate=de+v;
-      if(v>0)cimaAcc=ate;else baixoAcc=ate;
-      const topo=Math.max(de,ate);
-      out+=`<rect x="${x(i).toFixed(1)}" y="${y(topo).toFixed(1)}" width="${larg.toFixed(1)}" height="${Math.max(1.5,Math.abs(y(de)-y(ate))).toFixed(1)}" fill="${s.id==='operacao'&&v<0?'#f0708f':s.cor}" rx="1.5"><title>${esc(m.label+' · '+s.nome+': '+money(v))}</title></rect>`;
-     }
-     return out+`<circle cx="${(x(i)+larg/2).toFixed(1)}" cy="${y(m.variacao).toFixed(1)}" r="3.4" class="pt-variacao"><title>${esc(m.label+' · variação do mês: '+money(m.variacao))}</title></circle>`;
-   }).join('')}
-   ${meses.map((m,i)=>`<text x="${(x(i)+larg/2).toFixed(1)}" y="${H-14}" class="casc-rot ${m.label===state.periodo?'atual':''}">${esc(m.m)}</text>`).join('')}
-  </svg></div></div>
-  <p class="chart-foot">O ponto branco é a variação do mês: quando ele fica acima do zero e as barras verdes são pequenas, quem segurou o caixa não foi a operação — veja se foi o laranja (empréstimo) ou o cinza. Cinza é Sem detalhamento: saídas sem detalhamento, transferências entre empresas e entradas a identificar; não é dívida nem empréstimo até ser classificado. — significa mês sem coleta.</p>`);
+ const ano=state.periodo.split('/')[1],meses=typeof dfcMes==='function'?PT_MON.map(m=>dfcMes(m+'/'+ano)):[];
+ if(!meses.some(x=>x.d))return painelGrafico('O que mexeu o caixa em cada mês',ano,'<p class="empty">Não há meses apurados neste ano. Mês sem dado não é zero.</p>');
+ const fechado=x=>x.d&&!x.parcial,rot=x=>x.label.slice(0,3)+(x.d&&x.parcial?'*':''),sel=PT_MON.indexOf(state.periodo.split('/')[0]);
+ return painelGrafico('O que mexeu o caixa em cada mês',`${ano} · operação, investimento e financiamento, como no Fluxo de caixa (DFC)`,
+  gEmpilhadas(meses.map(x=>({rotulo:rot(x),valores:fechado(x)?{fco:x.d.fco,fci:x.d.fci,fcf:x.d.fcf}:{},linha:null})),{series:[{chave:'fco',rotulo:'Operação (FCO)'},{chave:'fci',rotulo:'Investimento (FCI)'},{chave:'fcf',rotulo:'Financiamento (FCF)'}],selecionado:sel,titulo:'O que mexeu o caixa em cada mês'})+
+  '<p class="chart-foot">Mesma classificação da DRE Simples e da DFC. Hachurado: mês sem dados ou parcial (*); os valores do mês parcial estão na tela Caixa e na DFC.</p>');
 }
 
 /* ══ BIBLIOTECA DE GRÁFICOS (Fase 1.5, 10/10/2026) ═══════════════════════
