@@ -423,7 +423,9 @@ function paginasDoApp(){
     // Fluxo de caixa já tem cálculo (Fase 4, dfc.js)
     ...(typeof renderDFC==='function'?{dfc:()=>renderDFC()}:{}),
     // Recebíveis já leem a posição do Painel (Fase 5, gestao.js e dre-sync/recebiveis.mjs)
-    ...(typeof renderRecebiveis==='function'?{recebiveis:()=>renderRecebiveis()}:{})};
+    ...(typeof renderRecebiveis==='function'?{recebiveis:()=>renderRecebiveis()}:{}),
+    // Capital de giro: posição de hoje com as contas a pagar classificadas (Fase 6.1, gestao.js e dre-sync/giro.mjs)
+    ...(typeof renderGiro==='function'?{giro:()=>renderGiro()}:{})};
 }
 function render(){
   if(!state.D)return;if(typeof gravarRota==='function')gravarRota();periodoOptions();document.querySelector('.period').hidden=state.view==='glossario';$$('periodCompare').hidden=['indicadores','detalhe','glossario',...TELAS_CONTROLE].includes(state.view);$$('qualityBar').hidden=['glossario','indicadores'].includes(state.view)||(state.view==='dre'&&dreUI.base==='competencia');const reg=regAtual(),q=F.qualidade(reg);

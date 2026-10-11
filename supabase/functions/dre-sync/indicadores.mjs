@@ -1,9 +1,11 @@
 import {validarPeriodo,normalizarSnapshot,normalizarComercial,resumir,DICIONARIO} from '../../../indicadores-modelo.mjs';
 import {consultarRecebiveis} from './recebiveis.mjs';
+import {consultarGiro} from './giro.mjs';
 const FONTES=['comercial','fiscal','compras','custos','margem'];
 export async function consultarIndicadores(sb,body){
  // Recebíveis são uma posição (foto da carteira), não um período: vêm antes do validarPeriodo.
  if(body?.fonte==='recebiveis')return consultarRecebiveis(sb,body);
+ if(body?.fonte==='capitalGiro')return consultarGiro(sb,body);
  const p=validarPeriodo(body.de,body.ate),fonte=body.fonte;
  if(!FONTES.includes(fonte))throw new Error('Fonte inválida.');
  const filtros={query:String(body.query||'').slice(0,160),grupo:String(body.grupo||'').slice(0,200),dimensao:['grupo','cliente','vendedor'].includes(body.dimensao)?body.dimensao:'grupo',pagina:Math.max(0,Number(body.pagina)||0),tamanho:body.exportar===true?5000:50};

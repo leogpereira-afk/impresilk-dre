@@ -314,3 +314,77 @@ function wireRecebiveis(){
  document.addEventListener('toggle',e=>{if(e.target?.classList?.contains('rec-detalhe'))recUI.aberto=e.target.open;},true);
 }
 if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wireRecebiveis);
+
+/* ── CAPITAL DE GIRO · FASE 6.1 (posição de hoje) ─────────────────────────
+   A receber (régua da Fase 5) e contas a pagar classificadas pelo número do
+   centro de custo do Mubisys, lidos do Painel pelo dre-sync (fonte 'capitalGiro').
+   Necessidade de capital de giro = a receber + estoque (Parâmetros do mês de hoje)
+   − a pagar operacional (fornecedores 1.xx e 2.xx, impostos 3.02, prédio 3.03).
+   Sócios, empréstimos e projeções (despesa fixa, cartão, folha) ficam à parte.
+   Sem estoque informado, a necessidade sai "sem estoque", rotulada; nunca com zero.
+   O histórico mês a mês depende da reconstrução dos títulos no Mubisys (6.2). */
+const giroUI={dados:null,erro:'',busy:false,em:0,seq:0,aberto:false,foco:false};
+function carregarGiro(forcar=false){
+ if(giroUI.busy||(!forcar&&Date.now()-giroUI.em<60000))return;
+ const seq=++giroUI.seq;giroUI.busy=true;giroUI.erro='';giroUI.em=Date.now();
+ Promise.resolve().then(()=>api('indicadores',{fonte:'capitalGiro'})).then(r=>{if(seq!==giroUI.seq)return;if(!r?.ok)throw new Error(r?.erro||'A leitura não foi confirmada pelo servidor.');if(r.fonte!=='capitalGiro')throw new Error('Fonte inválida.');giroUI.dados=r;})
+  .catch(e=>{if(seq!==giroUI.seq)return;const m=String(e?.message||e||'');
+  // Servidor anterior a esta fase responde com o erro de período (validarPeriodo vem antes da fonte).
+  giroUI.erro=/desconhecida|Fonte inválida|intervalo válido/i.test(m)?'O servidor ainda não tem a leitura do capital de giro: ela é publicada sozinha pelo Painel, que roda de hora em hora mas costuma atrasar algumas horas. Tente de novo mais tarde.':/abort/i.test(m)?'O servidor demorou a responder.':m;})
+  .finally(()=>{if(seq!==giroUI.seq)return;giroUI.busy=false;giroUI.em=Date.now();if(state.view==='giro'&&typeof render==='function'){render();giroFocar();}});
+}
+function giroFocar(){if(!giroUI.foco||typeof document==='undefined'||typeof document.querySelector!=='function')return;document.querySelector('[data-giro-recarregar]')?.focus?.();if(!giroUI.busy)giroUI.foco=false;}
+function giroEstoque(base){
+ const mes=recMes(base),v=mes&&typeof paramOperacao==='function'?paramOperacao(mes)?.estoque:null;
+ return {mes,valor:v==null||v===''||!Number.isFinite(Number(v))?null:Number(v)};
+}
+function renderGiro(){
+ carregarGiro();
+ const d=giroUI.dados,ok=!!d?.disponivel,perm={admin:!!state.permissoes?.admin},p=d?.pagar,r=d?.receber;
+ const acoes=`<div class="actions"><button type="button" data-giro-recarregar aria-disabled="${giroUI.busy}">Ler de novo</button>${p?.disponivel?'<button type="button" data-giro-csv>Baixar contas a pagar (CSV)</button>':''}<span class="hint" role="status">${giroUI.busy?'Lendo o Painel…':''}</span></div>`;
+ const erro=giroUI.erro?`<p class="param-avisos">${esc(giroUI.erro)} ${d?'Mostrando a última leitura.':'Nenhum zero foi assumido.'}</p>`:'';
+ if(!ok){
+  const motivo=p?.avisos?.[0]||r?.avisos?.[0]||(giroUI.busy||!giroUI.erro?'Lendo as contas a receber e a pagar no Painel…':'Sem leitura do capital de giro.');
+  const nao=['Necessidade de capital de giro','A receber','A pagar operacional','Estoque'].map(t=>recCartao(t,'Não apurado','Depende da posição do Painel.')).join('');
+  return `<div class="cards cards-controle">${nao}</div>${erro}<section class="estado-vazio giro-sem-dados"><div><h2>${d?'As contas do Painel não estão disponíveis':'Capital de giro'}</h2><p>${esc(motivo)}</p></div></section>${acoes}`;
+ }
+ const base=p?.posicao?.base||r?.posicao?.base,est=giroEstoque(base),irParam=`data-go="parametros"${est.mes?` data-rec-mes="${esc(est.mes)}"`:''}`;
+ const R=d.ncg.receber,P=d.ncg.pagarOperacional,semEst=d.ncg.semEstoque,ncg=semEst!=null&&est.valor!=null?Math.round((semEst+est.valor)*100)/100:null;
+ const cardNcg=ncg!=null?recCartao('Necessidade de capital de giro',money(ncg),`A receber ${money(R)} + estoque ${money(est.valor)} − a pagar operacional ${money(P)}`)
+  :semEst!=null?recCartao('Necessidade de giro sem estoque',money(semEst),`A receber ${money(R)} − a pagar operacional ${money(P)}; falta o estoque de ${est.mes||'o mês'} em Parâmetros`)
+  :recCartao('Necessidade de capital de giro','Não apurado',r?.disponivel?'Faltam as contas a pagar do Painel.':'Faltam os recebíveis do Painel.');
+ const ate=recData(d.horizonte?.ate);
+ const cards=`<div class="cards cards-controle">${cardNcg}${recCartao('A receber',R==null?'Não apurado':money(R),r?.disponivel?`Vencidos e a vencer até ${ate} (60 dias da carga, o mesmo horizonte das contas a pagar); vencidos antes de ${recData(r.corte?.data)} ficam fora`:'Recebíveis do Painel indisponíveis')}${recCartao('A pagar operacional',P==null?'Não apurado':money(P),p?.disponivel?`Fornecedores (1.xx e 2.xx), impostos e prédio, vencidas e a vencer até ${ate} · ${money(p.totais.vencidoOperacional)} já vencido`:'Contas a pagar do Painel indisponíveis')}${recCartao('Estoque',est.valor==null?'Não informado':money(est.valor),est.valor==null?`Informe o estoque no fim de ${est.mes||'o mês'} em Parâmetros`:`Parâmetros, ${est.mes}`)}</div>`;
+ const hR=r?.disponivel?recHora(r.posicao?.em):null,hP=p?.disponivel?recHora(p.posicao?.em):null,horas=hR&&hP&&hR!==hP?`a receber de ${hR}, a pagar de ${hP}`:hP||hR;
+ const fora=d.horizonte?.receberFora?.quantidade?` ${d.horizonte.receberFora.quantidade} título(s) a receber que vencem depois de ${ate} (${money(d.horizonte.receberFora.valor)}) ficam fora da necessidade de giro e estão na tela Recebíveis.`:'';
+ const posicao=`<p class="hint giro-posicao">Posição do Painel: ${esc(horas)} (a carga roda a cada 20 minutos); dias contados até hoje. Esta tela é uma foto: não muda com o mês escolhido.${esc(fora)} O histórico mês a mês entra quando os títulos forem reconstruídos no Mubisys.</p>`;
+ const lista=[...(d.avisos||[]),...(r?.disponivel?[]:(r?.avisos||[]).slice(0,1).map(a=>'A receber: '+a)),...(p?.disponivel?[]:(p?.avisos||[]).slice(0,1).map(a=>'A pagar: '+a))];
+ const avisos=lista.length?`<div class="param-avisos giro-avisos">${d.qualidade!=='Apurado'?'<b>Leitura parcial.</b> ':''}<ul>${lista.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>`:'';
+ const semEstoque=est.valor==null?`<section class="estado-vazio giro-sem-estoque"><div><h2>Falta o estoque</h2><p>${esc(perm.admin?`Informe em Parâmetros o estoque no fim de ${est.mes||'o mês'}; sem ele, a necessidade de capital de giro sai sem o estoque, marcada.`:`Peça a um administrador para informar em Parâmetros o estoque no fim de ${est.mes||'o mês'}.`)}</p></div><button type="button" ${irParam}>${perm.admin?'Informar em Parâmetros':'Ver Parâmetros'}</button></section>`:'';
+ const passos=[{rotulo:'A receber',curto:'Receber',valor:R,total:true},...(est.valor!=null?[{rotulo:'Estoque',curto:'Estoque',valor:est.valor}]:[]),{rotulo:'A pagar operacional',curto:'Pagar',valor:P==null?null:-P},{rotulo:est.valor!=null?'Necessidade de giro':'Sem estoque',curto:'NCG',valor:est.valor!=null?ncg:semEst,total:true}];
+ const g1=recPainel('Quanto dinheiro fica preso no giro?',est.valor!=null?'O que há a receber, mais o estoque, menos o que se deve a fornecedores, impostos e prédio.':'O que há a receber menos o que se deve a fornecedores, impostos e prédio; o estoque entra quando for informado em Parâmetros.',gCascata(passos,{base:0,titulo:'Necessidade de capital de giro'}));
+ const classes=(p?.grupos||[]).filter(g=>g.quantidade);
+ const g2=recPainel('O que eu devo, por classe?','Contas a pagar em aberto por classe do centro de custo do Mubisys; sócios, empréstimos e sem classificação não entram na necessidade de giro.',!p?.disponivel?'<p class="hint">Não apurado: faltam as contas a pagar do Painel.</p>':classes.length?gBarrasOrdenadas(classes.map(g=>({rotulo:g.rotulo,valor:g.valor})),{limite:7,cor:'saida',titulo:'A pagar por classe'}):'<p class="hint">Nenhuma conta a pagar em aberto.</p>',false);
+ const g3=recPainel('E o que eu devo vence quando?','A pagar operacional por faixa de vencimento na data da posição.',!p?.disponivel?'<p class="hint">Não apurado: faltam as contas a pagar do Painel.</p>':p.totais.operacional>0?gCemPorCento(p.faixas.map(f=>({rotulo:f.rotulo,valor:f.valor})),{titulo:'A pagar operacional por vencimento'}):'<p class="hint">Nenhuma conta operacional em aberto.</p>',false);
+ const prazos=(()=>{const mes=est.mes,op=mes&&typeof paramOperacao==='function'?paramOperacao(mes):null,v=k=>op?.[k]==null||op?.[k]===''?'não informado':recDias(Number(op[k]));
+  return `<p class="note giro-prazos">Prazos em Parâmetros (${esc(mes||'mês de hoje')}): recebimento <b>${esc(v('prazoRecebimento'))}</b>, pagamento <b>${esc(v('prazoPagamento'))}</b>. Na carteira a receber de hoje: prazo concedido médio <b>${esc(recDias(r?.prazo?.concedido?.dias))}</b> e idade média <b>${esc(recDias(r?.prazo?.idade?.dias))}</b>. O ciclo financeiro (estoque + recebimento − pagamento, em dias) precisa das vendas e compras de cada mês: entra com o histórico reconstruído.</p>`;})();
+ const linhaGrupo=g=>`<tr class="${g.ncg?'':'giro-fora'}"><th scope="row">${esc(g.rotulo)}</th><td>${g.ncg?'Sim':'Não'}</td><td class="num">${g.quantidade}</td><td class="num">${esc(money(g.vencido))}</td><td class="num">${esc(money(g.aVencer))}</td><td class="num">${esc(money(g.valor))}</td></tr>${g.categorias.map(k=>`<tr class="giro-categoria"><td>${esc(k.rotulo)}</td><td></td><td class="num">${k.quantidade}</td><td></td><td></td><td class="num">${esc(money(k.valor))}</td></tr>`).join('')}`;
+ const extras=p?.disponivel?`${p.antigas?.quantidade?`<tr class="giro-fora"><th scope="row">Vencidas antes de ${esc(recData(p.corte?.data))}</th><td>Não</td><td class="num">${p.antigas.quantidade}</td><td class="num">${esc(money(p.antigas.valor))}</td><td></td><td class="num">${esc(money(p.antigas.valor))}</td></tr>`:''}${p.projetado?.quantidade?`<tr class="giro-fora"><th scope="row">Projetado no Mubisys (ainda não é título)</th><td>Não</td><td class="num">${p.projetado.quantidade}</td><td></td><td></td><td class="num">${esc(money(p.projetado.valor))}</td></tr>${p.projetado.categorias.map(k=>`<tr class="giro-categoria"><td>${esc(k.rotulo)}</td><td></td><td class="num">${k.quantidade}</td><td></td><td></td><td class="num">${esc(money(k.valor))}</td></tr>`).join('')}`:''}`:'';
+ const tabelaClasses=p?.disponivel?`<div class="table-scroll"><table class="tabela-controle giro-classes"><caption>Contas a pagar em aberto por classe · posição de ${esc(recData(p.posicao?.base))}</caption><thead><tr><th scope="col">Classe e centro de custo</th><th scope="col">Entra na necessidade de giro?</th><th scope="col" class="num">Contas</th><th scope="col" class="num">Vencido</th><th scope="col" class="num">A vencer</th><th scope="col" class="num">Total</th></tr></thead><tbody>${(p.grupos||[]).filter(g=>g.quantidade).map(linhaGrupo).join('')}${extras}</tbody></table></div>`:'';
+ const titulos=p?.disponivel?`<div class="table-scroll"><table class="tabela-controle giro-titulos"><caption>Contas a pagar em aberto, da maior para a menor${p.truncado?` · as ${p.titulos.length} maiores de ${p.totais.quantidade}`:''}</caption><thead><tr><th scope="col">Credor</th><th scope="col">Descrição</th><th scope="col">Centro de custo</th><th scope="col">Vencimento</th><th scope="col" class="num">Atraso</th><th scope="col" class="num">Valor</th></tr></thead><tbody>${p.titulos.map(x=>`<tr><th scope="row">${esc(x.fornecedor)}</th><td>${esc(x.descricao||'—')}</td><td>${esc(x.categoria)}</td><td>${esc(recData(x.vencimento))}</td><td class="num">${esc(x.dias>0?recDias(x.dias):x.dias===0?'vence hoje':'vence em '+recDias(-x.dias))}</td><td class="num">${esc(money(x.valor))}</td></tr>`).join('')||'<tr><td colspan="6">Nenhuma conta a pagar em aberto.</td></tr>'}</tbody></table></div>`:'';
+ return cards+posicao+acoes+erro+avisos+semEstoque+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+prazos+(p?.disponivel?`<details class="card giro-detalhe"${giroUI.aberto?' open':''}><summary>Contas a pagar por classe · ${p.totais.quantidade}</summary><div class="card-body">${tabelaClasses}${titulos}</div></details>`:'');
+}
+function giroCSV(){
+ const p=giroUI.dados?.pagar;if(!p?.disponivel)return null;
+ const nomeGrupo=id=>p.grupos.find(g=>g.id===id)?.rotulo||id;
+ const rows=[['Contas a pagar em aberto · posição do Painel',recHora(p.posicao?.em)],['Corte de dívida antiga',recData(p.corte?.data)],[],['Credor','Descrição','Centro de custo','Classe','Entra na necessidade de giro','Vencimento','Dias (positivo = vencido)','Valor (R$)'],
+  ...p.titulos.map(x=>[x.fornecedor,x.descricao,x.categoria,nomeGrupo(x.grupo),p.grupos.find(g=>g.id===x.grupo)?.ncg?'Sim':'Não',recData(x.vencimento),String(x.dias),x.valor.toFixed(2).replace('.',',')]),...(p.truncado?[[`Lista com as ${p.titulos.length} maiores de ${p.totais.quantidade} contas.`]]:[])];
+ download('contas-a-pagar-'+(p.posicao?.base||'posicao')+'.csv','﻿'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');
+ return rows;
+}
+function wireGiro(){
+ if(typeof document==='undefined'||typeof document.addEventListener!=='function')return;
+ document.addEventListener('click',e=>{const b=e.target?.closest?.('[data-giro-csv],[data-giro-recarregar]');if(!b)return;if(b.hasAttribute('data-giro-csv'))giroCSV();else if(!giroUI.busy){giroUI.foco=true;carregarGiro(true);if(typeof render==='function')render();giroFocar();}});
+ document.addEventListener('toggle',e=>{if(e.target?.classList?.contains('giro-detalhe'))giroUI.aberto=e.target.open;},true);
+}
+if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wireGiro);
