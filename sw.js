@@ -16,6 +16,7 @@ const V = CACHE.split('-v')[1];
 // cacheados sob demanda pelo fetch network-first abaixo.
 const SHELL = [
   `./plano-contas.js?v=${V}`,
+  `./auditoria.js?v=${V}`,
   `./gestao.js?v=${V}`,
   `./parametros.js?v=${V}`,
   `./dfc.js?v=${V}`,

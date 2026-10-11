@@ -1,0 +1,44 @@
+name: Carga histórica do DRE (Mubisys)
+# Fase 10.1: traz os meses antigos do Mubisys, um por vez (scripts/erp_historico.py),
+# sem a trilha por pagamento, para o app continuar leve. Meses de planilha são
+# preservados. Mesma fila do robô de cada dia: as duas rotinas dividem o limite de
+# 30 consultas por minuto da API. Só contagens no log, que é público.
+on:
+  workflow_dispatch:
+    inputs:
+      de:
+        description: 'Primeiro mês (AAAA-MM)'
+        type: string
+        required: true
+        default: '2015-01'
+      ate:
+        description: 'Último mês (AAAA-MM), antes do mês passado'
+        type: string
+        required: true
+        default: '2025-10'
+      publicar:
+        description: 'Gravar os meses (desmarcado = simulação, só contagens no log)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: erp-previa
+  cancel-in-progress: false
+jobs:
+  historico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar cálculos antes da coleta
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Trazer os meses do intervalo
+        env:
+          TZ: America/Sao_Paulo
+          DRE_MACHINE_TOKEN: ${{ secrets.DRE_MACHINE_TOKEN }}
+          DRE_PUBLISH: ${{ inputs.publicar && '1' || '0' }}
+          DRE_SEM_TRILHA: '1'
+          DE: ${{ inputs.de }}
+          ATE: ${{ inputs.ate }}
+        run: python3 scripts/erp_historico.py "$DE" "$ATE"

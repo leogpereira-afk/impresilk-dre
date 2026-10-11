@@ -292,6 +292,15 @@ def retroativos(corrente, meses_servidor, agora):
             alvos.append(ini)
     return alvos
 
+def sem_trilha(registro):
+    """Carga histórica (Fase 10.1): o mês antigo vai sem a trilha por pagamento, que é
+    ~80% do registro e o app baixaria a cada entrada (10 anos dariam ~36 MB). A trilha
+    já foi conferida contra os totais antes daqui; contas, totais e qualidade ficam.
+    A tela trata o mês como "sem trilha detalhada", como os meses de planilha."""
+    registro.pop("eventos", None)
+    registro.setdefault("qualidade", {})["trilha"] = "resumida"
+    return registro
+
 def main(on_month=None):
     hoje = datetime.date.today()
     arg_mes = next((a for a in sys.argv[1:] if not a.startswith("--")), None)
@@ -436,6 +445,8 @@ def processar(ini):
     valores = {c["code"]:c["value"] for c in registro["cells"]}
     if abs(valores.get("1",0)-rec_total) > .011 or abs(valores.get("2",0)-desp_total) > .011:
         raise RuntimeError("Os totais de controle não fecham; nada foi gravado.")
+    if os.environ.get("DRE_SEM_TRILHA") == "1":
+        sem_trilha(registro)
 
     estado = 'simulado'
     if "--dry" in sys.argv or os.environ.get("DRE_PUBLISH") != "1":
