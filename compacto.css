@@ -196,3 +196,11 @@
 .cards-controle button.metric-param:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 @media (max-width:900px),(pointer:coarse){.dre-composicao-tabela th button{min-width:44px;display:inline-flex;align-items:center}.dre-criteria>summary,.dre-movimento>summary{min-height:44px;display:flex;align-items:center}.source-grid button{min-height:44px}}
 @media (max-width:900px),(pointer:coarse){#pageContent .dre-controls button,#pageContent .dre-period-control>summary,#pageContent .management-chips button,#pageContent .dre-compact td button,#pageContent .dre-table td button{min-height:44px}}
+/* Fluxo de caixa (Fase 4): tabelas largas com a coluna do nome fixa; "Ver os valores" dos gráficos rola dentro dele */
+.dfc-tabela thead th:first-child,.dfc-tabela tbody th,.dre-simples-meses thead th:first-child,.dre-simples-meses tbody th{position:sticky;left:0;z-index:1;background:var(--surface);min-width:220px}
+.dfc-tabela tr.dre-l-subtotal th,.dfc-tabela tr.dre-l-resultado th,.dre-simples-meses tr.dre-l-subtotal th,.dre-simples-meses tr.dre-l-resultado th{background:var(--selected)}
+.g-tabela{max-width:100%;overflow-x:auto}
+.dfc-sem-saldo p{max-width:70ch}
+@media (max-width:700px){.dfc-tabela thead th:first-child,.dfc-tabela tbody th,.dre-simples-meses thead th:first-child,.dre-simples-meses tbody th{min-width:140px;max-width:42vw}}
+/* A rolagem do "Ver os valores" recorta o que passa da borda: o anel de foco fica por dentro do resumo. */
+.g-tabela>summary:focus-visible{outline-offset:-3px}

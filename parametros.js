@@ -365,13 +365,15 @@ function paramBlocoTributos(label,admin){
 }
 function paramBlocoOperacao(label,admin){
  const o=paramOperacao(label),ant=paramMesDesloca(label,-1),oAnt=paramOperacao(ant),fo=paramFormAttrs('operacao',{mes:label},o);
+ // "Trazer de" só quando o mês anterior tem algo além do saldo bancário, que é de cada mês e não é trazido.
+ const trazivel=!!oAnt&&Object.keys(PARAM_CAMPOS.operacao).some(k=>k!=='saldoInicial'&&oAnt[k]!=null&&oAnt[k]!=='');
  const c=(nome,rotulo,op={})=>paramCampo(nome,rotulo,paramValorCampo(fo.r,nome,o?.[nome]),op,!admin);
- return `<section class="param-bloco" aria-labelledby="param-operacao-titulo"><div class="param-bloco-topo"><h2 id="param-operacao-titulo">Prazos, estoque e metas · ${esc(label)}</h2><p>As duas empresas juntas, como o caixa. Alimentam capital de giro, recebíveis e o fluxo de caixa nas próximas fases. ${esc(paramRevisado(o))}.</p></div>
+ return `<section class="param-bloco" aria-labelledby="param-operacao-titulo"><div class="param-bloco-topo"><h2 id="param-operacao-titulo">Prazos, estoque e metas · ${esc(label)}</h2><p>As duas empresas juntas, como o caixa. O saldo bancário do início do mês já define o saldo do Fluxo de caixa (DFC) e vale mais que o calculado pelo mês anterior; não é trazido do mês anterior. Prazos, estoque e metas alimentam capital de giro e recebíveis nas próximas fases. ${esc(paramRevisado(o))}.</p></div>
  <form class="param-form" ${fo.attrs} novalidate><div class="form-grid param-grade-3">
  ${c('prazoRecebimento','Prazo médio de recebimento concedido (dias)',{inteiro:true})}${c('prazoPagamento','Prazo médio de pagamento negociado (dias)',{inteiro:true})}${c('estoque','Estoque no fim do mês (R$)')}
  ${c('saldoInicial','Saldo bancário no início do mês (R$)',{dica:'Pode ser negativo'})}${c('metaReceita','Meta de receita do mês (R$)')}${c('metaResultado','Meta de resultado do mês (R$)')}
  ${c('pdd90','Provisão para vencidos há mais de 90 dias (%)')}</div><p class="param-erro" role="alert"></p>${admin?fo.pendente:''}
- ${admin?`<div class="actions"><button class="primary" type="submit">Salvar prazos, estoque e metas · ${esc(label)}</button>${oAnt?`<button type="button" data-param-copiar="operacao">Trazer de ${esc(ant)}</button>`:''}</div>`:''}</form></section>`;
+ ${admin?`<div class="actions"><button class="primary" type="submit">Salvar prazos, estoque e metas · ${esc(label)}</button>${trazivel?`<button type="button" data-param-copiar="operacao">Trazer de ${esc(ant)}</button>`:''}</div>`:''}</form></section>`;
 }
 function paramDescreveCaminho(c){
  const [secao,a,b]=c||[];
@@ -482,7 +484,7 @@ function wireParametros(){
   if(b.dataset.paramTributo){paramAbrirTributo(b.dataset.paramTributo);return;}
   if(b.hasAttribute?.('data-param-descartar')){const f=b.closest('form[data-param-form]');if(f){paramRascunhos.delete(paramChaveForm(f));render();}return;}
   if(b.dataset.paramLimpar){const f=b.closest('form[data-param-form]');if(f&&confirm('Apagar o cadastro deste imposto? O histórico guarda o valor anterior.'))paramSalvarForm(f,true);return;}
-  if(b.dataset.paramCopiar){const f=b.closest('form[data-param-form]'),ant=paramMesDesloca(f.dataset.mes,-1);const v=b.dataset.paramCopiar==='simples'?paramSimples(f.dataset.empresa,ant):paramOperacao(ant);paramPreencher(f,v);
+  if(b.dataset.paramCopiar){const f=b.closest('form[data-param-form]'),ant=paramMesDesloca(f.dataset.mes,-1);const v0=b.dataset.paramCopiar==='simples'?paramSimples(f.dataset.empresa,ant):paramOperacao(ant),{saldoInicial:_saldo,...v}=v0||{};paramPreencher(f,b.dataset.paramCopiar==='simples'?v0:v);
    paramAtualizarFolha(f);paramRegistrarRascunho(f);
    const erro=f.querySelector('.param-erro');if(erro){erro.textContent=`Valores de ${ant} trazidos para conferência. Nada foi salvo ainda.`;erro.classList.add('param-info');}}
  });

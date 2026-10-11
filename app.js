@@ -419,7 +419,9 @@ function paginasDoApp(){
   const controle=Object.fromEntries(TELAS_CONTROLE.map(v=>[v,()=>typeof renderControle==='function'?renderControle(v):'']));
   return {indicadores:()=>'<section id="indicadoresRoot"></section>',cfo:renderCFO,dre:renderDRE,glossario:renderGlossario,inicio:renderInicio,caixa:renderCaixa,resultado:renderResultado,custos:renderCustos,detalhe:()=>renderPlanoContas(),conferencia:renderConferencia,config:renderConfig,ajuda:renderAjuda,...controle,
     // Parâmetros já tem cadastro (Fase 2, parametros.js); o esqueleto fica de reserva
-    ...(typeof renderParametros==='function'?{parametros:()=>renderParametros()}:{})};
+    ...(typeof renderParametros==='function'?{parametros:()=>renderParametros()}:{}),
+    // Fluxo de caixa já tem cálculo (Fase 4, dfc.js)
+    ...(typeof renderDFC==='function'?{dfc:()=>renderDFC()}:{})};
 }
 function render(){
   if(!state.D)return;if(typeof gravarRota==='function')gravarRota();periodoOptions();document.querySelector('.period').hidden=state.view==='glossario';$$('periodCompare').hidden=['indicadores','detalhe','glossario',...TELAS_CONTROLE].includes(state.view);$$('qualityBar').hidden=['glossario','indicadores'].includes(state.view)||(state.view==='dre'&&dreUI.base==='competencia');const reg=regAtual(),q=F.qualidade(reg);
