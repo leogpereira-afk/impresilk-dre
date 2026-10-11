@@ -133,6 +133,105 @@ export function agregarPagar({ lista, atualizadoEm = null, corte = null, agora =
   };
 }
 
+// ── HISTÓRICO (Fase 6.2) ─────────────────────────────────────────────────
+// O robô scripts/erp_posicoes.py remonta a carteira de cada fim de mês com os
+// títulos do Mubisys e grava aqui (coleção 'posicoes'), só pelo token da coleta.
+// A classe do a pagar é calculada na leitura, com a mesma regra da posição de hoje.
+const POSICAO_ID = /^\d{4}-(0[1-9]|1[0-2])$/;
+export function validarPosicao(reg) {
+  if (!reg || typeof reg !== 'object' || Array.isArray(reg)) throw new Error('Posição inválida.');
+  if (!POSICAO_ID.test(String(reg.id))) throw new Error('Mês da posição inválido.');
+  if (reg.regra !== 'posicao-v1') throw new Error('Regra de posição desconhecida.');
+  if (JSON.stringify(reg).length > 200000) throw new Error('Posição grande demais.');
+  const ver = (v, prof = 0) => {
+    if (prof > 6) throw new Error('Posição aninhada demais.');
+    if (v === null || typeof v === 'boolean') return;
+    if (typeof v === 'number') { if (!Number.isFinite(v)) throw new Error('Número inválido na posição.'); return; }
+    if (typeof v === 'string') { if (v.length > 200) throw new Error('Texto longo demais na posição.'); return; }
+    if (Array.isArray(v)) { if (v.length > 400) throw new Error('Lista longa demais na posição.'); v.forEach(x => ver(x, prof + 1)); return; }
+    if (typeof v === 'object') { for (const [k, x] of Object.entries(v)) { if (k.length > 60) throw new Error('Campo inválido na posição.'); ver(x, prof + 1); } return; }
+    throw new Error('Tipo inválido na posição.');
+  };
+  ver(reg);
+  // O que a tela imprime tem forma fixa: número onde é número, texto curto onde é texto.
+  const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  const [a, m] = reg.id.split('-');
+  if (reg.mes !== `${MESES[Number(m) - 1]}/${a}`) throw new Error('Mês da posição não confere com o id.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(reg.fim ?? '')) || !String(reg.fim).startsWith(reg.id)) throw new Error('Fim do mês inválido na posição.');
+  const numero = (v, campo) => { if (typeof v !== 'number') throw new Error(`Posição sem ${campo} numérico.`); };
+  const numeroOuNulo = (v, campo) => { if (v != null && typeof v !== 'number') throw new Error(`Posição com ${campo} que não é número.`); };
+  const centros = (l, campo, comQtd = true) => {
+    if (l == null) return;
+    if (!Array.isArray(l)) throw new Error(`Posição com ${campo} inválido.`);
+    for (const c of l) { if (!c || typeof c.rotulo !== 'string') throw new Error(`Posição com ${campo} sem rótulo.`); numero(c.valor, campo); if (comQtd) numero(c.quantidade, campo); }
+  };
+  numero(reg.receber?.total, 'a receber'); numero(reg.pagar?.total, 'a pagar');
+  if (!Array.isArray(reg.pagar?.porCentro)) throw new Error('Posição sem os totais.');
+  centros(reg.pagar.porCentro, 'centros de custo'); centros(reg.pagar.alemPorCentro, 'centros além do horizonte');
+  for (const lado of ['receber', 'pagar']) {
+    for (const k of ['alemHorizonte', 'semVencimento', 'antigas', 'foraDRE']) {
+      const x = reg[lado][k];
+      if (x != null && typeof x === 'object') { numeroOuNulo(x.valor, k); numeroOuNulo(x.quantidade, k); }
+      else if (x != null && typeof x !== 'number') throw new Error(`Posição com ${k} inválido.`);
+    }
+  }
+  for (const f of ['fluxos', 'fluxos3m']) for (const lado of ['receber', 'pagar']) {
+    const x = reg[f]?.[lado];
+    if (x == null) continue;
+    for (const k of ['emitido', 'pago', 'prazoConcedido', 'prazoReal']) numeroOuNulo(x[k], `${f}.${k}`);
+    if (lado === 'pagar') centros(x.emitidoPorCentro, 'emitido por centro', false);
+  }
+  return reg;
+}
+export async function gravarPosicao(sb, body, agora = new Date()) {
+  const reg = validarPosicao(body?.registro), em = agora.toISOString();
+  const { error } = await sb.from('dre_registros').upsert({ colecao: 'posicoes', id: reg.id, registro: { ...reg, gravadoEm: em }, atualizado_em: em }, { onConflict: 'colecao,id' });
+  if (error) throw new Error('Posição não gravada.');
+  return { ok: true, id: reg.id };
+}
+const somaCentros = (lista, filtro) => (Array.isArray(lista) ? lista : []).reduce((t, c) => filtro(grupoDe(c?.rotulo)) && Number.isFinite(c?.valor) ? t + Math.round(c.valor * 100) : t, 0);
+// Cada mês gravado → o que a tela usa: a receber, a pagar por classe, necessidade de giro e fluxos.
+export function resumirHistorico(regs) {
+  const ncg = new Set(GRUPOS.filter(g => g.ncg).map(g => g.id)), meses = [], invalidos = [];
+  for (const reg of regs || []) {
+    try { validarPosicao(reg); } catch { invalidos.push(String(reg?.id ?? '?').slice(0, 20)); continue; }
+    const pc = reg.pagar.porCentro;
+    // Fluxo de um período: emitido e pago, com a parte operacional e a de produção do a pagar.
+    const fluxo = f => !f ? null : {
+      receber: f.receber ? { emitido: f.receber.emitido ?? null, pago: f.receber.pago ?? null, prazoConcedido: f.receber.prazoConcedido ?? null, prazoReal: f.receber.prazoReal ?? null } : null,
+      pagar: f.pagar ? { emitido: f.pagar.emitido ?? null, pago: f.pagar.pago ?? null, prazoConcedido: f.pagar.prazoConcedido ?? null, prazoReal: f.pagar.prazoReal ?? null,
+        emitidoOperacional: Array.isArray(f.pagar.emitidoPorCentro) ? reais(somaCentros(f.pagar.emitidoPorCentro, x => ncg.has(x))) : null,
+        emitidoProducao: Array.isArray(f.pagar.emitidoPorCentro) ? reais(somaCentros(f.pagar.emitidoPorCentro, x => x === 'producao')) : null } : null,
+    };
+    const grupos = Object.fromEntries(GRUPOS.map(g => [g.id, reais(somaCentros(pc, x => x === g.id))]));
+    const operacional = somaCentros(pc, x => ncg.has(x)), operacionalAlem = somaCentros(reg.pagar.alemPorCentro, x => ncg.has(x));
+    const alemRec = Number.isFinite(reg.receber.alemHorizonte?.valor) ? reg.receber.alemHorizonte.valor : 0;
+    // O que ficou de fora deste fechamento: o mês sai marcado como parcial, como a posição de hoje.
+    const sv = lado => (typeof reg[lado].semVencimento === 'object' ? reg[lado].semVencimento?.quantidade : reg[lado].semVencimento) || 0;
+    const cob = reg.cobertura || {}, motivos = [];
+    if (grupos.semClasse > 0) motivos.push(`a pagar sem classificação (${grupos.semClasse.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}) fora do operacional`);
+    if (sv('receber') + sv('pagar') > 0) motivos.push(`${sv('receber') + sv('pagar')} título(s) sem vencimento fora da conta`);
+    const ileg = (cob.semValor || 0) + (cob.semEmissao || 0) + (cob.pagamentoInvalido || 0);
+    if (ileg > 0) motivos.push(`${ileg} título(s) do Mubisys ilegíveis na remontagem (sem valor, emissão ou pagamento legível)`);
+    meses.push({
+      id: reg.id, mes: reg.mes, fim: reg.fim, geradoEm: reg.geradoEm ?? null, gravadoEm: reg.gravadoEm ?? null, corte: reg.corte ?? null,
+      receber: { total: reg.receber.total, totalSemHorizonte: reais(Math.round(reg.receber.total * 100) + Math.round(alemRec * 100)), faixas: reg.receber.faixas ?? null, antigas: reg.receber.antigas ?? null, foraDRE: reg.receber.foraDRE ?? null, alemHorizonte: reg.receber.alemHorizonte ?? null },
+      pagar: { total: reg.pagar.total, operacional: reais(operacional), operacionalSemHorizonte: reais(operacional + operacionalAlem), grupos, semClasse: grupos.semClasse, faixas: reg.pagar.faixas ?? null, alemHorizonte: reg.pagar.alemHorizonte ?? null },
+      parcial: motivos.length > 0, motivos,
+      ncgSemEstoque: reais(Math.round(reg.receber.total * 100) - operacional),
+      fluxos: fluxo(reg.fluxos), fluxos3m: fluxo(reg.fluxos3m),
+      cobertura: reg.cobertura ?? null,
+    });
+  }
+  meses.sort((a, b) => a.id.localeCompare(b.id));
+  return { meses, invalidos };
+}
+export async function lerHistorico(sb) {
+  const { data, error } = await sb.from('dre_registros').select('id,registro').eq('colecao', 'posicoes').order('id');
+  if (error) throw new Error('Não foi possível ler o histórico de posições.');
+  return resumirHistorico((data || []).map(r => r.registro));
+}
+
 export const HORIZONTE_DIAS = 60;
 const somaDias = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
 // Posição de hoje: a receber (régua da Fase 5) e a pagar classificado, no mesmo horizonte; o estoque entra na tela.
@@ -143,6 +242,9 @@ export async function consultarGiro(sb, _body = {}, agora = new Date()) {
     sb.from('painel_config_global').select('corte:config->parametros->>dataCorteAtrasados').eq('id', true).maybeSingle(),
   ]);
   if (rec?.error || pag?.error) throw new Error('Não foi possível ler as contas a receber e a pagar do Painel.');
+  // O histórico não derruba a posição de hoje: sem ele, a tela diz que falta.
+  let historico = null, erroHistorico = null;
+  try { historico = await lerHistorico(sb); } catch (e) { erroHistorico = e?.message || 'Histórico indisponível.'; }
   const corte = cfg?.error ? null : cfg?.data?.corte ?? null;
   const p = agregarPagar({ lista: pag?.data?.valor ?? null, atualizadoEm: pag?.data?.atualizado_em ?? null, corte, agora });
   // Os recebíveis vão até 90 dias depois da carga; as contas a pagar, até 60. Corta os dois no mesmo dia.
@@ -169,7 +271,7 @@ export async function consultarGiro(sb, _body = {}, agora = new Date()) {
     horizonte: { dias: HORIZONTE_DIAS, ate: limite, receberFora: { quantidade: fora.quantidade, valor: reais(fora.c) } },
     receber, pagar: p,
     ncg: { semEstoque: ncgSemEstoque, receber: r.disponivel ? r.totais.aberto : null, pagarOperacional: p.disponivel ? p.totais.operacional : null },
-    avisos,
-    historico: null,
+    avisos: [...avisos, ...(erroHistorico ? ['Histórico: ' + erroHistorico] : []), ...(historico?.invalidos?.length ? [`Histórico: ${historico.invalidos.length} mês(es) gravado(s) com formato inválido ficaram de fora.`] : [])],
+    historico: historico ? { meses: historico.meses, invalidos: historico.invalidos.length, corteAtual: corte ?? null } : { meses: [], erro: 'leitura', corteAtual: corte ?? null },
   };
 }

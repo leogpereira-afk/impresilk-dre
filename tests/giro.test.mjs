@@ -1,7 +1,7 @@
 // Capital de giro (Fase 6.1): contas a pagar do Painel classificadas pelo número do
 // centro de custo, projeções à parte, necessidade de giro sem inventar estoque.
 import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';import {test} from 'node:test';
-import {agregarPagar,consultarGiro,grupoDe,GRUPOS} from '../supabase/functions/dre-sync/giro.mjs';
+import {agregarPagar,consultarGiro,grupoDe,GRUPOS,validarPosicao,gravarPosicao,resumirHistorico} from '../supabase/functions/dre-sync/giro.mjs';
 import {consultarIndicadores} from '../supabase/functions/dre-sync/indicadores.mjs';
 
 const EM='2026-10-11T01:49:08.839+00:00',AGORA=new Date('2026-10-11T02:09:08Z');// hoje em São Paulo: 10/10/2026
@@ -56,14 +56,14 @@ test('carga atrasada e corte ilegível ficam marcados',()=>{
  const r=ag(PAGAR,{corte:'2025-13-01'});assert.deepEqual([r.corte.origem,r.qualidade],['padrao','Parcial']);
 });
 
-function banco({rec={valor:[{id:'r1',cliente:'A',cnpj:'',nf:'1',os:'1',valor:3000,valorTitulo:3000,pago:0,emissao:dia(40),vencimento:dia(10),situacao:'aberto'},{id:'r2',cliente:'B',cnpj:'',nf:'2',os:'2',valor:2000,valorTitulo:2000,pago:0,emissao:dia(5),vencimento:dia(-20),situacao:'aberto'}],atualizado_em:EM},pag={valor:PAGAR,atualizado_em:EM},erros={}}={}){
- const lidos=[];return {lidos,from(t){const q={f:{},sel:'',select(s){q.sel=s;return q;},eq(k,v){q.f[k]=v;return q;},maybeSingle(){const chave=t==='painel_cache'?q.f.chave:t;lidos.push(t+'|'+(q.f.chave||''));
+function banco({posicoes=[],erroPosicoes=false,rec={valor:[{id:'r1',cliente:'A',cnpj:'',nf:'1',os:'1',valor:3000,valorTitulo:3000,pago:0,emissao:dia(40),vencimento:dia(10),situacao:'aberto'},{id:'r2',cliente:'B',cnpj:'',nf:'2',os:'2',valor:2000,valorTitulo:2000,pago:0,emissao:dia(5),vencimento:dia(-20),situacao:'aberto'}],atualizado_em:EM},pag={valor:PAGAR,atualizado_em:EM},erros={}}={}){
+ const lidos=[];return {lidos,from(t){const q={f:{},sel:'',select(s){q.sel=s;return q;},eq(k,v){q.f[k]=v;return q;},order(){lidos.push(t+'|'+(q.f.colecao||''));return Promise.resolve(erroPosicoes?{data:null,error:new Error('x')}:{data:posicoes.map(r=>({id:r.id,registro:r})),error:null});},maybeSingle(){const chave=t==='painel_cache'?q.f.chave:t;lidos.push(t+'|'+(q.f.chave||''));
   if(erros[chave])return Promise.resolve({data:null,error:new Error('x')});return Promise.resolve({data:t==='painel_config_global'?{corte:'2025-01-01'}:chave==='recebiveis'?rec:chave==='pagar'?pag:null,error:null});}};return q;}};}
 test('servidor: necessidade de giro sem estoque = a receber − a pagar operacional; rota dos indicadores sem período',async()=>{
  const sb=banco(),r=await consultarGiro(sb,{},AGORA);
  assert.deepEqual([r.ok,r.fonte,r.disponivel,r.qualidade],[true,'capitalGiro',true,'Apurado']);
  assert.deepEqual(r.ncg,{semEstoque:5000-4750,receber:5000,pagarOperacional:4750});assert.equal(r.receber.corte.data,'2025-01-01');
- assert.deepEqual(sb.lidos.sort(),['painel_cache|pagar','painel_cache|recebiveis','painel_config_global|']);
+ assert.deepEqual(sb.lidos.sort(),['dre_registros|posicoes','painel_cache|pagar','painel_cache|recebiveis','painel_config_global|']);
  assert.equal((await consultarIndicadores(banco(),{fonte:'capitalGiro'})).fonte,'capitalGiro');
  await assert.rejects(()=>consultarGiro(banco({erros:{pagar:1}}),{}),/Não foi possível ler as contas a receber e a pagar do Painel/);
  const semRec=await consultarGiro(banco({rec:null}),{},AGORA);assert.deepEqual([semRec.disponivel,semRec.ncg.semEstoque,semRec.receber.disponivel,semRec.qualidade],[true,null,false,'Indisponível']);
@@ -165,4 +165,106 @@ test('reler com erro mostra a última leitura; lista cortada em 200 é dita; "Le
  const ls={},doc={addEventListener(tp,f){(ls[tp]||=[]).push(f);},querySelector(){return {focus(){doc.focado=true;}};}};const w=tela({dados:d});w.__doc=doc;w.run('document=__doc;wireGiro()');
  ls.toggle.forEach(f=>f({target:{classList:{contains:k=>k==='giro-detalhe'},open:true}}));assert.match(w.run('renderGiro()'),/<details class="card giro-detalhe" open>/);
  ls.click.forEach(f=>f({target:{closest:()=>({hasAttribute:()=>false})}}));assert.equal(w.run('giroUI.foco'),true);assert.equal(doc.focado,true);
+});
+
+// ── Histórico (Fase 6.2) ───────────────────────────────────────────────────
+const MES_PT=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],mesDe=id=>/^\d{4}-\d{2}$/.test(id)?MES_PT[Number(id.slice(5))-1]+'/'+id.slice(0,4):'Nov/2025',fimDe=id=>/^\d{4}-\d{2}$/.test(id)&&Number(id.slice(5))>=1&&Number(id.slice(5))<=12?new Date(Date.UTC(+id.slice(0,4),+id.slice(5),0)).toISOString().slice(0,10):'2025-11-30';
+const posicao=(id,extra={})=>({id,mes:mesDe(id),fim:fimDe(id),regra:'posicao-v1',modo:'reconstruido',corte:'2025-01-01',geradoEm:'2026-10-11T10:00:00Z',execucaoId:'e1',
+ receber:{total:5000,quantidade:3,faixas:{avencer:3000,d1_30:2000,d31_60:0,d61_90:0,d91:0},antigas:{quantidade:1,valor:900},foraDRE:{quantidade:0,valor:0}},
+ pagar:{total:4100,quantidade:5,faixas:{avencer:4100,d1_30:0,d31_60:0,d61_90:0,d91:0},porCentro:[{rotulo:'1.01 Impressão',valor:1000,quantidade:1},{rotulo:'2.02 Administrativo e RH',valor:800,quantidade:1},{rotulo:'3.02 Impostos e taxas',valor:300,quantidade:1},{rotulo:'3.04 Empréstimos',valor:1500,quantidade:1},{rotulo:'Materia Prima Serralheria',valor:500,quantidade:1}]},
+ fluxos:{receber:{emitido:6000,pago:4000,prazoConcedido:30,prazoReal:34},pagar:{emitido:3000,pago:2500,prazoConcedido:28,prazoReal:25,emitidoPorCentro:[{rotulo:'1.01 Impressão',valor:2000},{rotulo:'3.04 Empréstimos',valor:1000}]}},
+ fluxos3m:{receber:{emitido:18000,pago:12000,prazoConcedido:30,prazoReal:33},pagar:{emitido:9000,pago:7000,prazoConcedido:28,prazoReal:26,emitidoPorCentro:[{rotulo:'1.01 Impressão',valor:6000},{rotulo:'2.02 Administrativo e RH',valor:1500},{rotulo:'3.04 Empréstimos',valor:1500}]}},
+ cobertura:{titulos:10,semValor:0,semEmissao:0,pagamentoInvalido:0},...extra});
+test('histórico: só posição válida entra; números finitos, textos curtos, mês e regra conhecidos',()=>{
+ assert.equal(validarPosicao(posicao('2025-11')).id,'2025-11');
+ for(const [reg,re] of [[null,/inválida/],[posicao('2025-13'),/Mês/],[posicao('11/2025'),/Mês/],[posicao('2025-11',{regra:'x'}),/Regra/],[posicao('2025-11',{receber:{total:Infinity}}),/Número/],
+  [posicao('2025-11',{mes:'x'.repeat(201)}),/Texto/],[posicao('2025-11',{pagar:{total:1}}),/totais/],[posicao('2025-11',{pagar:{total:1,porCentro:Array.from({length:401},()=>({rotulo:'a',valor:1}))}}),/Lista/],[posicao('2025-11',{x:()=>1}),/Tipo/]])
+  assert.throws(()=>validarPosicao(reg),re);
+});
+test('histórico: gravação na coleção à parte, com a hora; falha do banco não passa calada',async()=>{
+ const feitos=[];const sb={from(t){return {upsert(v,o){feitos.push([t,v,o]);return Promise.resolve({error:null});}};}};
+ assert.deepEqual(await gravarPosicao(sb,{registro:posicao('2025-11')},new Date('2026-10-11T10:00:00Z')),{ok:true,id:'2025-11'});
+ assert.deepEqual([feitos[0][0],feitos[0][1].colecao,feitos[0][1].id,feitos[0][1].registro.gravadoEm,feitos[0][2].onConflict],['dre_registros','posicoes','2025-11','2026-10-11T10:00:00.000Z','colecao,id']);
+ await assert.rejects(()=>gravarPosicao({from:()=>({upsert:()=>Promise.resolve({error:new Error('x')})})},{registro:posicao('2025-11')}),/Posição não gravada/);
+ await assert.rejects(()=>gravarPosicao(sb,{registro:posicao('2025-00')}),/Mês/);
+});
+test('histórico: a pagar por classe com a mesma regra de hoje, necessidade de giro e fluxos; inválido fica de fora e é contado',()=>{
+ const h=resumirHistorico([posicao('2025-12',{mes:'Dez/2025'}),posicao('2025-11'),{id:'2025-10',regra:'posicao-v1'}]);
+ assert.deepEqual(h.meses.map(m=>m.id),['2025-11','2025-12']);assert.deepEqual(h.invalidos,['2025-10']);
+ const m=h.meses[0];assert.deepEqual(m.pagar.grupos,{producao:1000,apoio:800,impostos:300,predio:0,socios:0,emprestimos:1500,semClasse:500});
+ assert.equal(m.pagar.operacional,2100,'1.xx + 2.xx + impostos; empréstimos e sem classe fora');assert.equal(m.ncgSemEstoque,5000-2100);
+ assert.deepEqual([m.fluxos.pagar.emitidoOperacional,m.fluxos.pagar.emitidoProducao,m.fluxos.receber.prazoReal],[2000,2000,34]);
+ assert.deepEqual([m.fluxos3m.receber.emitido,m.fluxos3m.pagar.emitidoOperacional,m.fluxos3m.pagar.emitidoProducao],[18000,7500,6000],'três meses: base dos prazos médios');const semTres=posicao('2025-11');delete semTres.fluxos3m;assert.equal(resumirHistorico([semTres]).meses[0].fluxos3m,null,'gravado antes dos três meses: não apurado');
+});
+test('histórico na leitura do capital de giro; falha de leitura avisa sem derrubar a posição de hoje',async()=>{
+ const d=await consultarGiro(banco({posicoes:[posicao('2025-11')]}),{},AGORA);assert.deepEqual(d.historico.meses.map(m=>m.id),['2025-11']);assert.equal(d.historico.corteAtual,'2025-01-01');
+ const e=await consultarGiro(banco({erroPosicoes:true}),{},AGORA);assert.deepEqual([e.historico.meses,e.historico.erro],[[],'leitura']);assert.equal(e.disponivel,true);assert.ok(e.avisos.some(a=>/^Histórico: Não foi possível ler o histórico de posições/.test(a)));
+ const v=await consultarGiro(banco({posicoes:[{id:'x'}]}),{},AGORA);assert.ok(v.avisos.some(a=>/1 mês\(es\) gravado\(s\) com formato inválido/.test(a)));
+});
+test('tela do histórico: necessidade de giro por mês, ciclo do último fechamento e prazos; sem estoque, sem ciclo',async()=>{
+ const d=await consultarGiro(banco({posicoes:[posicao('2025-11'),posicao('2025-12',{mes:'Dez/2025',fim:'2025-12-31'})]}),{},AGORA);
+ const h=tela({dados:d,op:{'2025-12':{estoque:1200}}}).run('renderGiro()');
+ assert.match(h,/A necessidade de giro está crescendo\?/);assert.match(h,/data-dica="Dez\/25\nR\$\s2\.900,00"/,'5.000 − 2.100 sem estoque');
+ assert.match(h,/Quantos dias o dinheiro fica preso\? · Dez\/2025/);assert.match(h,/Ciclo operacional 43 dias · ciclo financeiro 18 dias/,'estoque 18 (1.200 ÷ 6.000 × 90) + recebimento 25 (5.000 ÷ 18.000 × 90) − pagamento 25 (2.100 ÷ 7.500 × 90)');
+ assert.match(h,/<tr class="giro-parcial"><th scope="row">Dez\/2025 \*<\/th><td class="num">R\$\s5\.000,00<\/td><td class="num">R\$\s2\.100,00<\/td><td class="num">R\$\s1\.200,00<\/td><td class="num">R\$\s4\.100,00<\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">18<\/td><td class="num">18<\/td><td class="num">34<\/td><td class="num">25<\/td><\/tr>/);
+ assert.match(h,/<tr class="giro-parcial"><th scope="row">Nov\/2025 \*<\/th><td class="num">R\$\s5\.000,00<\/td><td class="num">R\$\s2\.100,00<\/td><td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><td class="num">R\$\s2\.900,00 <small>sem estoque<\/small><\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">—<\/td><td class="num">—<\/td>/,'sem estoque: estoque e ciclo não apurados, nunca zero');
+ assert.match(h,/<summary>Prazos e saldos por mês · 2 fechamentos<\/summary>/);assert.doesNotMatch(h,/O histórico usou o corte/);
+ const sem=tela({dados:await consultarGiro(banco({posicoes:[posicao('2025-12',{mes:'Dez/2025'})]}),{},AGORA)}).run('renderGiro()');assert.match(sem,/Não apurado: falta o prazo de estoque/);
+ const outro=await consultarGiro(banco({posicoes:[posicao('2025-11',{corte:'2024-01-01'})]}),{},AGORA);assert.match(tela({dados:outro}).run('renderGiro()'),/O histórico usou o corte de dívida antiga 01\/01\/2024; o Painel hoje usa 01\/01\/2025\./);
+});
+test('sem histórico remontado: a tela diz como rodar, conforme quem vê',async()=>{
+ const d=await payload();assert.match(tela({dados:d}).run('renderGiro()'),/<h2>O histórico ainda não foi remontado<\/h2><p>No GitHub do DRE, em Actions, rode &quot;Histórico de posições \(Mubisys\)&quot;/);
+ assert.match(tela({dados:d,admin:false}).run('renderGiro()'),/Peça a um administrador para rodar a remontagem/);
+ const x=await payload();x.historico={meses:[{...(resumirHistorico([posicao('2025-11')]).meses[0]),mes:'<img src=x onerror=alert(1)>'}],corteAtual:null};assert.doesNotMatch(tela({dados:x}).run('renderGiro()'),/<img src=x/);
+});
+
+// ── Casos da revisão da 6.2 ───────────────────────────────────────────────
+test('validação estrita: tamanho, profundidade, campo, mês e fim coerentes, números onde a tela imprime número',()=>{
+ const base=posicao('2025-11');
+ for(const [reg,re] of [[{...base,lixo:'x'.repeat(199).repeat(1)+'',grande:Array.from({length:399},()=>'y'.repeat(199)).concat(Array.from({length:0}))},null],
+  [{...base,grande:Array.from({length:399},()=>({a:'y'.repeat(199),b:'z'.repeat(199),c:'w'.repeat(199)}))},/grande demais/],[{...base,x:{a:{b:{c:{d:{e:{f:1}}}}}}},/aninhada/],[{...base,['k'.repeat(61)]:1},/Campo inválido/],
+  [{...base,receber:{quantidade:1}},/a receber numérico/],[{...base,id:'x2025-11'},/Mês da posição inválido/],[{...base,id:'2025-11x'},/Mês da posição inválido/],[{...base,mes:'Dez/2025'},/não confere/],[{...base,mes:7},/não confere/],
+  [{...base,fim:'2025-12-31'},/Fim do mês/],[{...base,fluxos:{receber:{prazoReal:'<a href=x>entre</a>'}}},/prazoReal/],[{...base,pagar:{...base.pagar,porCentro:[{valor:1,quantidade:1}]}},/sem rótulo/],
+  [{...base,pagar:{...base.pagar,alemPorCentro:[{rotulo:'1.01',valor:'9',quantidade:1}]}},/numérico/],[{...base,receber:{...base.receber,alemHorizonte:{valor:'1'}}},/alemHorizonte/]]){
+  if(re===null)assert.equal(validarPosicao(reg).id,'2025-11');else assert.throws(()=>validarPosicao(reg),re);
+ }
+});
+test('gravação: a hora é a do servidor, não a que veio no registro',async()=>{
+ const feitos=[];const sb={from(){return {upsert(v){feitos.push(v);return Promise.resolve({error:null});}};}};
+ await gravarPosicao(sb,{registro:{...posicao('2025-11'),gravadoEm:'2000-01-01T00:00:00Z'}},new Date('2026-10-11T10:00:00Z'));assert.equal(feitos[0].registro.gravadoEm,'2026-10-11T10:00:00.000Z');
+});
+test('prazos sobre a carteira inteira e mês parcial com o motivo',()=>{
+ const p=posicao('2025-11',{receber:{...posicao('x').receber,total:6000,alemHorizonte:{quantidade:2,valor:3000},semVencimento:{quantidade:1,valor:50}},pagar:{...posicao('x').pagar,porCentro:[{rotulo:'1.01 Impressão',valor:2000,quantidade:1}],alemPorCentro:[{rotulo:'1.01 Impressão',valor:1000,quantidade:1},{rotulo:'3.04 Empréstimos',valor:9000,quantidade:1}]},cobertura:{titulos:10,semValor:1,semEmissao:0,pagamentoInvalido:2}});
+ const m=resumirHistorico([p]).meses[0];
+ assert.deepEqual([m.receber.totalSemHorizonte,m.pagar.operacional,m.pagar.operacionalSemHorizonte,m.ncgSemEstoque],[9000,2000,3000,4000],'a necessidade de giro fica em 60 dias; os prazos usam tudo, sem empréstimos');
+ assert.equal(m.parcial,true);assert.deepEqual(m.motivos,['1 título(s) sem vencimento fora da conta','3 título(s) do Mubisys ilegíveis na remontagem (sem valor, emissão ou pagamento legível)']);
+ const limpo=resumirHistorico([posicao('2025-11',{pagar:{...posicao('x').pagar,porCentro:[{rotulo:'1.01 Impressão',valor:2000,quantidade:1}]}})]).meses[0];assert.deepEqual([limpo.parcial,limpo.motivos],[false,[]]);
+});
+test('tela: prazos sobre a carteira inteira, mês parcial marcado e os três estados do histórico',async()=>{
+ const p=posicao('2025-11',{receber:{...posicao('x').receber,total:6000,alemHorizonte:{quantidade:2,valor:3000}},pagar:{...posicao('x').pagar,porCentro:[{rotulo:'1.01 Impressão',valor:2100,quantidade:1}]}});
+ const h=tela({dados:await consultarGiro(banco({posicoes:[p]}),{},AGORA)}).run('renderGiro()');
+ assert.match(h,/<tr><th scope="row">Nov\/2025<\/th><td class="num">R\$\s6\.000,00<\/td><td class="num">R\$\s2\.100,00<\/td><td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><td class="num">R\$\s3\.900,00 <small>sem estoque<\/small><\/td><td class="num">45<\/td><td class="num">25<\/td>/,'recebimento 9.000 ÷ 18.000 × 90 = 45');
+ assert.match(h,/Prazos de recebimento e de pagamento sobre a carteira inteira; a necessidade de giro, só até 60 dias de cada fechamento/);
+ const parc=tela({dados:await consultarGiro(banco({posicoes:[posicao('2025-11')]}),{},AGORA)}).run('renderGiro()');assert.match(parc,/<b>Fechamentos parciais \(\*\)\.<\/b><ul><li>Nov\/2025: a pagar sem classificação \(R\$\s500,00\) fora do operacional\.<\/li><\/ul>/);
+ assert.match(tela({dados:await consultarGiro(banco({erroPosicoes:true}),{},AGORA)}).run('renderGiro()'),/<h2>Histórico indisponível agora<\/h2>[\s\S]*não foram perdidos/);
+ assert.match(tela({dados:await consultarGiro(banco({posicoes:[{id:'2025-11',regra:'posicao-v1'}]}),{},AGORA)}).run('renderGiro()'),/<h2>Histórico em formato antigo<\/h2><p>1 fechamento\(s\) gravado\(s\) num formato que esta versão não lê/);
+ assert.match(tela({dados:await consultarGiro(banco(),{},AGORA)}).run('renderGiro()'),/<h2>O histórico ainda não foi remontado<\/h2>/);
+ const x=await consultarGiro(banco({posicoes:[posicao('2025-11')]}),{},AGORA);x.historico.meses[0].fluxos.receber.prazoReal='<b>x</b>';assert.doesNotMatch(tela({dados:x}).run('renderGiro()'),/<b>x<\/b>/,'o que não é número sai —');
+});
+test('prazos distintos, ciclo com sinal certo, 90 dias e arredondamento; ordem cronológica; rótulo no último mês',async()=>{
+ const rec={...posicao('x').receber,total:9000};
+ const d=await consultarGiro(banco({posicoes:[posicao('2025-11'),posicao('2025-12',{receber:rec})]}),{},AGORA);
+ const h=tela({dados:d,op:{'2025-12':{estoque:1300}}}).run('renderGiro()');
+ // recebimento 9.000 ÷ 18.000 × 90 = 45; pagamento 2.100 ÷ 7.500 × 90 = 25,2 → 25; estoque 1.300 ÷ 6.000 × 90 = 19,5 → 20; ciclo 20 + 45 − 25 = 40
+ assert.match(h,/<th scope="row">Dez\/2025( \*)?<\/th>(<td[^>]*>[^<]*(<small>[^<]*<\/small>)?<\/td>){4}<td class="num">45<\/td><td class="num">25<\/td><td class="num">20<\/td><td class="num">40<\/td>/);
+ assert.match(h,/Ciclo operacional 65 dias · ciclo financeiro 40 dias/);
+ assert.ok(h.indexOf('<th scope="row">Nov/2025')<h.indexOf('<th scope="row">Dez/2025'),'mais antigo primeiro');
+ assert.match(h,/g-rot-forte"[^>]*>R\$\s6\.900,00</,'valor marcado é o do último fechamento');
+});
+test('sem emitido no período, prazo não apurado (nunca infinito nem zero); cortes misturados são ditos',async()=>{
+ const p=posicao('2025-11',{fluxos3m:{receber:{emitido:0},pagar:{emitido:0,emitidoPorCentro:[]}}});
+ const h=tela({dados:await consultarGiro(banco({posicoes:[p]}),{},AGORA)}).run('renderGiro()');
+ assert.match(h,/<th scope="row">Nov\/2025( \*)?<\/th>(<td[^>]*>[\s\S]*?<\/td>){4}<td class="num">—<\/td><td class="num">—<\/td>/);assert.doesNotMatch(h,/Infinity|NaN/);
+ const d=await consultarGiro(banco({posicoes:[posicao('2025-11',{corte:'2024-01-01'}),posicao('2025-12')]}),{},AGORA);
+ assert.match(tela({dados:d}).run('renderGiro()'),/O histórico usou o corte de dívida antiga/);
 });

@@ -1,0 +1,39 @@
+name: Histórico de posições (Mubisys)
+# Remonta a carteira a receber e a pagar de cada fim de mês desde 30/11/2025
+# (Fase 6.2, scripts/erp_posicoes.py). Só lê o Mubisys pelo conector do DRE e
+# grava numa coleção à parte; o robô do DRE (erp-previa.yml) não é tocado.
+on:
+  schedule:
+    # Domingo, 02:17 em São Paulo: refaz o histórico inteiro (pagamentos lançados
+    # depois do fechamento mudam o passado), longe da coleta das 06h do robô do DRE,
+    # que divide com ele o limite de 30 consultas por minuto. O GitHub pode atrasar.
+    - cron: '17 5 * * 0'
+  workflow_dispatch:
+    inputs:
+      publicar:
+        description: 'Gravar as posições depois dos controles (desmarcado = simulação, só contagens no log)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  # Grupo próprio: no grupo do robô do DRE, o agendamento de 10 em 10 minutos
+  # cancelaria esta rodada enquanto ela espera a vez.
+  group: erp-posicoes
+  cancel-in-progress: false
+jobs:
+  posicoes:
+    # O agendamento só liga depois da primeira rodada conferida (variável no GitHub).
+    if: github.event_name == 'workflow_dispatch' || vars.DRE_POSICOES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar cálculos antes da coleta
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Remontar as posições de fim de mês
+        env:
+          TZ: America/Sao_Paulo
+          DRE_MACHINE_TOKEN: ${{ secrets.DRE_MACHINE_TOKEN }}
+          DRE_PUBLISH: ${{ github.event_name == 'schedule' && '1' || inputs.publicar && '1' || '0' }}
+        run: python3 scripts/erp_posicoes.py

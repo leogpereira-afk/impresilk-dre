@@ -128,3 +128,9 @@ test('cascata com muitos degraus alinha o primeiro e o último rótulo à borda 
  const poucos=g('gCascata',passos.slice(0,5));assert.doesNotMatch(poucos,/right:0/,'com poucos degraus continua centralizado');
 });
 test('ligar as dicas sem DOM não quebra o carregamento',()=>{assert.doesNotThrow(()=>c.run('ligarDicasGraficos(null);ligarDicasGraficos({})'));});
+
+test('linha com área: o valor do ponto escolhido nas pontas cresce para dentro do gráfico',async()=>{
+ const fs=await import('node:fs'),vm=await import('node:vm');const c={};vm.createContext(c);vm.runInContext(fs.readFileSync(new URL('../graficos.js',import.meta.url),'utf8'),c);
+ const pts=[{rotulo:'Jan',valor:1},{rotulo:'Fev',valor:2},{rotulo:'Mar',valor:3}],trans=sel=>c.gLinhaArea(pts,{selecionado:sel}).match(/g-rot-forte"[^>]*transform:translate\(([^,]+),-160%\)/)[1];
+ assert.deepEqual([trans(0),trans(1),trans(2)],['0','-50%','-100%']);
+});

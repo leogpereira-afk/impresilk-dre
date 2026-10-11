@@ -751,7 +751,7 @@ function gLinhaArea(pontos,op={}){
  vs.forEach((v,i)=>{const cx=i*banda+banda/2,sel=op.selecionado===i;
   rot+=`<span class="g-rot g-rot-x${sel?' g-selecionado':''}${n>6&&i%2&&!sel?' g-opcional':''}" style="left:${p(cx,GX.W)}">${e(pontos[i].rotulo)}</span>`;
   if(v==null){fecha();lacunas+=`<span class="g-sem-dado" style="left:${p(i*banda+banda*.2,GX.W)};width:${p(banda*.6,GX.W)}"></span>`;}
-  else{const y=esc.y(v,H);seg.push([cx.toFixed(2),y.toFixed(2)]);if(sel)marcador=`<span class="g-ponto g-cor-${cor}" style="left:${p(cx,GX.W)};top:${p(y,H)}"></span><span class="g-rot g-rot-forte" style="left:${p(cx,GX.W)};top:${p(y,H)};transform:translate(-50%,-160%)">${e(fmt(v))}</span>`;}
+  else{const y=esc.y(v,H);seg.push([cx.toFixed(2),y.toFixed(2)]);if(sel)marcador=`<span class="g-ponto g-cor-${cor}" style="left:${p(cx,GX.W)};top:${p(y,H)}"></span><span class="g-rot g-rot-forte" style="left:${p(cx,GX.W)};top:${p(y,H)};transform:translate(${n>1&&i===n-1?'-100%':n>1&&i===0?'0':'-50%'},-160%)">${e(fmt(v))}</span>`;}
   alvos+=`<rect class="g-alvo" x="${(i*banda).toFixed(2)}" y="0" width="${banda.toFixed(2)}" height="${H}" data-dica="${e(`${pontos[i].rotulo}\n${v==null?'sem dado':fmt(v)}`)}"/>`;
  });fecha();
  const conhecidos=vs.map((v,i)=>[v,i]).filter(([v])=>v!=null),pri=conhecidos[0],ult=conhecidos[conhecidos.length-1];
