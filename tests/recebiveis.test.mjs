@@ -132,7 +132,7 @@ test('sem posição do Painel: nada apurado; conector ainda não publicado é di
  const ind={ok:true,versao:1,fonte:'recebiveis',...ag([],{})};const h=tela({payload:ind}).run('renderRecebiveis()');
  assert.deepEqual(cartoes(h).map(x=>x.valor),['Não apurado','Não apurado','Não apurado','Não apurado']);assert.match(h,/nenhum zero foi assumido/);assert.doesNotMatch(h,/data-rec-csv/);
  const c=tela({api:async()=>({erro:'Ação desconhecida: indicadores'})});c.run('renderRecebiveis()');await new Promise(r=>setTimeout(r,5));
- assert.match(c.run('renderRecebiveis()'),/O servidor ainda não tem a leitura dos recebíveis: ela é publicada sozinha em até 1 hora depois do envio\.[\s\S]*Nenhum zero foi assumido\./);
+ assert.match(c.run('renderRecebiveis()'),/O servidor ainda não tem a leitura dos recebíveis: ela é publicada sozinha pelo Painel, que roda de hora em hora mas costuma atrasar algumas horas\.[\s\S]*Nenhum zero foi assumido\./);
  const f=tela({api:async()=>{throw new Error('Fonte inválida.');}});f.run('renderRecebiveis()');await new Promise(r=>setTimeout(r,5));assert.match(f.run('renderRecebiveis()'),/ainda não tem a leitura dos recebíveis/);
 });
 test('uma leitura por minuto: o redesenho depois da resposta não pede de novo, nem depois de erro',async()=>{
@@ -151,7 +151,7 @@ test('planilha e nomes do ERP escapados; fórmula não executa no CSV',()=>{
  const p2=P();p2.titulosVencidos[0].cliente='=HYPERLINK("x")';const c2=tela({payload:p2});c2.run('download=(n,t)=>{__csv={n,t}}');c2.run('recCSV()');assert.match(c2.run('__csv.t'),/"'=HYPERLINK\(""x""\)"/);
 });
 test('versão publicada e a tela está no menu certo',()=>{
- assert.match(ler('sw.js'),/dre-shell-v110/);assert.equal((ler('index.html').match(/\?v=(\d+)/g)||[]).every(v=>v==='?v=110'),true);
+ assert.match(ler('sw.js'),/dre-shell-v111/);assert.equal((ler('index.html').match(/\?v=(\d+)/g)||[]).every(v=>v==='?v=111'),true);
  assert.match(ler('app.js'),/recebiveis:\['Recebíveis e aging','Quem deve, há quanto tempo e quanto está em risco, na posição que o Painel atualiza a cada 20 minutos\.'\]/);
 });
 

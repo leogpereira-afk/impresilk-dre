@@ -246,7 +246,7 @@ function carregarRecebiveis(forcar=false){
  const seq=++recUI.seq;recUI.busy=true;recUI.erro='';recUI.em=Date.now();
  Promise.resolve().then(()=>api('indicadores',{fonte:'recebiveis'})).then(r=>{if(seq!==recUI.seq)return;if(!r?.ok)throw new Error(r?.erro||'A leitura não foi confirmada pelo servidor.');if(r.fonte!=='recebiveis')throw new Error('Fonte inválida.');recUI.dados=r;})
   .catch(e=>{if(seq!==recUI.seq)return;const m=String(e?.message||e||'');// O servidor anterior à Fase 5 responde à fonte nova com o erro de período (validarPeriodo vem antes).
-  recUI.erro=/desconhecida|Fonte inválida|intervalo válido/i.test(m)?'O servidor ainda não tem a leitura dos recebíveis: ela é publicada sozinha em até 1 hora depois do envio. Tente de novo mais tarde.':/abort/i.test(m)?'O servidor demorou a responder.':m;})
+  recUI.erro=/desconhecida|Fonte inválida|intervalo válido/i.test(m)?'O servidor ainda não tem a leitura dos recebíveis: ela é publicada sozinha pelo Painel, que roda de hora em hora mas costuma atrasar algumas horas. Tente de novo mais tarde.':/abort/i.test(m)?'O servidor demorou a responder.':m;})
   .finally(()=>{if(seq!==recUI.seq)return;recUI.busy=false;recUI.em=Date.now();if(state.view==='recebiveis'&&typeof render==='function'){render();recFocar();}});
 }
 // "Ler de novo" redesenha a tela: o foco volta ao botão para quem usa teclado.
