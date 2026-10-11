@@ -419,3 +419,91 @@ function wireGiro(){
  document.addEventListener('toggle',e=>{if(e.target?.classList?.contains('giro-detalhe'))giroUI.aberto=e.target.open;},true);
 }
 if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wireGiro);
+
+/* ── PREÇO E PONTO DE EQUILÍBRIO · FASE 7 ─────────────────────────────────
+   Base caixa, das mesmas linhas da DRE Simples (DRESimples.apurar): vendas,
+   Simples pago, ISS e devoluções, custos variáveis, despesas fixas. Vendas
+   recebidas e custos pagos podem cair em meses diferentes; por isso tudo usa a
+   média dos três últimos meses FECHADOS até o mês escolhido (mês parcial fica
+   fora). Margem de contribuição = vendas − impostos sobre vendas − variáveis;
+   índice = margem ÷ vendas; ponto de equilíbrio = fixas ÷ índice (sem índice
+   positivo, não há ponto de equilíbrio, nunca infinito). O simulador usa o
+   markup divisor: preço = custo variável ÷ (1 − impostos − fixas − lucro). */
+const precosUI={custo:'',lucro:'',imposto:'observado',fixas:''};
+const precoCache=new WeakMap();
+function precoMes(label){
+ const m=typeof dfcMes==='function'?dfcMes(label):null,reg=m?.reg;if(!reg)return {label,dado:null,parcial:false};
+ if(!precoCache.has(reg))precoCache.set(reg,typeof DRESimples!=='undefined'?DRESimples.apurar(reg):null);
+ const a=precoCache.get(reg);if(!a)return {label,dado:null,parcial:!!m.parcial};
+ const l=a.linhas;return {label,parcial:!!m.parcial,emAndamento:!!m.emAndamento,ate:m.ate,dado:{vendas:l.vendas,das:l.das,impostosVendas:l.impostosVendas,devolucoes:l.devolucoes,variaveis:l.variaveis,mc:l.margemContribuicao,fixas:l.fixas,resultado:l.ebitda,financeiro:(l.despesasFinanceiras||0)-(l.receitasFinanceiras||0)}};
+}
+// Média dos três últimos meses fechados até `label` (olha até 12 meses para trás).
+function precoBase(label){
+ const meses=[],pulados=[];let cur=label;
+ for(let i=0;i<12&&cur&&meses.length<3;i++){const m=precoMes(cur);if(m.dado&&!m.parcial)meses.push(m);else pulados.push({label:cur,motivo:m.dado?(m.emAndamento?'em andamento':'incompleto'):'sem dados'});cur=typeof dfcMesDesloca==='function'?dfcMesDesloca(cur,-1):null;}
+ if(!meses.length)return null;
+ // Meses pulados entre o primeiro e o último usado (o mês escolhido em andamento não conta como lacuna).
+ const ki=monthSortKey(meses[meses.length-1].label),kf=monthSortKey(meses[0].label);
+ const n=meses.length,soma=k=>meses.reduce((t,m)=>t+Math.round((Number(m.dado[k])||0)*100),0),med=k=>Math.round(soma(k)/n)/100;
+ const b={meses:meses.map(m=>m.label).reverse(),n,lacunas:pulados.filter(p=>{const k=monthSortKey(p.label);return k>ki&&k<kf;}).reverse(),vendas:med('vendas'),das:med('das'),impostosVendas:med('impostosVendas'),devolucoes:med('devolucoes'),variaveis:med('variaveis'),mc:med('mc'),fixas:med('fixas'),resultado:med('resultado'),financeiro:med('financeiro')};
+ // Índices e equilíbrio pelas somas em centavos (arredondar as médias antes desviaria um centavo).
+ const sv=soma('vendas'),pct=k=>sv>0?Math.round(soma(k)/sv*10000)/100:null;
+ b.indice=sv>0?soma('mc')/sv:null;
+ b.pe=b.indice>0?Math.round(soma('fixas')/n/b.indice)/100:null;
+ b.pct={das:pct('das'),iss:pct('impostosVendas'),dev:pct('devolucoes'),variaveis:pct('variaveis'),mc:pct('mc'),fixas:pct('fixas')};
+ return b;
+}
+const precoPct=v=>v==null||!Number.isFinite(v)?'—':v.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+// Imposto do simulador: o observado (Simples pago ÷ vendas) ou a alíquota do PGDAS de cada empresa.
+function precoImpostos(b,label){
+ const ops=[{id:'observado',rotulo:`Observado nos últimos meses: ${precoPct(b?.pct?.das)}`,valor:b?.pct?.das??null}];
+ if(typeof PARAM_EMPRESAS!=='undefined'&&typeof paramAliquota==='function')for(const e of PARAM_EMPRESAS){const a=paramAliquota(e.id,label);ops.push({id:e.id,rotulo:`${e.nome} (PGDAS ${a.origem==='padrao'?'— padrão provisório':'de '+label}): ${precoPct(a.valor)}`,valor:a.valor});}
+ return ops;
+}
+function precoSimular(b,label){
+ const num=v=>{const x=typeof paramNumeroBR==='function'?paramNumeroBR(v):Number(String(v).replace(',','.'));return x==null||!Number.isFinite(x)?null:x;};
+ const custo=num(precosUI.custo),lucro=num(precosUI.lucro),fixas=precosUI.fixas===''?b?.pct?.fixas??null:num(precosUI.fixas);
+ const imp=precoImpostos(b,label).find(o=>o.id===precosUI.imposto)??precoImpostos(b,label)[0],iss=b?.pct?.iss??0;
+ if(custo==null||custo<=0)return {texto:'Informe o custo variável de uma unidade (material, tinta, terceiros) para ver o preço.'};
+ if(lucro==null)return {texto:'Informe o lucro desejado, em % do preço.'};
+ if(precosUI.fixas!==''&&fixas==null)return {texto:'Informe as despesas fixas em % do preço (ex.: 20 ou 20,5), ou deixe vazio para usar o peso de hoje.'};
+ if(imp.valor==null||fixas==null)return {texto:'Faltam os meses fechados para o imposto observado ou o peso das despesas fixas.'};
+ const tot=imp.valor+iss+fixas+lucro;
+ if(tot>=100)return {texto:`Não fecha: impostos (${precoPct(imp.valor+iss)}), despesas fixas (${precoPct(fixas)}) e lucro (${precoPct(lucro)}) somam ${precoPct(tot)} do preço. Abaixo de 100% é que existe preço.`};
+ const preco=Math.round(custo/(1-tot/100)*100)/100;
+ return {preco,markup:Math.round(preco/custo*100)/100,texto:`Preço de ${money(preco)} (markup ${(preco/custo).toLocaleString('pt-BR',{maximumFractionDigits:2})}): custo ${money(custo)}, impostos ${precoPct(imp.valor+iss)}, despesas fixas ${precoPct(fixas)} e lucro ${precoPct(lucro)} do preço.`};
+}
+function precoSimuladorHtml(b,label){
+ const ops=precoImpostos(b,label),r=precoSimular(b,label);
+ return `<form class="param-form precos-sim" data-precos-sim novalidate><div class="precos-sim-campos"><label>Custo variável de uma unidade (R$)<small>Material, tinta, terceiros e frete do trabalho</small><input name="custo" type="text" inputmode="decimal" autocomplete="off" value="${esc(precosUI.custo)}"></label><label>Imposto sobre a venda<small>O ISS fora do DAS observado (${precoPct(b?.pct?.iss)}) entra junto</small><select name="imposto">${ops.map(o=>`<option value="${esc(o.id)}"${o.id===precosUI.imposto?' selected':''}>${esc(o.rotulo)}</option>`).join('')}</select></label><label>Despesas fixas (% do preço)<small>Vazio: o peso de hoje, ${precoPct(b?.pct?.fixas)} das vendas</small><input name="fixas" type="text" inputmode="decimal" autocomplete="off" value="${esc(precosUI.fixas)}" placeholder="${esc(b?.pct?.fixas==null?'':String(b.pct.fixas).replace('.',','))}"></label><label>Lucro desejado (% do preço)<input name="lucro" type="text" inputmode="decimal" autocomplete="off" value="${esc(precosUI.lucro)}"></label></div><p class="note precos-sim-resultado" role="status" aria-live="polite">${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}</p></form>`;
+}
+function renderPrecos(){
+ const label=state.periodo;if(!label||!F.periodo(label))return '<p class="hint">Escolha um mês para ver o preço e o ponto de equilíbrio.</p>';
+ const b=precoBase(label),m=precoMes(label),ano=label.split('/')[1],perm={admin:!!state.permissoes?.admin};
+ if(!b)return `<div class="cards cards-controle">${['Margem de contribuição','Ponto de equilíbrio','Distância do equilíbrio','Despesas fixas por mês (média)'].map(t=>recCartao(t,'Não apurado','Faltam meses fechados com vendas na DRE de caixa.')).join('')}</div><section class="estado-vazio precos-sem-dados"><div><h2>Sem meses fechados até ${esc(label)}</h2><p>O cálculo usa a média dos três últimos meses fechados da DRE de caixa. Colete os meses no Mubisys ou importe a planilha.</p></div></section>`;
+ // Meses seguidos: "de Jul a Set"; com lacuna, a lista dos usados e o que ficou fora.
+ const lista=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0];
+ const periodo=b.lacunas.length?`${lista(b.meses)} (${lista(b.lacunas.map(p=>`${p.label} ${p.motivo}`))} ficou de fora)`:b.meses.length>1?`${b.meses[0]} a ${b.meses[b.meses.length-1]}`:b.meses[0];
+ const media=`média de ${periodo}${b.n<3?` (só ${b.n} ${b.n===1?'mês fechado':'meses fechados'})`:''}`;
+ const dist=m.dado&&!m.parcial&&b.pe!=null?Math.round((m.dado.vendas-b.pe)*100)/100:null;
+ // A meta de Parâmetros é o resultado do mês (depois de juros e tarifas): o financeiro líquido médio entra na conta.
+ const meta=typeof paramOperacao==='function'?paramOperacao(label)?.metaResultado:null,metaN=meta==null||meta===''||!Number.isFinite(Number(meta))?null:Number(meta),paraMeta=metaN!=null&&b.pe!=null?Math.round((b.pe+(b.financeiro+metaN)/b.indice)*100)/100:null;
+ const semDist=!m.dado?`${label} ainda não foi coletado: colete no Mubisys ou importe a planilha do mês.`:m.parcial?(m.emAndamento?`${label} ainda não fechou: a distância sai quando o mês fechar.`:`${label} tem dados só até ${(m.ate||'').split('-').reverse().slice(0,2).join('/')||'uma data não registrada'}: atualize o Mubisys ou importe a planilha completa para ver a distância.`):'Sem ponto de equilíbrio: a margem de contribuição não é positiva, então não há distância.';
+ const cards=`<div class="cards cards-controle">${recCartao('Margem de contribuição',precoPct(b.pct.mc),`${money(b.mc)} por mês sobre ${money(b.vendas)} de vendas, ${media}`,b.mc>0?'tom-entra':b.mc<0?'tom-sai':'')}${recCartao('Ponto de equilíbrio',b.pe==null?'Sem equilíbrio':money(b.pe),b.pe==null?'A margem de contribuição não é positiva: nenhum volume de vendas cobre as despesas fixas.':`Vendas por mês que pagam ${money(b.fixas)} de despesas fixas com ${precoPct(b.pct.mc)} de margem`)}${dist!=null?recCartao('Distância do equilíbrio',money(dist),`Vendas de ${label} (${money(m.dado.vendas)}) ${dist>=0?'acima':'abaixo'} do ponto de equilíbrio`,dist>0?'tom-entra':dist<0?'tom-sai':''):recCartao('Distância do equilíbrio','Não apurado',semDist)}${recCartao('Despesas fixas por mês (média)',money(b.fixas),`${precoPct(b.pct.fixas)} das vendas, ${media}`,b.fixas>0?'tom-sai':'')}</div>`;
+ const nota=`<p class="hint precos-base">Base caixa: vendas recebidas e custos pagos, das linhas da DRE Simples, na ${esc(media)}. ${b.n<3?'Com menos de três meses fechados, a média oscila mais. ':''}O Simples entra pelo que foi pago (alíquota observada de ${esc(precoPct(b.pct.das))}); a alíquota do PGDAS de cada empresa fica no simulador.${paraMeta!=null?(paraMeta>0?` Para a meta de resultado do mês de ${esc(money(metaN))} em ${esc(label)} (Parâmetros; depois de juros e tarifas), as vendas precisam chegar a ${esc(money(paraMeta))} por mês.`:` A meta de resultado do mês de ${esc(money(metaN))} em ${esc(label)} (Parâmetros) é atingida com qualquer venda.`):''}</p>`;
+ const anoMeses=PT_MON.map(x=>x+'/'+ano),serie=anoMeses.map(l=>{const pm=precoMes(l),pb=pm.dado?precoBase(l):null;return {l,pm,pe:pb?.pe??null};}),sel=anoMeses.findIndex(l=>monthSortKey(l)===monthSortKey(label));
+ const g1=recPainel('Quanto falta vender para empatar?','Vendas recebidas por mês e o ponto de equilíbrio de cada mês (média dos três meses fechados até ele). Mês parcial (*) fica hachurado.',gEmpilhadas(serie.map(x=>({rotulo:x.l.slice(0,3)+(x.pm.parcial&&x.pm.dado?'*':''),valores:x.pm.dado&&!x.pm.parcial?{vendas:x.pm.dado.vendas}:{},linha:x.pe})),{series:[{chave:'vendas',rotulo:'Vendas recebidas'}],linha:{rotulo:'Ponto de equilíbrio'},selecionado:sel,titulo:'Vendas e ponto de equilíbrio'}));
+ const g2=recPainel('Para onde vai cada real vendido?',`Da venda ao resultado operacional, ${media}; cada degrau em % das vendas.`,gCascata([{rotulo:'Vendas',curto:'Vendas',valor:b.vendas,total:true},{rotulo:'Simples pago',curto:'Simples',valor:-b.das},{rotulo:'ISS e devoluções',curto:'ISS/dev.',valor:-(b.impostosVendas+b.devolucoes)},{rotulo:'Custos variáveis',curto:'Variáveis',valor:-b.variaveis},{rotulo:'Margem de contribuição',curto:'Margem',valor:b.mc,total:true},{rotulo:'Despesas fixas',curto:'Fixas',valor:-b.fixas},{rotulo:'Resultado operacional',curto:'Resultado',valor:b.resultado,total:true}],{base:b.vendas,titulo:'Da venda ao resultado'}),false);
+ const g3=recPainel('Qual preço sustenta a margem?','Markup divisor: o preço que paga o custo variável, os impostos, a parte das despesas fixas e o lucro desejado.',precoSimuladorHtml(b,label),false);
+ const cel=v=>`<td class="num">${v==null?'<span class="muted" title="Não apurado">—</span>':esc(money(v))}</td>`;
+ const linhas=serie.map(x=>{const d=x.pm.dado,dm=d&&!x.pm.parcial&&x.pe!=null?Math.round((d.vendas-x.pe)*100)/100:null;return `<tr${monthSortKey(x.l)===monthSortKey(label)?' class="selected-month"':''}><th scope="row">${esc(x.l)}${x.pm.parcial&&d?' *':''}</th>${cel(d?.vendas)}${cel(d?d.das+d.impostosVendas+d.devolucoes:null)}${cel(d?.variaveis)}${cel(d?.mc)}<td class="num">${d&&d.vendas>0?esc(precoPct(Math.round(d.mc/d.vendas*10000)/100)):'—'}</td>${cel(d?.fixas)}${cel(x.pe)}<td class="num ${x.pm.parcial||dm==null?'':dm>0?'tom-entra':dm<0?'tom-sai':''}">${dm==null?'<span class="muted" title="Não apurado">—</span>':esc(money(dm))}</td></tr>`;}).join('');
+ const tabela=`<details class="card precos-mensal"><summary>Margem e equilíbrio mês a mês · ${esc(ano)}</summary><div class="card-body"><div class="table-scroll"><table class="tabela-controle precos-tabela"><caption>Base caixa · ponto de equilíbrio pela média dos três meses fechados até cada mês · * = mês em andamento ou incompleto</caption><thead><tr><th scope="col">Mês</th><th scope="col" class="num">Vendas</th><th scope="col" class="num">Impostos e devoluções</th><th scope="col" class="num">Custos variáveis</th><th scope="col" class="num">Margem de contribuição</th><th scope="col" class="num">Margem %</th><th scope="col" class="num">Despesas fixas</th><th scope="col" class="num">Ponto de equilíbrio</th><th scope="col" class="num">Distância</th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
+ return cards+nota+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+tabela;
+}
+// Simulador: recalcula só o resultado ao digitar (o redesenho da tela apagaria o que está sendo digitado).
+function wirePrecos(){
+ if(typeof document==='undefined'||typeof document.addEventListener!=='function')return;
+ document.addEventListener('input',e=>{const f=e.target?.closest?.('[data-precos-sim]');if(!f||!e.target.name)return;precosUI[e.target.name]=e.target.value;const b=precoBase(state.periodo),r=precoSimular(b,state.periodo),out=f.querySelector('.precos-sim-resultado');if(out)out.innerHTML=`${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}`;});
+ document.addEventListener('change',e=>{if(e.target?.closest?.('[data-precos-sim]')&&e.target.name==='imposto'){precosUI.imposto=e.target.value;const b=precoBase(state.periodo),r=precoSimular(b,state.periodo),out=e.target.closest('[data-precos-sim]').querySelector('.precos-sim-resultado');if(out)out.innerHTML=`${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}`;}});
+}
+if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wirePrecos);
