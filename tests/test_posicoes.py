@@ -60,6 +60,21 @@ class Reconstrucao(unittest.TestCase):
         f = P.posicao_no_fim(ts, fim, "2025-01-01")["pagar"]["faixas"]
         self.assertEqual(f, {"avencer": 100.0, "d1_30": 200.0, "d31_60": 300.0, "d61_90": 400.0, "d91": 500.0})
 
+    def test_parcelas_do_parcelamento_do_das_somadas_a_parte_pelo_plano(self):
+        # Fase 9.4: o plano do Mubisys (2.3.1.1) vira a conta do painel (2.4.1.1), a mesma que a DRE usa.
+        ts = titulos(("contas-pagar", pagar(1, 1200, "2025-11-01", "2025-12-20", "3.02 Impostos e taxas", plano_contas="2.3.1.1 - Parcelamento Simples")),
+                     ("contas-pagar", pagar(2, 1200, "2025-11-01", "2026-06-20", "3.02 Impostos e taxas", plano_contas="2.3.1.1 - Parcelamento Simples")),  # além dos 60 dias
+                     ("contas-pagar", pagar(3, 800, "2025-11-01", "2025-12-20", "3.02 Impostos e taxas", plano_contas="2.3.1.2 - Impresilk")),             # DAS do mês
+                     ("contas-pagar", pagar(4, 1200, "2025-10-01", "2025-11-20", "3.02 Impostos e taxas", [("2025-11-20", 1200)], plano_contas="2.3.1.1 - Parcelamento Simples")),  # paga
+                     ("contas-pagar", pagar(5, 300, "2024-01-01", "2024-06-20", "3.02 Impostos e taxas", plano_contas="2.3.1.1 - Parcelamento Simples")),  # antes do corte
+                     ("contas-receber", receber(6, 999, "2025-11-01", "2025-12-20", plano_contas="2.3.1.1 - Parcelamento Simples")))
+        self.assertEqual([t["plano"] for t in ts], ["2.4.1.1", "2.4.1.1", "2.4.1.2", "2.4.1.1", "2.4.1.1", ""])
+        pos = P.posicao_no_fim(ts, D(2025, 11, 30), "2025-01-01")
+        self.assertEqual(pos["pagar"]["parcelamentoDAS"], {"quantidade": 2, "valor": 2400.0, "porCentro": [{"rotulo": "3.02 Impostos e taxas", "valor": 2400.0, "quantidade": 2}]}, "dentro e além dos 60 dias; sem a paga, sem a antiga, sem o DAS do mês")
+        self.assertNotIn("parcelamentoDAS", pos["receber"])
+        sem = P.posicao_no_fim(titulos(("contas-pagar", pagar(7, 100, "2025-11-01", "2025-12-20", "1.01 Impressão"))), D(2025, 11, 30), "2025-01-01")
+        self.assertEqual(sem["pagar"]["parcelamentoDAS"], {"quantidade": 0, "valor": 0.0, "porCentro": []}, "sem parcela: zero de fato, contado")
+
     def test_antigas_fora_do_dre_e_centros(self):
         ts = titulos(("contas-pagar", pagar(1, 900, "2024-05-01", "2024-12-31", "1.04 Serralheria")),
                      ("contas-pagar", pagar(2, 100, "2024-05-01", "2025-01-01", "1.04 Serralheria")),

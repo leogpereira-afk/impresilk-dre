@@ -35,6 +35,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { coleta } from "./coleta.ts";
 import { consultarIndicadores } from "./indicadores.mjs";
 import { gravarPosicao } from "./giro.mjs";
+import { arquivarIntel } from "./intel.mjs";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -191,7 +192,7 @@ Deno.serve(async (req: Request) => {
   if (!cracha && !ehMaquina && !ehColetor) {
     return json({ erro: "Entre no sistema.", semSessao: true }, 401);
   }
-  if (ehColetor && !['ping','list','getCfg','upsert','coletaStatus','coletaIniciar','coletaConcluir','posicoesGravar'].includes(body.action))
+  if (ehColetor && !['ping','list','getCfg','upsert','coletaStatus','coletaIniciar','coletaConcluir','posicoesGravar','intelArquivar'].includes(body.action))
     return json({erro:'A credencial da coleta não permite esta ação.'},403);
 
   try {
@@ -236,6 +237,11 @@ Deno.serve(async (req: Request) => {
         if (!ehColetor) return json({ erro: "Ação exclusiva da rotina de coleta." }, 403);
         try { return json(await gravarPosicao(sb, body)); }
         catch (e) { return json({ erro: (e as Error)?.message ?? "Posição inválida." }, 400); }
+      }
+      // Arquivo das importações do Painel (Fase 9.3): só a rotina de coleta grava, numa coleção à parte.
+      case "intelArquivar": {
+        if (!ehColetor) return json({ erro: "Ação exclusiva da rotina de coleta." }, 403);
+        return json(await arquivarIntel(sb));
       }
       case "ping":
         return json({ ok: true, ts: new Date().toISOString() });

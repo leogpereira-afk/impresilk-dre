@@ -44,6 +44,10 @@ FAIXAS = ("avencer", "d1_30", "d31_60", "d61_90", "d91")
 # Mesmo horizonte da posição de hoje (a carga do Painel traz a pagar até 60 dias):
 # o que vence depois disso fica à parte, para o histórico comparar com hoje.
 HORIZONTE_DIAS = 60
+# Parcelamento do DAS (conta do painel; no Mubisys é a 2.3.1.1): as parcelas lançadas
+# como contas a pagar vão somadas à parte, para o balanço não contá-las de novo junto
+# com o saldo do parcelamento informado em Parâmetros (Fase 9.4).
+PARCELAMENTO_DAS = "2.4.1.1"
 
 
 class ColetaIncompleta(Exception):
@@ -149,6 +153,8 @@ def normalizar(t, recurso, quitado=False):
         "vencimento": dia(t.get("data_vencimento")),
         "pagamentos": pagamentos,
         "centro": str(t.get("centro_custo") or "").strip() if lado == "pagar" else "",
+        # Conta do plano no código do painel (o mesmo que a DRE usa), só no a pagar.
+        "plano": previa.erp_mes.traduzir_plano(previa.codigo(t.get("plano_contas"))[0]) if lado == "pagar" else "",
         "noDre": str(t.get("compoe_dre") or "").strip().lower() == "sim",
     }, None
 
@@ -185,6 +191,7 @@ def posicao_no_fim(titulos, fim, corte):
     for lado in ("receber", "pagar"):
         faixas = {f: 0 for f in FAIXAS}
         centros, centros_alem, antigas, fora_dre, alem, sem_venc = {}, {}, [0, 0], [0, 0], [0, 0], [0, 0]
+        parcelamento, parc_centros = [0, 0], {}
         total = qtd = lancado_depois = 0
         for t in titulos:
             if t["lado"] != lado or t["emissao"] > fim:
@@ -203,6 +210,14 @@ def posicao_no_fim(titulos, fim, corte):
                 antigas[0] += 1
                 antigas[1] += saldo
                 continue
+            plano = t.get("plano", "")
+            if lado == "pagar" and (plano == PARCELAMENTO_DAS or plano.startswith(PARCELAMENTO_DAS + ".")):
+                # Carteira inteira (dentro e além dos 60 dias), como o total sem horizonte.
+                parcelamento[0] += 1
+                parcelamento[1] += saldo
+                c = parc_centros.setdefault(t["centro"] or "Sem centro de custo", [0, 0])
+                c[0] += saldo
+                c[1] += 1
             if t["vencimento"] > limite:
                 alem[0] += 1
                 alem[1] += saldo
@@ -238,6 +253,8 @@ def posicao_no_fim(titulos, fim, corte):
             item["porCentro"] = lista(centros)
             # Além dos 60 dias, por centro: os prazos médios usam a carteira inteira.
             item["alemPorCentro"] = lista(centros_alem)
+            # Por centro: o balanço tira as parcelas da classe em que caíram (em geral 3.02).
+            item["parcelamentoDAS"] = {"quantidade": parcelamento[0], "valor": reais(parcelamento[1]), "porCentro": lista(parc_centros)}
         out[lado] = item
     return out
 

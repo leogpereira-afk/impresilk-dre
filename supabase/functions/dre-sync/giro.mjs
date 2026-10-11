@@ -168,6 +168,9 @@ export function validarPosicao(reg) {
   numero(reg.receber?.total, 'a receber'); numero(reg.pagar?.total, 'a pagar');
   if (!Array.isArray(reg.pagar?.porCentro)) throw new Error('Posição sem os totais.');
   centros(reg.pagar.porCentro, 'centros de custo'); centros(reg.pagar.alemPorCentro, 'centros além do horizonte');
+  // Parcelas do parcelamento do DAS (Fase 9.4): total, quantidade e por centro.
+  const pdas = reg.pagar.parcelamentoDAS;
+  if (pdas != null) { if (typeof pdas !== 'object' || Array.isArray(pdas)) throw new Error('Posição com parcelamento do DAS inválido.'); numeroOuNulo(pdas.valor, 'parcelamentoDAS'); numeroOuNulo(pdas.quantidade, 'parcelamentoDAS'); centros(pdas.porCentro, 'parcelamento por centro'); }
   for (const lado of ['receber', 'pagar']) {
     for (const k of ['alemHorizonte', 'semVencimento', 'antigas', 'foraDRE']) {
       const x = reg[lado][k];
@@ -213,6 +216,8 @@ export function resumirHistorico(regs) {
     const fora = lado => ({ antigas: typeof reg[lado].antigas === 'object' ? reg[lado].antigas : null, semVencimento: typeof reg[lado].semVencimento === 'object' ? reg[lado].semVencimento : null });
     // Fora da DRE do a pagar: o balanço avisa quando o caixa da DFC não acompanha esses títulos.
     const foraDREPagar = typeof reg.pagar.foraDRE === 'object' ? reg.pagar.foraDRE : null;
+    // Parcelas do parcelamento do DAS (Fase 9.4), com a classe de cada centro, para o balanço tirá-las de onde caíram.
+    const pd = reg.pagar.parcelamentoDAS, parcelamentoDAS = pd && Number.isFinite(pd.valor) ? { valor: pd.valor, quantidade: pd.quantidade ?? null, porGrupo: Object.fromEntries(GRUPOS.map(g => [g.id, reais(somaCentros(pd.porCentro, x => x === g.id))])) } : null;
     // O que ficou de fora deste fechamento: o mês sai marcado como parcial, como a posição de hoje.
     const sv = lado => (typeof reg[lado].semVencimento === 'object' ? reg[lado].semVencimento?.quantidade : reg[lado].semVencimento) || 0;
     const cob = reg.cobertura || {}, motivos = [];
@@ -223,7 +228,7 @@ export function resumirHistorico(regs) {
     meses.push({
       id: reg.id, mes: reg.mes, fim: reg.fim, geradoEm: reg.geradoEm ?? null, gravadoEm: reg.gravadoEm ?? null, corte: reg.corte ?? null,
       receber: { total: reg.receber.total, totalSemHorizonte: reais(Math.round(reg.receber.total * 100) + Math.round(alemRec * 100)), faixas: reg.receber.faixas ?? null, antigas: reg.receber.antigas ?? null, foraDRE: reg.receber.foraDRE ?? null, alemHorizonte: reg.receber.alemHorizonte ?? null, semVencimento: fora('receber').semVencimento },
-      pagar: { total: reg.pagar.total, totalSemHorizonte: reais(Math.round(reg.pagar.total * 100) + Math.round(alemPag * 100)), operacional: reais(operacional), operacionalSemHorizonte: reais(operacional + operacionalAlem), grupos, gruposSemHorizonte, semClasse: grupos.semClasse, faixas: reg.pagar.faixas ?? null, alemHorizonte: reg.pagar.alemHorizonte ?? null, foraDRE: foraDREPagar, ...fora('pagar') },
+      pagar: { total: reg.pagar.total, totalSemHorizonte: reais(Math.round(reg.pagar.total * 100) + Math.round(alemPag * 100)), operacional: reais(operacional), operacionalSemHorizonte: reais(operacional + operacionalAlem), grupos, gruposSemHorizonte, semClasse: grupos.semClasse, faixas: reg.pagar.faixas ?? null, alemHorizonte: reg.pagar.alemHorizonte ?? null, foraDRE: foraDREPagar, parcelamentoDAS, ...fora('pagar') },
       parcial: motivos.length > 0, motivos,
       ncgSemEstoque: reais(Math.round(reg.receber.total * 100) - operacional),
       fluxos: fluxo(reg.fluxos), fluxos3m: fluxo(reg.fluxos3m),

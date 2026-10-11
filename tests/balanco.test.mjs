@@ -258,3 +258,58 @@ test('servidor: o fora da DRE do a pagar chega à tela',()=>{
  const m=resumirHistorico([pos('2026-09',{pagar:{...pos('2026-09').pagar,foraDRE:{quantidade:2,valor:700}}})]).meses[0];assert.deepEqual(m.pagar.foraDRE,{quantidade:2,valor:700});
  assert.equal(resumirHistorico([pos('2026-09')]).meses[0].pagar.foraDRE,null);
 });
+
+// ── Fase 9.4: parcelas do parcelamento do DAS separadas pelo robô ───────────
+const comParcelas=(valor=2400,porCentro=[{rotulo:'3.02 Impostos e taxas',valor:2400,quantidade:2}])=>{const p=pos('2026-09');p.pagar.porCentro=[...p.pagar.porCentro.filter(x=>!/3\.02/.test(x.rotulo)),{rotulo:'3.02 Impostos e taxas',valor:1500,quantidade:3}];p.pagar.alemPorCentro=[...p.pagar.alemPorCentro,{rotulo:'3.02 Impostos e taxas',valor:1200,quantidade:1}];p.pagar.parcelamentoDAS={quantidade:2,valor,porCentro};return resumirHistorico([p]).meses;};
+test('9.4: com o saldo informado, as parcelas saem dos impostos e não somam de novo; sem marca de aproximado',()=>{
+ // impostos no Mubisys: 1.500 + 1.200 (além dos 60 dias) = 2.700, dos quais 2.400 são parcelas do parcelamento
+ const b=tela({hist:comParcelas()}).json("balApurar('Set/2026',giroUI.dados.historico.meses,dfcSaldos())");
+ assert.deepEqual([b.linhas.impostos.valor,b.linhas.parcelamento.valor,!!b.linhas.impostos.aproximado,b.aproximados],[300,4000,false,[]]);
+ assert.match(b.linhas.impostos.nota,/sem as parcelas do parcelamento do DAS, que ficam na linha do parcelamento/);assert.match(b.linhas.parcelamento.nota,/as parcelas lançadas no Mubisys \(R\$\s2\.400,00\) já estão nele e não somam de novo/);
+ assert.ok(!b.avisos.some(a=>/contada duas vezes/.test(a)),'separado pelo robô: sem o aviso de dupla contagem');
+});
+test('9.4: sem o saldo informado, as parcelas do Mubisys viram a linha do parcelamento, aproximada; o passivo não muda',()=>{
+ const sem=tela({hist:comParcelas(),balanco:{'2026-08':{imobilizado:100000},'2026-09':{emprestimos:30000}}}).json("balApurar('Set/2026',giroUI.dados.historico.meses,dfcSaldos())");
+ assert.deepEqual([sem.linhas.impostos.valor,sem.linhas.parcelamento.valor,sem.linhas.parcelamento.aproximado],[300,2400,true]);
+ assert.match(sem.linhas.parcelamento.nota,/parcelas do parcelamento lançadas no Mubisys com vencimento até .* informe em Parâmetros o saldo do extrato da Receita/);
+ const antigo=tela({hist:comParcelas(2400,[]),balanco:{'2026-08':{imobilizado:100000},'2026-09':{emprestimos:30000}}}).json("balApurar('Set/2026',giroUI.dados.historico.meses,dfcSaldos())");
+ assert.deepEqual([antigo.linhas.impostos.valor,antigo.linhas.parcelamento.valor],[2700,null],'classes que não fecham com o total: nada é movido');
+});
+test('9.4 servidor: parcelamento por classe na leitura; formato inválido recusado',async()=>{
+ const m=comParcelas()[0];assert.deepEqual(m.pagar.parcelamentoDAS,{valor:2400,quantidade:2,porGrupo:{producao:0,apoio:0,impostos:2400,predio:0,socios:0,emprestimos:0,semClasse:0}});
+ assert.equal(resumirHistorico([pos('2026-09')]).meses[0].pagar.parcelamentoDAS,null,'posição antiga: sem o campo');
+ const {validarPosicao}=await import('../supabase/functions/dre-sync/giro.mjs');
+ for(const ruim of [{valor:'1'},[1],{valor:1,porCentro:[{valor:1}]}]){const p=pos('2026-09');p.pagar.parcelamentoDAS=ruim;assert.throws(()=>validarPosicao(p),/parcelamento/);}
+});
+
+// ── Fase 9.2: rentabilidade sobre o capital do balanço ─────────────────────
+const rent=(c,de,ate)=>c.json(`balRentabilidade({de:'${de}',ate:'${ate}'},giroUI.dados.historico.meses,dfcSaldos())`);
+test('9.2: ROE e ROA de setembro com o resultado de caixa (gerencial, marcado) e o capital médio de agosto e setembro',()=>{
+ const c=tela(),r=rent(c,'2026-09-01','2026-09-30'),ago=c.json("balApurar('Ago/2026',giroUI.dados.historico.meses,dfcSaldos())"),set=c.json("balApurar('Set/2026',giroUI.dados.historico.meses,dfcSaldos())");
+ const res=c.json("DRESimples.apurar(state.records.find(r=>r.label==='Set/2026')).linhas.resultado");
+ assert.deepEqual([r.base,r.resultado,r.ini.label,r.fim.label],['caixa',res,'Ago/2026','Set/2026']);
+ assert.equal(r.plMedio,Math.round((ago.pl+set.pl)/2*100)/100);assert.equal(r.roe,Math.round(res/r.plMedio*10000)/100);assert.equal(r.roa,Math.round(res/r.ativoMedio*10000)/100);
+ assert.ok(r.marcas.some(m=>/resultado de caixa \(gerencial\)/.test(m)));assert.ok(r.marcas.some(m=>/balanço de Ago\/2026 parcial/.test(m)),'agosto parcial: dito');assert.equal(r.disponivel,true);
+});
+test('9.2: competência apurada em todos os meses vale no lugar do caixa; mês aberto fica de fora; falta dita',()=>{
+ const c=tela();c.run("state.cfg.demonstrativosCompetencia={meses:{Set_2026:{label:'Set/2026',company:'Impresilk + Universo',valores:{produtos:40000,servicos:0,outrasVendas:0,devolucoes:100,descontos:0,tributosVendas:2800,custos:16000,despesasVendas:1500,administrativas:12000,outrasDespesas:0,outrasReceitas:0,equivalencia:0,receitasFinanceiras:200,despesasFinanceiras:150,descontinuadas:0,da:500}}}}");
+ const r=rent(c,'2026-09-01','2026-09-30');assert.notEqual(c.json("DREModelo.acumulado([state.cfg.demonstrativosCompetencia.meses.Set_2026]).liquido"),null,'apuração completa');assert.equal(r.base,'competencia');assert.equal(r.resultado,c.json("DREModelo.acumulado([state.cfg.demonstrativosCompetencia.meses.Set_2026]).liquido"));assert.ok(!r.marcas.some(m=>/gerencial/.test(m)));
+ const ano=rent(tela(),'2026-01-01','2026-12-31');assert.deepEqual([ano.disponivel,ano.meses.at(-1),ano.fora],[false,'Set/2026',['Out/2026','Nov/2026','Dez/2026']]);
+ assert.ok(ano.motivos.some(m=>/resultado sem Jan\/2026, Fev\/2026/.test(m)));assert.ok(ano.marcas.some(m=>/até Set\/2026: Out\/2026 a Dez\/2026 ainda não fecharam/.test(m)));
+ assert.match(rent(tela(),'2026-10-01','2026-10-31').motivos[0],/Out\/2026 ainda não fechou/);
+ assert.match(rent(tela(),'2026-09-05','2026-09-30').motivos[0],/meses inteiros/);
+});
+test('9.2: patrimônio médio negativo ou balanço faltando: sem taxa, nunca infinito',()=>{
+ const neg=rent(tela({balanco:{'2026-08':{imobilizado:0,emprestimos:900000,parcelamentoDAS:0},'2026-09':{emprestimos:900000}}}),'2026-09-01','2026-09-30');
+ assert.equal(neg.roe,null);assert.ok(neg.motivos.some(m=>/patrimônio médio zero ou negativo/.test(m)));assert.notEqual(neg.roa,null,'o ativo continua positivo');
+ const semIni=rent(tela(),'2026-08-01','2026-08-31');assert.deepEqual([semIni.roe,semIni.roa,semIni.disponivel],[null,null,false]);assert.ok(semIni.motivos.some(m=>/balanço do fim de Jul\/2026 não somado/.test(m)));
+ assert.doesNotMatch(JSON.stringify(neg),/Infinity|NaN/);
+});
+
+test('9.2 revisão: retorno antecipado com o formato inteiro; competência de outro escopo não vale; marcas do balanço no resumo',()=>{
+ for(const [de,ate] of [['2026-10-01','2026-10-31'],['2026-09-05','2026-09-30'],['2026-11-01','2026-12-31']]){const r=rent(tela(),de,ate);assert.ok(Array.isArray(r.marcas)&&Array.isArray(r.motivos)&&Array.isArray(r.meses),de);assert.equal(r.roe,null);}
+ assert.deepEqual(rent(tela(),'2026-11-01','2026-12-31').fora,['Nov/2026','Dez/2026']);
+ const c=tela();c.run("state.cfg.demonstrativosCompetencia={meses:{Set_2026:{label:'Set/2026',company:'Impresilk',valores:{produtos:40000,servicos:0,outrasVendas:0,devolucoes:100,descontos:0,tributosVendas:2800,custos:16000,despesasVendas:1500,administrativas:12000,outrasDespesas:0,outrasReceitas:0,equivalencia:0,receitasFinanceiras:200,despesasFinanceiras:150,descontinuadas:0,da:500}}}}");
+ const r=rent(c,'2026-09-01','2026-09-30');assert.equal(r.base,'caixa');assert.ok(r.marcas.some(m=>/competência de outro escopo \(Impresilk\)/.test(m)));
+ assert.deepEqual([r.ini.parcial,!!r.ini.marca,r.fim.herdado],[true,true,true]);assert.match(r.ini.marca,/^parcial: sem estoque e parcelamento do DAS/);
+});

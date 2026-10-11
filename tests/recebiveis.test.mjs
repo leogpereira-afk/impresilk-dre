@@ -151,7 +151,7 @@ test('planilha e nomes do ERP escapados; fórmula não executa no CSV',()=>{
  const p2=P();p2.titulosVencidos[0].cliente='=HYPERLINK("x")';const c2=tela({payload:p2});c2.run('download=(n,t)=>{__csv={n,t}}');c2.run('recCSV()');assert.match(c2.run('__csv.t'),/"'=HYPERLINK\(""x""\)"/);
 });
 test('versão publicada e a tela está no menu certo',()=>{
- assert.match(ler('sw.js'),/dre-shell-v116/);assert.equal((ler('index.html').match(/\?v=(\d+)/g)||[]).every(v=>v==='?v=116'),true);
+ assert.match(ler('sw.js'),/dre-shell-v117/);assert.equal((ler('index.html').match(/\?v=(\d+)/g)||[]).every(v=>v==='?v=117'),true);
  assert.match(ler('app.js'),/recebiveis:\['Recebíveis e aging','Quem deve, há quanto tempo e quanto está em risco, na posição que o Painel atualiza a cada 20 minutos\.'\]/);
 });
 

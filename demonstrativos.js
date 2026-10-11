@@ -130,7 +130,7 @@ function renderDRE(){
 }
 function wireDRE(){
  if($$('dreContasCSV'))$$('dreContasCSV').onclick=()=>{const reg=regAtual(),rows=[['Contas registradas',state.periodo,reg?.company||''],['Natureza','Código','Conta','Valor R$','Percentual do total'],...['1','2'].flatMap(code=>{const c=F.composicao(reg,code);return c.itens.map(x=>[code==='1'?'Entrada':'Saída',x.code,x.name,x.value==null?'Não apurado':x.value.toFixed(2).replace('.',','),x.value!=null&&c.total?(x.value/c.total*100).toFixed(2).replace('.',','):'Não apurado']);})];download('contas-dre-'+safeId(state.periodo)+'.csv','\ufeff'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');};
- if($$('drePeriodo'))$$('drePeriodo').onchange=e=>{if(!e.target.validity.valid||!e.target.value)return;const [y,m]=e.target.value.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;render();};
+ if($$('drePeriodo'))$$('drePeriodo').onchange=e=>{if(!e.target.validity.valid||!e.target.value)return;const [y,m]=e.target.value.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;if(typeof ligarAno==='function')ligarAno(false);render();};
  document.querySelectorAll('[data-dre-base]').forEach(b=>b.onclick=()=>{dreUI.base=b.dataset.dreBase;render();});
  if($$('dreDetalhar'))$$('dreDetalhar').onchange=e=>{dreUI.detalhar=e.target.checked;render();};
  if($$('editarCompetencia'))$$('editarCompetencia').onclick=()=>abrirCompetencia(state.periodo);
@@ -207,12 +207,12 @@ function dreMesCaixa(label){
 const dreMubisys=(code,reg)=>{const r=typeof CodigosMubisys!=='undefined'?CodigosMubisys.rotulo(code,reg):'';return r?' · '+esc(r):'';};
 const dreAteTexto=m=>m?.parcial?` · coletado até ${dreDia(m.ate)||'agora'} (mês em andamento)`:'';
 const dreMesesDoAno=label=>PT_MON.map(x=>x+'/'+String(label||'').split('/')[1]);
-function dreCascataCaixa(m){
+function dreCascataCaixa(m,r={}){
  const l=m.a.linhas,neg=v=>v?-v:0;
  return gCascata([
-  {rotulo:'Receita bruta de vendas',curto:'Vendas',valor:l.vendas,total:true},{rotulo:'(−) Simples do mês (DAS e DARF)',curto:'Simples',valor:neg(l.das)},{rotulo:'(−) ISS fora do DAS',curto:'ISS',valor:neg(l.impostosVendas)},{rotulo:'(−) Devoluções',curto:'Devol.',valor:neg(l.devolucoes)},
+  {rotulo:'Receita bruta de vendas',curto:'Vendas',valor:l.vendas,total:true},{rotulo:r.simples||'(−) Simples do mês (DAS e DARF)',curto:'Simples',valor:neg(l.das)},{rotulo:'(−) ISS fora do DAS',curto:'ISS',valor:neg(l.impostosVendas)},{rotulo:'(−) Devoluções',curto:'Devol.',valor:neg(l.devolucoes)},
   {rotulo:'(=) Receita líquida',curto:'Líquida',valor:l.receitaLiquida,total:true},{rotulo:'(−) Custos variáveis',curto:'Variáveis',valor:neg(l.variaveis)},{rotulo:'(=) Margem de contribuição',curto:'Margem',valor:l.margemContribuicao,total:true},
-  {rotulo:'(−) Despesas fixas',curto:'Fixas',valor:neg(l.fixas)},{rotulo:'(=) EBITDA de caixa',curto:'EBITDA',valor:l.ebitda,total:true},{rotulo:'(+/−) Financeiro',curto:'Financ.',valor:l.receitasFinanceiras-l.despesasFinanceiras},{rotulo:'(=) Resultado do mês',curto:'Resultado',valor:l.resultado,total:true}
+  {rotulo:'(−) Despesas fixas',curto:'Fixas',valor:neg(l.fixas)},{rotulo:'(=) EBITDA de caixa',curto:'EBITDA',valor:l.ebitda,total:true},{rotulo:'(+/−) Financeiro',curto:'Financ.',valor:l.receitasFinanceiras-l.despesasFinanceiras},{rotulo:r.resultado||'(=) Resultado do mês',curto:'Resultado',valor:l.resultado,total:true}
  ],{base:l.vendas>0?l.vendas:0});
 }
 // Tabela de comparação. Linha de detalhe ou da ponte zerada nos dois meses só ocupa espaço.
@@ -235,10 +235,35 @@ function dreMesesSimples(label,ms){
  const acum=id=>{if(ate<0)return null;const vs=ms.slice(0,ate+1).map(m=>m.a?.linhas[id]);return !vs.length||vs.some(v=>v==null)?null:vs.reduce((t,v)=>t+Math.round(v*100),0)/100;};
  return `<details class="card"><summary>DRE Simples mês a mês · ${esc(String(label).split('/')[1])}</summary><div class="card-body"><div class="table-scroll"><table class="tabela-controle dre-simples-meses"><caption>Base de caixa · R$ · — = mês sem dados · * = mês em andamento</caption><thead><tr><th scope="col">Linha</th>${ms.map(m=>`<th scope="col" class="num ${dreMesmoMes(m.label,label)?'selected-month':''}">${esc(m.label)}${m.parcial?' *':''}</th>`).join('')}<th scope="col" class="num">Acumulado até ${esc(String(label).split('/')[0])}</th></tr></thead><tbody>${linhas.map(l=>`<tr class="dre-l-${esc(l.tipo)}"><th scope="row">${esc(l.nome)}</th>${ms.map(m=>`<td class="num ${dreMesmoMes(m.label,label)?'selected-month':''} ${dreTomSimples(l,m.a?.linhas[l.id])}">${valorDRE(m.a?m.a.linhas[l.id]:null)}</td>`).join('')}<td class="num ${dreTomSimples(l,acum(l.id))}">${valorDRE(acum(l.id))}</td></tr>`).join('')}</tbody></table></div><p class="hint">O acumulado fica sem valor quando falta algum mês. Mês em andamento entra como está, marcado com *.</p></div></details>`;
 }
+// Ano inteiro (chip "Ano", Fase 9.1): as linhas somadas de janeiro ao mês escolhido (o
+// último com dados), em centavos; mês sem dados no caminho deixa o ano sem soma, dito.
+function dreAnoCaixa(meses,ate){
+ const ms=meses.slice(0,ate+1),faltam=ms.filter(x=>!x.a).map(x=>x.label),parciais=ms.filter(x=>x.a&&x.parcial).map(x=>x.label);
+ if(faltam.length||!ms.length)return {faltam,parciais,linhas:null};
+ const linhas={};for(const k of Object.keys(ms[0].a.linhas)){const vs=ms.map(x=>x.a.linhas[k]);if(vs.every(v=>typeof v==='number'&&Number.isFinite(v)))linhas[k]=vs.reduce((t,v)=>t+Math.round(v*100),0)/100+0;}
+ // Percentual sem arredondar (como o DRESimples): arredonda uma vez só, ao mostrar.
+ const pct=v=>linhas.vendas>0&&v!=null?v/linhas.vendas*100:null;
+ return {faltam,parciais,linhas,margens:{margemContribuicao:pct(linhas.margemContribuicao),ebitda:pct(linhas.ebitda),resultado:pct(linhas.resultado)}};
+}
+function dreSimplesAno(label,meses,sel,painelTendencia){
+ const ano=String(label).split('/')[1],ate=String(label).split('/')[0],y=dreAnoCaixa(meses,sel),lista=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0]||'';
+ const tabela=dreMesesSimples(label,meses),porMes=`<p class="hint dre-ano-nota">${esc(`Ano ${ano} inteiro, de janeiro a ${ate}. A comparação entre meses e as contas de cada linha são por mês: escolha um mês na barra para vê-las.`)}</p>`;
+ if(!y.linhas){
+  const faixas=xs=>{const g=[];for(const l of xs){const k=monthSortKey(l),u=g[g.length-1];if(u&&k===u.k+1){u.fim=l;u.k=k;}else g.push({ini:l,fim:l,k});}return lista(g.map(x=>x.ini===x.fim?x.ini:`${x.ini} a ${x.fim}`));};
+  const motivo=`${faixas(y.faltam)} sem dados coletados: sem todos os meses, o ano de ${ano} não é somado. Use “Atualizar Mubisys” ou importe a planilha dos meses.`;
+  return {cards:`<div class="cards cards-controle">${dreCartao(`Vendas · ${ano}`,'Não apurado',motivo)}${['Margem de contribuição','Resultado operacional (EBITDA de caixa)',`Resultado de ${ano}`].map(t=>dreCartao(t,'Não apurado','Depende de todos os meses do ano até '+ate+'.')).join('')}</div>`,resto:`<div class="graficos-controle">${painelTendencia}</div>`+porMes+tabela};
+ }
+ const l=y.linhas,g=y.margens,marca=y.parciais.length?` · inclui ${lista(y.parciais)} (parcial)`:'',per=`de janeiro a ${ate} de ${ano}${marca}`,tom=v=>y.parciais.length?'':v>0?'tom-entra':v<0?'tom-sai':'';
+ const cards=`<div class="cards cards-controle">${dreCartao(`Vendas · ${ano}`,money(l.vendas),`Receita bruta de vendas, ${per}`,l.vendas>0?'tom-entra':'')}${dreCartao('Margem de contribuição',money(l.margemContribuicao),`${drePct(g.margemContribuicao)} das vendas, depois do Simples, ISS, devoluções e custos variáveis, ${per}`,tom(l.margemContribuicao))}${dreCartao('Resultado operacional (EBITDA de caixa)',money(l.ebitda),`${drePct(g.ebitda)} das vendas, depois das despesas fixas, ${per}`,tom(l.ebitda))}${dreCartao(`Resultado de ${ano}`,money(l.resultado),`${drePct(g.resultado)} das vendas, antes de retiradas, investimentos e dívidas, ${per}`,tom(l.resultado))}</div>`;
+ const graficos=`<div class="graficos-controle">${drePainel(`Da venda ao resultado · ${ano}`,`O ano somado, ${per}; cada degrau com o percentual sobre as vendas.`,dreCascataCaixa({a:{linhas:l}},{simples:'(−) Simples (DAS e DARF)',resultado:`(=) Resultado de ${ano}`}),true)}${painelTendencia}</div>`;
+ return {cards,resto:graficos+porMes+tabela};
+}
 function dreSimplesCaixa(){
  const label=state.periodo,m=dreMesCaixa(label),meses=dreMesesDoAno(label).map(x=>dreMesmoMes(x,label)?m:dreMesCaixa(x)),sel=meses.findIndex(x=>x===m);
  const tendencia=gLinhaArea(meses.map(x=>({rotulo:x.label.slice(0,3),valor:x.a&&!x.parcial?x.a.margens.margemContribuicao:null})),{selecionado:sel,titulo:'Margem de contribuição sobre as vendas',formato:v=>drePct(v),rotulo:'Margem de contribuição',cor:'marca'});
  const painelTendencia=drePainel('A margem de contribuição está melhorando?','Percentual sobre as vendas, mês a mês. Mês sem dados ou em andamento fica hachurado.',tendencia,true);
+ // Ano: de janeiro ao último mês com dados até hoje, calculado aqui (não o mês guardado).
+ if(typeof anoAtivo==='function'&&state.view==='dre'&&anoAtivo()){const fim=typeof fimDoAno==='function'?fimDoAno(String(label).split('/')[1]):label,i=meses.findIndex(x=>dreMesmoMes(x.label,fim));if(i>=0)return dreSimplesAno(fim,meses,i,painelTendencia);}
  if(!m.a){
   // Sem o mês: os cards dizem o que falta e como resolver; o ano continua visível.
   const como='Use “Atualizar Mubisys” (mês atual e anterior) ou importe a planilha do mês.';

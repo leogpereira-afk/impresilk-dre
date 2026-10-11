@@ -15,12 +15,14 @@ function restaurarRota(){
  if(q.has('comparar'))state.comparar=q.get('comparar');
  if(['caixa','competencia'].includes(q.get('base')))dreUI.base=q.get('base');
  state.contaSelecionada=q.get('conta')||'';state.consulta=q.get('busca')||'';state.tipo=q.get('tipo')||'todos';state.grupo=q.get('grupo')||'todos';
- gestaoUI.dre=q.get('visao')==='ano'?'ano':'mes';rotaLida=true;rotaAtual=location.hash;
+ // Ano (Fase 9.1): uma fonte só; a rota da DRE antiga (visao=ano) também liga.
+ const ano=q.get('ano')==='1'||q.get('visao')==='ano';state.anoTodo=ano;gestaoUI.dre=ano?'ano':'mes';rotaLida=true;rotaAtual=location.hash;
 }
 function gravarRota(){
  if(typeof location==='undefined'||!rotaLida)return;const p=new URLSearchParams({tela:state.view,mes:state.periodo,comparar:state.comparar,base:dreUI.base});
  if(state.view==='detalhe'){p.set('busca',state.consulta);p.set('tipo',state.tipo);p.set('grupo',state.grupo);if(state.contaSelecionada)p.set('conta',state.contaSelecionada);}
  if(state.view==='dre')p.set('visao',gestaoUI.dre);
+ if(typeof ANO_TELAS!=='undefined'&&ANO_TELAS.includes(state.view)&&state.anoTodo)p.set('ano','1');
  const hash='#'+p.toString();if(hash===rotaAtual)return;
  const anterior=new URLSearchParams(rotaAtual.slice(1)).get('tela');
  history[anterior&&anterior!==state.view?'pushState':'replaceState']({},'',hash);rotaAtual=hash;
@@ -97,7 +99,8 @@ function wireGestao(){
  if($$('cfoCenario')){const salvo=state.cfg.gestao?.['cenario:'+safeId(state.periodo)];if(salvo)for(const [k,v] of Object.entries(salvo.premissas||{})){const el=$$('cfoCenario').elements.namedItem(k);if(el)el.value=v;}}
  document.querySelectorAll('[data-metas]').forEach(b=>b.onclick=formularioMetas);
  document.querySelectorAll('[data-contas-pagina]').forEach(b=>b.onclick=()=>{state.contasPagina=Number(b.dataset.contasPagina);render();});
- document.querySelectorAll('[data-dre-visao]').forEach(b=>b.onclick=()=>{gestaoUI.dre=b.dataset.dreVisao;render();});
+ // "Matriz do ano" e "Mês e comparação" são o mesmo Ano do chip (Fase 9.1).
+ document.querySelectorAll('[data-dre-visao]').forEach(b=>b.onclick=()=>{if(typeof anoCompetencia==='function'&&anoCompetencia()&&typeof ligarAno==='function'){ligarAno(b.dataset.dreVisao==='ano');return render();}if(b.dataset.dreVisao==='ano'&&typeof selecionarAno==='function')return selecionarAno();if(b.dataset.dreVisao==='mes'&&typeof selecionarPeriodo==='function')return selecionarPeriodo(state.periodo);gestaoUI.dre=b.dataset.dreVisao;render();});
  document.querySelectorAll('[data-pend-page]').forEach(b=>b.onclick=()=>{gestaoUI.pendPagina=Number(b.dataset.pendPage);render();});
  document.querySelectorAll('[data-pend-key]').forEach(b=>b.onclick=()=>abrirAcao(b.dataset.pendKey,b.dataset.pendTitle));
  document.querySelectorAll('[data-acao-key]').forEach(b=>b.onclick=()=>abrirAcao(b.dataset.acaoKey));
@@ -310,7 +313,8 @@ function wireRecebiveis(){
  if(typeof document==='undefined'||typeof document.addEventListener!=='function')return;
  document.addEventListener('click',e=>{const b=e.target?.closest?.('[data-rec-csv],[data-rec-recarregar]');if(!b)return;if(b.hasAttribute('data-rec-csv'))recCSV();else if(!recUI.busy){recUI.foco=true;carregarRecebiveis(true);if(typeof render==='function')render();recFocar();}});
  // A provisão é do mês da posição: Parâmetros abre nesse mês (antes do onclick que troca de tela).
- document.addEventListener('click',e=>{const b=e.target?.closest?.('[data-rec-mes]');if(b&&b.dataset.recMes)state.periodo=b.dataset.recMes;},true);
+ // Botão que leva a um mês: vai ao mês (sai do Ano, que é de outro recorte).
+ document.addEventListener('click',e=>{const b=e.target?.closest?.('[data-rec-mes]');if(b&&b.dataset.recMes){state.periodo=b.dataset.recMes;if(typeof ligarAno==='function')ligarAno(false);}},true);
  document.addEventListener('toggle',e=>{if(e.target?.classList?.contains('rec-detalhe'))recUI.aberto=e.target.open;},true);
 }
 if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wireRecebiveis);
@@ -331,7 +335,7 @@ function carregarGiro(forcar=false){
   .catch(e=>{if(seq!==giroUI.seq)return;const m=String(e?.message||e||'');
   // Servidor anterior a esta fase responde com o erro de período (validarPeriodo vem antes da fonte).
   giroUI.erro=/desconhecida|Fonte inválida|intervalo válido/i.test(m)?'O servidor ainda não tem a leitura do capital de giro: ela é publicada sozinha pelo Painel, que roda de hora em hora mas costuma atrasar algumas horas. Tente de novo mais tarde.':/abort/i.test(m)?'O servidor demorou a responder.':m;})
-  .finally(()=>{if(seq!==giroUI.seq)return;giroUI.busy=false;giroUI.em=Date.now();if(['giro','balanco'].includes(state.view)&&typeof render==='function'){render();giroFocar();}});
+  .finally(()=>{if(seq!==giroUI.seq)return;giroUI.busy=false;giroUI.em=Date.now();if(['giro','balanco','indicadores'].includes(state.view)&&typeof render==='function'){render();giroFocar();}});
 }
 function giroFocar(){if(!giroUI.foco||typeof document==='undefined'||typeof document.querySelector!=='function')return;document.querySelector('[data-giro-recarregar]')?.focus?.();if(!giroUI.busy)giroUI.foco=false;}
 function giroEstoque(base){
@@ -575,10 +579,15 @@ function balApurar(label,hist,saldos){
  const semPos=pos?{valor:null,motivo:'a posição do fim do mês veio sem este valor'}:{valor:null,motivo:`sem a posição do fim de ${label}`};
  const r=pos?.receber,rec=balNum(r?.totalSemHorizonte),rec60=balNum(r?.total);
  L.receber=!pos?{...semPos}:rec!=null?{valor:rec,origem:'Mubisys',nota:'títulos em aberto no fim do mês, vencidos e a vencer, inclusive os fora da DRE (como no Painel)'}:rec60!=null?{valor:rec60,origem:'Mubisys',aproximado:true,nota:'só os que vencem até 60 dias do fechamento'}:{...semPos};
- const pg=pos?.pagar,obj=x=>x&&typeof x==='object'&&!Array.isArray(x)?x:null,gs=obj(pg?.gruposSemHorizonte),g60=obj(pg?.grupos),G=gs||g60,curto=!gs&&!!g60;
+ const pg=pos?.pagar,obj=x=>x&&typeof x==='object'&&!Array.isArray(x)?x:null,gs=obj(pg?.gruposSemHorizonte),g60=obj(pg?.grupos),G0=gs||g60,curto=!gs&&!!g60;
+ // Parcelas do parcelamento do DAS separadas pelo robô (Fase 9.4): saem da classe em que
+ // caíram (em geral 3.02) e vão para a linha do parcelamento. Só quando as classes fecham
+ // com o total e a carteira é a inteira; senão vale a marca por evidência, mais abaixo.
+ const pd=obj(pg?.parcelamentoDAS),pdV=balNum(pd?.valor),pdG=obj(pd?.porGrupo),pdOk=!curto&&!!G0&&pdV!=null&&!!pdG&&Math.abs(Object.values(pdG).reduce((t,x)=>t+(balNum(x)||0),0)-pdV)<.01;
+ const G=pdOk?Object.fromEntries(Object.entries(G0).map(([k,v])=>[k,balNum(v)==null?v:balReais(Math.round(v*100)-Math.round((balNum(pdG[k])||0)*100))])):G0;
  const grupo=(ids,nota)=>{if(!G)return {...semPos};const v=ids.map(i=>balNum(G[i]));if(v.some(x=>x==null))return {...semPos};return {valor:balReais(v.reduce((t,x)=>t+Math.round(x*100),0)),origem:'Mubisys',aproximado:curto,nota:nota+(curto?'; só os que vencem até 60 dias do fechamento':'')};};
  L.fornecedores=grupo(['producao','apoio','predio'],'produção (1.xx), apoio e administrativo com os salários (2.xx) e prédio (3.03)');
- L.impostos=grupo(['impostos'],'centro 3.02, com o DAS e o DARF lançados como contas a pagar');
+ L.impostos=grupo(['impostos'],`centro 3.02, com o DAS e o DARF lançados como contas a pagar${pdOk&&balNum(pdG.impostos)>0?'; sem as parcelas do parcelamento do DAS, que ficam na linha do parcelamento':''}`);
  L.socios=grupo(['socios'],'centro 3.01 (retiradas, arrendamento e benefícios)');
  L.semClasse=grupo(['semClasse'],'centro de custo sem classe reconhecida; classifique no Mubisys');
  // Cadastros de Parâmetros: o do mês ou o último informado antes, marcado.
@@ -592,14 +601,16 @@ function balApurar(label,hist,saldos){
   :empErp>0?{valor:empErp,origem:'Mubisys',aproximado:true,nota:`parcelas lançadas no Mubisys (3.04) ${alcance}, com os juros a vencer: informe o saldo devedor em Parâmetros`}
   :{valor:null,falta:true,motivo:'saldo devedor não informado em Parâmetros'};
  const cp=balCadastro(label,'parcelamentoDAS'),parcPaga=balNum(dm?.d?.valores?.parcelamentoDAS);
- L.parcelamento=cp?{valor:cp.valor,origem:'Parâmetros',cadastro:cp,nota:'saldo do parcelamento informado'}:{valor:null,falta:true,motivo:`saldo não informado em Parâmetros${parcPaga>0?`; houve parcela paga em ${label} (${money(parcPaga)})`:''}`};
+ L.parcelamento=cp?{valor:cp.valor,origem:'Parâmetros',cadastro:cp,nota:`saldo do parcelamento informado${pdOk&&pdV>0?`; as parcelas lançadas no Mubisys (${money(pdV)}) já estão nele e não somam de novo`:''}`}
+  :pdOk&&pdV>0?{valor:pdV,origem:'Mubisys',aproximado:true,nota:`parcelas do parcelamento lançadas no Mubisys ${alcance}: informe em Parâmetros o saldo do extrato da Receita`}
+  :{valor:null,falta:true,motivo:`saldo não informado em Parâmetros${parcPaga>0?`; houve parcela paga em ${label} (${money(parcPaga)})`:''}`};
  // Parcelas do parcelamento já lançadas no Mubisys caem no 3.02 e estão também no saldo
  // informado. Enquanto o robô não separar pelo plano de contas, os impostos ficam marcados
  // quando há evidência: imposto que vence depois dos 60 dias (não é o DAS do mês) ou parcela
  // do parcelamento paga no mês seguinte.
  const prox=typeof dfcMesDesloca==='function'?dfcMesDesloca(label,1):null,dmP=prox&&typeof dfcMes==='function'?dfcMes(prox):null;
  const impAlem=gs&&g60?(balNum(gs.impostos)||0)-(balNum(g60.impostos)||0):0,parcProx=balNum(dmP?.d?.valores?.parcelamentoDAS);
- if(cp?.valor>0&&L.impostos.valor>0&&(impAlem>.005||parcProx>0)){L.impostos={...L.impostos,aproximado:true,nota:L.impostos.nota+'; pode incluir parcelas do parcelamento do DAS já lançadas no Mubisys, que também estão no saldo do parcelamento'};
+ if(!pdOk&&cp?.valor>0&&L.impostos.valor>0&&(impAlem>.005||parcProx>0)){L.impostos={...L.impostos,aproximado:true,nota:L.impostos.nota+'; pode incluir parcelas do parcelamento do DAS já lançadas no Mubisys, que também estão no saldo do parcelamento'};
   avisos.push(`Os impostos a pagar no fim de ${label} (${money(L.impostos.valor)}) podem incluir parcelas do parcelamento do DAS já lançadas no Mubisys, que também estão no saldo do parcelamento informado (${money(cp.valor)}): essa parte do passivo pode estar contada duas vezes. A separação automática depende de o robô ler o plano de contas dos títulos.`);}
  // Totais em centavos. Sem caixa ou sem a posição, nada é somado.
  const faltaBase=BAL_ESSENCIAIS.filter(id=>L[id].valor==null),apurado=!faltaBase.length;
@@ -710,6 +721,52 @@ function renderBalanco(){
  // Barras só dos meses completos; parcial (*) e sem dados ficam hachurados, como na DFC.
  const g2=recPainel('O patrimônio cresce?',`Patrimônio líquido gerencial (ativo − passivo) no fim de cada mês de ${ano}. † = usa saldo de um mês anterior. Hachurado: mês sem caixa ou sem a posição, ou parcial (*); o valor parcial está na tabela "Balanço mês a mês".`,gEmpilhadas(serie.map(x=>({rotulo:x.label.slice(0,3)+(x.parcial?'*':x.apurado&&x.anteriores.length?'†':''),valores:x.apurado&&!x.parcial?{pl:x.pl}:{},linha:null})),{series:[{chave:'pl',rotulo:'Patrimônio líquido'}],selecionado:sel,titulo:'Patrimônio líquido no fim de cada mês'}));
  return balCartoes(b)+nota+erro+semCaixa+faltam+avisos+acoes+`<div class="graficos-controle">${g1}${g2}</div>`+balTabela(b)+balMensal(label,serie);
+}
+/* ── RENTABILIDADE · FASE 9.2 ───────────────────────────────────────────────
+   Retorno do período sobre o capital do Balanço gerencial (Fase 8), em meses inteiros:
+   - período: de janeiro (ou do mês inicial) até o último mês FECHADO dentro dele; mês
+     em andamento e mês que ainda não chegou ficam de fora, ditos;
+   - resultado: o por competência quando todos os meses estão apurados (DREModelo);
+     senão, o resultado de caixa da DRE Simples, marcado como gerencial (caixa não é lucro);
+   - capital: patrimônio líquido e ativo médios entre o fim do mês anterior ao início e
+     o fim do último mês, com as marcas do balanço (parcial, aproximado, herdado);
+   - ROE = resultado ÷ patrimônio médio; ROA = resultado ÷ ativo médio, no período, sem
+     anualizar. Patrimônio ou ativo médio zero ou negativo: sem taxa (nunca infinito).
+   ROI depende do investimento de cada projeto e continua não apurado. */
+function balRentabilidade(p,hist,saldos){
+ const ok=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||''),fimMes=ym=>new Date(Date.UTC(+ym.slice(0,4),+ym.slice(5,7),0)).toISOString().slice(0,10);
+ const vazio=(motivos,fora=[])=>({disponivel:false,roe:null,roa:null,resultado:null,base:null,plMedio:null,ativoMedio:null,meses:[],fora,ini:null,fim:null,motivos,marcas:[],parcial:false});
+ if(!ok(p?.de)||!ok(p?.ate)||p.de.slice(8)!=='01'||p.ate!==fimMes(p.ate.slice(0,7)))return vazio(['A rentabilidade usa meses inteiros: escolha um mês, um trimestre, um semestre ou o ano.']);
+ const rotulo=ym=>PT_MON[Number(ym.slice(5,7))-1]+'/'+ym.slice(0,4),todos=[];for(let d=new Date(p.de+'T00:00:00Z');d.toISOString().slice(0,7)<=p.ate.slice(0,7)&&todos.length<400;d.setUTCMonth(d.getUTCMonth()+1))todos.push(rotulo(d.toISOString().slice(0,7)));
+ // Só meses fechados: o que ainda corre ou não chegou fica de fora, dito.
+ const hoje=dfcHoje(),fechado=l=>(F.periodo(l)?.ate||'9')<hoje,meses=todos.filter(fechado),fora=todos.filter(l=>!fechado(l));
+ if(!meses.length)return vazio([`${todos[0]}${todos.length>1?` a ${todos[todos.length-1]}`:''} ainda não ${todos.length>1?'fecharam':'fechou'}: a rentabilidade sai com o mês fechado.`],todos);
+ const motivos=[],marcas=[];
+ if(fora.length)marcas.push(`até ${meses[meses.length-1]}: ${fora.length===1?fora[0]+' ainda não fechou':`${fora[0]} a ${fora[fora.length-1]} ainda não fecharam`}`);
+ // Resultado: competência inteira, senão caixa (gerencial), mês a mês sem buraco.
+ let resultado=null,base=null;
+ // Competência só do consolidado (Impresilk + Universo), como o capital do balanço.
+ const comp=meses.map(l=>state.cfg?.demonstrativosCompetencia?.meses?.[safeId(l)]||null),consolidado=c=>String(c?.company||'').trim().toLowerCase()==='impresilk + universo';
+ if(comp.every(Boolean)&&!comp.every(consolidado))marcas.push(`competência de outro escopo (${[...new Set(comp.filter(c=>!consolidado(c)).map(c=>String(c.company||'sem empresa').trim()))].join(', ')}): vale o resultado de caixa do consolidado`);
+ if(comp.every(Boolean)&&comp.every(consolidado)&&typeof DREModelo!=='undefined'){const a=DREModelo.acumulado(comp);if(balNum(a?.liquido)!=null){resultado=a.liquido;base='competencia';}}
+ if(resultado==null){
+  const rs=meses.map(l=>{const m=typeof dfcMes==='function'?dfcMes(l):null,a=m?.reg&&!m.parcial&&typeof DRESimples!=='undefined'?DRESimples.apurar(m.reg):null;return balNum(a?.linhas?.resultado);});
+  const faltam=meses.filter((_,i)=>rs[i]==null);
+  if(faltam.length)motivos.push(`resultado sem ${faltam.join(', ')} (sem dados coletados ou incompleto)`);
+  else{resultado=balReais(rs.reduce((t,v)=>t+Math.round(v*100),0));base='caixa';}
+ }
+ // Capital: balanço no fim do mês anterior ao início e no fim do último mês.
+ const antes=dfcMesDesloca(meses[0],-1),ini=balApurar(antes,hist,saldos),fim=balApurar(meses[meses.length-1],hist,saldos);
+ for(const b of [ini,fim])if(!b.apurado)motivos.push(`balanço do fim de ${b.label} não somado (${balNaoSomado(b).replace(/^Não somado: /,'').replace(/\.$/,'')})`);
+ const media=k=>ini.apurado&&fim.apurado?balReais(Math.round((Math.round(ini[k]*100)+Math.round(fim[k]*100))/2)):null;
+ const plMedio=media('pl'),ativoMedio=media('ativo');
+ if(plMedio!=null&&plMedio<=0)motivos.push('patrimônio médio zero ou negativo: não há retorno sobre o patrimônio');
+ if(ativoMedio!=null&&ativoMedio<=0)motivos.push('ativo médio zero ou negativo');
+ const taxa=(r,c)=>r!=null&&c!=null&&c>0?Math.round(r/c*10000)/100:null,roe=taxa(resultado,plMedio),roa=taxa(resultado,ativoMedio);
+ for(const b of [ini,fim]){if(b.parcial)marcas.push(`balanço de ${b.label} parcial${balMarca(b).replace(/^ · parcial:/,':').replace(/ · /g,'; ')}`);else if(b.anteriores?.length)marcas.push(`balanço de ${b.label} com saldo de mês anterior`);}
+ if(base==='caixa')marcas.push('resultado de caixa (gerencial): o por competência entra quando todos os meses estiverem apurados');
+ const resumo=b=>({label:b.label,pl:b.pl,ativo:b.ativo,parcial:!!b.parcial,herdado:!!b.anteriores?.length,marca:b.apurado?balMarca(b).replace(/^ · /,''):''});
+ return {disponivel:roe!=null||roa!=null,roe,roa,resultado,base,plMedio,ativoMedio,meses,fora,ini:resumo(ini),fim:resumo(fim),motivos,marcas,parcial:marcas.length>0};
 }
 function wireBalanco(){
  if(typeof document==='undefined'||typeof document.addEventListener!=='function')return;

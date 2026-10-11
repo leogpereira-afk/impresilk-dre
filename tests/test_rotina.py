@@ -26,7 +26,8 @@ class AgendamentoTest(unittest.TestCase):
         return calls,error
     def test_sem_pedido_nem_janela_nao_coleta_novamente(self):
         calls,error=self.run_flow({'ok':True,'executar':False})
-        self.assertIsNone(error);self.assertEqual(len(calls),1)
+        # Só o pedido e o arquivo das importações do Painel (Fase 9.3), que roda a cada passagem: nenhuma coleta.
+        self.assertIsNone(error);self.assertEqual([c['action'] for c in calls],['coletaIniciar','intelArquivar'])
     def test_pedido_coleta_e_confirma_resultado_dos_meses(self):
         calls,error=self.run_flow({'ok':True,'executar':True})
         self.assertIsNone(error);self.assertEqual(calls[-1]['action'],'coletaConcluir')

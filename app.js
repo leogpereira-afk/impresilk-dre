@@ -409,22 +409,63 @@ async function pullCloud(manual=false){
     if(manual)toast('Base salva na nuvem lida. Veja abaixo a data da coleta do ERP.');
   }catch(e){setSyncState('off','Leitura não concluída');toast(e.message||'Não foi possível ler a nuvem.','err');}
 }
+/* Chip "Ano" (Fase 9.1): o ano inteiro nas telas que somam período. Uma fonte só,
+   state.anoTodo, guardada na rota (ano=1); a "Matriz do ano" da DRE (gestaoUI.dre)
+   segue ela. O período do app continua sendo um mês, para nenhuma outra tela mudar;
+   o fim do ano não é guardado: é sempre o último mês com dados até hoje (fimDoAno),
+   para que Voltar, link ou um mês gravado por fora não encurtem o ano. Clicar num
+   mês volta ao mês, em qualquer tela. Na DRE por competência o chip não aparece: lá
+   a visão é por apuração. */
+const ANO_TELAS=['dre','dfc','indicadores'];
+const anoAtivo=()=>!!state.anoTodo;
+const anoCompetencia=()=>state.view==='dre'&&typeof dreUI!=='undefined'&&dreUI.base==='competencia';
+function hojeRotulo(){const d=typeof dfcHoje==='function'?dfcHoje():'';return /^\d{4}-\d{2}/.test(d)?PT_MON[Number(d.slice(5,7))-1]+'/'+d.slice(0,4):mesHoje();}
+// Último mês com dados do ano até hoje; sem nenhum, o mês de hoje (ano corrente) ou dezembro.
+function fimDoAno(ano){
+ const y=String(ano||''),hoje=hojeRotulo();if(!/^\d{4}$/.test(y))return state.periodo;
+ const doAno=state.records.map(r=>r.label).filter(l=>String(l).endsWith('/'+y)&&F.periodo(l)&&monthSortKey(l)<=monthSortKey(hoje)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));
+ return doAno[0]||(y===hoje.split('/')[1]?hoje:'Dez/'+y);
+}
+function alinharAno(){if(anoAtivo()&&ANO_TELAS.includes(state.view)&&!anoCompetencia()){const f=fimDoAno(String(state.periodo).split('/')[1]);if(f&&f!==state.periodo)state.periodo=f;}return state.periodo;}
+function ligarAno(ligado){state.anoTodo=!!ligado;if(typeof gestaoUI!=='undefined')gestaoUI.dre=ligado?'ano':'mes';}
+function selecionarAno(ano){
+ const y=String(ano||String(state.periodo).split('/')[1]||'');if(!/^\d{4}$/.test(y))return;
+ const anoAntes=String(state.periodo).split('/')[1];
+ state.periodo=fimDoAno(y);if(y!==anoAntes||state.comparar===state.periodo)state.comparar='';ligarAno(true);
+ window.DREIndicadores?.ano?.(state.periodo);
+ render();
+}
 function selecionarPeriodo(label){
  if(!F.periodo(label))return;
  state.periodo=label;if(state.comparar===label)state.comparar='';
- if(state.view==='indicadores')window.DREIndicadores?.periodo(label);
+ ligarAno(false);
+ // Em qualquer tela: os Indicadores também saem do ano e vão ao mês.
+ window.DREIndicadores?.periodo?.(label);
  render();
 }
 function atualizarChipsPeriodo(p){
  document.querySelectorAll('#monthChips button').forEach(b=>{const m=F.periodo(b.dataset.period);b.setAttribute('aria-pressed',String(m?.de===p.de&&m?.ate===p.ate));});
+ // Intervalo escolhido dentro dos Indicadores: o ano do app (de janeiro até o último mês
+ // com dados, ou o ano civil inteiro) acende o chip; outro ano ou outro recorte apaga.
+ const y=String(state.periodo).split('/')[1],fim=F.periodo(fimDoAno(y))?.ate;
+ const inteiro=p?.de===y+'-01-01'&&(p?.ate===y+'-12-31'||p?.ate===fim),antes=!!state.anoTodo;ligarAno(inteiro);
+ if(antes!==inteiro&&typeof gravarRota==='function')gravarRota();
+ document.querySelector('#anoChip button')?.setAttribute('aria-pressed',String(inteiro));
 }
 function periodoOptions(){
  const labels=[...new Set([...state.records.map(r=>r.label),...Object.values(state.cfg.demonstrativosCompetencia?.meses||{}).map(r=>r.label),state.periodo,mesHoje()])].filter(l=>F.periodo(l)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));
  const disponiveis=new Set([...state.records.map(r=>r.label),...Object.values(state.cfg.demonstrativosCompetencia?.meses||{}).map(r=>r.label)]);
  const year=Number(state.periodo.split('/')[1]),years=labels.map(l=>Number(l.split('/')[1])),min=Math.min(...years,new Date().getFullYear()-1),max=Math.max(...years,new Date().getFullYear());
  $$('yearSelect').innerHTML=Array.from({length:max-min+1},(_,i)=>max-i).map(y=>`<option ${year===y?'selected':''}>${y}</option>`).join('');
- const comp=state.view==='dre'&&dreUI.base==='competencia';
- $$('monthChips').innerHTML=PT_MON.map(m=>{const l=m+'/'+year,has=comp?!!state.cfg.demonstrativosCompetencia?.meses?.[safeId(l)]:disponiveis.has(l);return `<button type="button" data-period="${l}" aria-label="${l}" aria-pressed="${state.periodo===l}" class="${has?'has-data':'no-data'}" title="${l} · ${has?(comp?'Apuração cadastrada':'Dados disponíveis'):(comp?'Sem apuração':'Sem base registrada')}">${m}${comp&&has?' ✓':''}</button>`;}).join('');
+ const comp=state.view==='dre'&&dreUI.base==='competencia',temAno=ANO_TELAS.includes(state.view)&&!comp,ano=temAno&&anoAtivo();
+ // O foco fica no botão que estava com ele (a barra é redesenhada a cada render).
+ const focoAntes=typeof document.activeElement!=='undefined'?document.activeElement:null,focoSel=focoAntes?.closest?.('#anoChip')?'#anoChip [data-ano]':focoAntes?.closest?.('#monthChips')&&focoAntes.dataset?.period?`#monthChips [data-period="${focoAntes.dataset.period}"]`:'';
+ $$('monthChips').innerHTML=PT_MON.map(m=>{const l=m+'/'+year,has=comp?!!state.cfg.demonstrativosCompetencia?.meses?.[safeId(l)]:disponiveis.has(l);return `<button type="button" data-period="${l}" aria-label="${l}" aria-pressed="${!ano&&state.periodo===l}" class="${has?'has-data':'no-data'}" title="${l} · ${has?(comp?'Apuração cadastrada':'Dados disponíveis'):(comp?'Sem apuração':'Sem base registrada')}">${m}${comp&&has?' ✓':''}</button>`;}).join('');
+ // O lugar do chip fica ao lado da barra de meses (que continua com os 12 meses), criado uma vez.
+ let chipAno=$$('anoChip');const barra=$$('monthChips');
+ if(!chipAno&&barra?.parentNode&&typeof document.createElement==='function'){chipAno=document.createElement('div');chipAno.id='anoChip';chipAno.className='month-chips';chipAno.setAttribute('role','group');chipAno.setAttribute('aria-label','Ano inteiro');chipAno.style.cssText='flex:0 0 auto;min-width:0;order:0';barra.parentNode.insertBefore(chipAno,barra);chipAno.addEventListener('click',e=>{const b=e.target.closest?.('[data-ano]');if(b)selecionarAno(b.dataset.ano);});}
+ if(chipAno){chipAno.style.display=temAno?'flex':'none';chipAno.innerHTML=temAno?`<button type="button" data-ano="${year}" aria-pressed="${ano}" class="has-data" style="min-width:44px;padding:5px 12px" title="${year} inteiro: de janeiro até o último mês com dados">Ano</button>`:'';}
+ if(focoSel)document.querySelector?.(focoSel)?.focus?.({preventScroll:true});
  $$('compareSummary').textContent=state.comparar?'Comparar: '+state.comparar:'Comparação';
  $$('compareSelect').innerHTML='<option value="">Sem comparação</option>'+labels.filter(l=>l!==state.periodo).map(l=>`<option ${state.comparar===l?'selected':''}>${esc(l)}</option>`).join('');
 }
@@ -451,14 +492,18 @@ function paginasDoApp(){
     ...(typeof renderBalanco==='function'?{balanco:()=>renderBalanco()}:{})};
 }
 function render(){
-  if(!state.D)return;if(typeof gravarRota==='function')gravarRota();periodoOptions();document.querySelector('.period').hidden=state.view==='glossario';$$('periodCompare').hidden=['indicadores','detalhe','glossario',...TELAS_CONTROLE].includes(state.view);$$('qualityBar').hidden=['glossario','indicadores'].includes(state.view)||(state.view==='dre'&&dreUI.base==='competencia');const reg=regAtual(),q=F.qualidade(reg);
+  if(!state.D)return;
+  // Ano ligado: o mês do app é sempre o fim do ano (último mês com dados), para cartões,
+  // tabelas, qualidade, rota e PDF da mesma tela somarem até o mesmo mês (Fase 9.1).
+  alinharAno();
+  if(typeof gravarRota==='function')gravarRota();periodoOptions();document.querySelector('.period').hidden=state.view==='glossario';$$('periodCompare').hidden=['indicadores','detalhe','glossario',...TELAS_CONTROLE].includes(state.view);$$('qualityBar').hidden=['glossario','indicadores'].includes(state.view)||(state.view==='dre'&&dreUI.base==='competencia');const reg=regAtual(),q=F.qualidade(reg);
   const [title,desc]=METADATA_TELAS[state.view]||METADATA_TELAS.inicio;$$('pageTitle').textContent=title;$$('pageDesc').textContent=desc;document.title=title+' · DRE Impresilk';
   document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===state.view);b.setAttribute('aria-current',b.dataset.view===state.view?'page':'false');});if(typeof sincronizarMenu==='function')sincronizarMenu();
   const semContrato=reg?.qualidade?.apiContratoValidado===false;
   $$('qualityBar').innerHTML=`<details class="status quality-details chip-details est-${esc(q.estado||'sem-dados')} ${q.comparavel?'good':''}"><summary aria-label="${esc(`Qualidade de ${state.periodo}: ${q.rotulo}${semContrato?'. Limites da API ainda não validados':''}. Ver cobertura`)}"><span class="quality-dot"></span><span>${esc(state.periodo)} · <b>${esc(q.rotulo)}</b></span>${semContrato?'<span class="st-ressalva">* API a validar</span>':''}<span class="quality-action">cobertura ▾</span></summary><div><p>${esc(q.mensagem)}</p><small>Última coleta/registro: ${esc(dataBR(q.coletadoEm))} · Fonte: ${!reg?'Não disponível':reg.origem==='erp'?'Mubisys':'Histórico / planilha'} · Base: caixa filtrado por “compõe DRE”. Conciliação bancária: ${reg?.qualidade?.conciliado?'registrada':'não comprovada'}.</small></div></details>`;
   const pages=paginasDoApp();
   $$('pageContent').innerHTML=(typeof navContexto==='function'?navContexto():'')+(pages[state.view]||renderInicio)(reg,q);
-  $$('cfoTools').hidden=['config','ajuda','indicadores','dre',...TELAS_CONTROLE].includes(state.view);$$('cfoPDF').hidden=state.view==='glossario';wireContent();if(typeof wirePlanoContas==='function')wirePlanoContas();document.body.dataset.screen=state.view;if(state.view==='indicadores')window.DREIndicadores?.mount($$('indicadoresRoot'),{records:state.records,cfg:state.cfg,periodo:state.periodo,api,dialog,refresh:()=>pullCloud(true),onPeriodo:selecionarPeriodo,onIntervalo:atualizarChipsPeriodo,onDRE:periodo=>{if(periodo?.de){const [y,m]=periodo.de.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;}dreUI.base='competencia';state.view='dre';render();}});$$('footMeta').hidden=state.view==='glossario';$$('footMeta').textContent=state.view==='dre'&&dreUI.base==='competencia'?`Competência informada por mês · leitura da nuvem: ${dataBR(state.updated)}. Preenchimento não equivale a fechamento contábil.`:`${state.records.length} registros mensais · ${state.D.accounts.length} contas · ${state.periodo} · ${q.rotulo} · Leitura da nuvem: ${dataBR(state.updated)}. Valores não conciliados não representam fechamento.`;
+  $$('cfoTools').hidden=['config','ajuda','indicadores','dre',...TELAS_CONTROLE].includes(state.view);$$('cfoPDF').hidden=state.view==='glossario';wireContent();if(typeof wirePlanoContas==='function')wirePlanoContas();document.body.dataset.screen=state.view;if(state.view==='indicadores')window.DREIndicadores?.mount($$('indicadoresRoot'),{records:state.records,cfg:state.cfg,periodo:state.anoTodo?fimDoAno(String(state.periodo).split('/')[1]):state.periodo,ano:!!state.anoTodo,api,dialog,refresh:()=>pullCloud(true),onPeriodo:selecionarPeriodo,onIntervalo:atualizarChipsPeriodo,onDRE:periodo=>{dreUI.base='competencia';state.view='dre';ligarAno(false);if(periodo?.de){const [y,m]=periodo.de.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;}render();}});$$('footMeta').hidden=state.view==='glossario';$$('footMeta').textContent=state.view==='dre'&&dreUI.base==='competencia'?`Competência informada por mês · leitura da nuvem: ${dataBR(state.updated)}. Preenchimento não equivale a fechamento contábil.`:`${state.records.length} registros mensais · ${state.D.accounts.length} contas · ${state.periodo} · ${q.rotulo} · Leitura da nuvem: ${dataBR(state.updated)}. Valores não conciliados não representam fechamento.`;
 }
 function renderInicio(reg,q){
  const latest=[...state.records].sort((a,b)=>monthSortKey(b.label)-monthSortKey(a.label))[0];
@@ -671,7 +716,7 @@ function initApp(){
  if(typeof restaurarRota==='function')restaurarRota();
   $$('loginForm').onsubmit=async e=>{e.preventDefault();$$('loginErr').textContent='';const b=e.target.querySelector('button');b.disabled=true;try{await AUTH.entrar($$('loginPass').value);$$('loginPass').value='';await onAuthed();}catch(err){$$('loginErr').textContent=err.message||'Não foi possível entrar.';}finally{b.disabled=false;}};
   document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;render();});$$('settingsBtn').onclick=()=>{state.view='config';render();};$$('helpBtn').onclick=()=>{state.view='ajuda';render();};$$('logoutBtn').onclick=logout;$$('syncBtn').onclick=()=>coletaControle?.solicitar();
-  $$('yearSelect').onchange=e=>{const labels=state.records.map(r=>r.label).filter(l=>l.endsWith('/'+e.target.value)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));const desired=state.periodo.split('/')[0]+'/'+e.target.value;state.comparar='';selecionarPeriodo(labels.includes(desired)?desired:(labels[0]||desired));};
+  $$('yearSelect').onchange=e=>{if(ANO_TELAS.includes(state.view)&&anoAtivo()&&!anoCompetencia())return selecionarAno(e.target.value);const labels=state.records.map(r=>r.label).filter(l=>l.endsWith('/'+e.target.value)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));const desired=state.periodo.split('/')[0]+'/'+e.target.value;state.comparar='';selecionarPeriodo(labels.includes(desired)?desired:(labels[0]||desired));};
   $$('compareSelect').onchange=e=>{state.comparar=e.target.value;render();};
   $$('detailClose').onclick=()=>$$('detailDialog').close();$$('themeToggle').onclick=()=>{document.body.classList.toggle('dark');localStorage.setItem(THEME_KEY,document.body.classList.contains('dark')?'dark':'light');};document.body.classList.toggle('dark',localStorage.getItem(THEME_KEY)==='dark');
   $$('monthFileInput').onchange=async e=>{if(e.target.files[0])await previewImport(e.target.files[0]);e.target.value='';};$$('restoreInput').onchange=async e=>{if(e.target.files[0])await importarBackup(e.target.files[0]);e.target.value='';};

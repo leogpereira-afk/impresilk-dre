@@ -189,12 +189,30 @@ function dfcNotaSaldo(label,s,todos,perm){
  const ano=ult.label.split('/')[1],onde=ano===String(label).split('/')[1]?'na linha de ajuste da tabela':`na tabela de ${ano}`;
  return `<p class="hint">O saldo segue o saldo inicial informado em ${esc(ult.label)}, que ficou ${esc(comparado(ult))}; a diferença está ${esc(onde)}.</p>`;
 }
+// Ano inteiro (chip "Ano", Fase 9.1): cartões com o acumulado de janeiro até o último
+// mês com dados. Mês sem dados no caminho deixa o acumulado sem valor, dito no cartão
+// (a mesma regra do acumulado da tabela); mês parcial no caminho fica marcado.
+function dfcCartoesAno(meses,saldos,ate){
+ const ult=meses[ate],ano=ult.label.split('/')[1],faltam=meses.slice(0,ate+1).filter(m=>!m.d).map(m=>m.label),parc=dfcAcumParcial(meses,ate);
+ const lista0=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0];
+ const marca=parc.length?` · inclui ${lista0(parc.map(m=>`${m.label} (${m.emAndamento?'mês em andamento':'mês incompleto'})`))}`:'';
+ const v=id=>dfcAcumulado(meses,saldos,ate,id),txt=x=>x==null?'Não apurado':money(x);
+ const lista=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0];
+ // Meses seguidos viram faixa: "Jan/2026 a Jun/2026".
+ const faixas=xs=>{const g=[];for(const l of xs){const k=monthSortKey(l),u=g[g.length-1];if(u&&k===u.k+1){u.fim=l;u.k=k;}else g.push({ini:l,fim:l,k});}return lista(g.map(x=>x.ini===x.fim?x.ini:`${x.ini} a ${x.fim}`));};
+ const nota=base=>faltam.length?`${faixas(faltam)} sem dados coletados: sem todos os meses, o acumulado de ${ano} não é somado.`:`${base}, de janeiro a ${ult.label.split('/')[0]} de ${ano}${marca}`;
+ const fco=v('fco'),fci=v('fci'),fcf=v('fcf'),saldo=saldos[ate]?.final??null;
+ return `<div class="cards cards-controle">${dfcCartao(`Caixa da operação (FCO) · ${ano}`,txt(fco),nota('Vendas e despesas do dia a dia, já com o Simples e os juros'),fco==null||parc.length?'':dfcTom(fco))}${dfcCartao(`Investimentos (FCI) · ${ano}`,txt(fci),nota('Compras de máquinas e veículos e parcelas de ativos'),fci==null||parc.length?'':dfcTom(fci))}${dfcCartao(`Financiamentos (FCF) · ${ano}`,txt(fcf),nota('Empréstimos, dívidas, parcelamento do DAS, retiradas, arrendamento e transferências entre as empresas'),'')}${dfcCartao(`Saldo final · ${ult.label}`,txt(saldo),saldo==null?(!ult.d||!saldos[ate]?`${ult.label} sem dados coletados: o saldo depende do mês coletado.`:'Falta o saldo inicial: veja abaixo onde a sequência parou.'):`Saldo no fim de ${ult.label}, o último mês com dados de ${ano}${dfcMarca(ult)}`,saldo!=null&&!ult.parcial?dfcTom(saldo):'')}</div>`;
+}
 function renderDFC(){
  const label=state.periodo;if(!label||!F.periodo(label))return '<p class="hint">Escolha um mês para ver o fluxo de caixa.</p>';
  const ano=label.split('/')[1],meses=PT_MON.map(x=>dfcMes(x+'/'+ano)),todos=dfcSaldos(),saldos=meses.map(m=>todos.get(monthSortKey(m.label))||null),perm={admin:!!state.permissoes?.admin,edicao:!!state.permissoes?.edicao};
  const sel=meses.findIndex(m=>monthSortKey(m.label)===monthSortKey(label)),m=meses[sel]||dfcMes(label),s=sel>=0?saldos[sel]:null,marca=dfcMarca(m);
+ // Ano: de janeiro ao último mês com dados até hoje, calculado aqui (não o mês guardado).
+ const fimAno=state.anoTodo&&typeof fimDoAno==='function'?fimDoAno(ano):label,selAno=meses.findIndex(x=>monthSortKey(x.label)===monthSortKey(fimAno)),anoTodo=!!state.anoTodo&&selAno>=0;
  let cards;
- if(!m.d)cards=`<div class="cards cards-controle">${dfcCartao(`Caixa da operação (FCO) · ${label}`,'Não apurado',`${label} sem dados coletados. Use “Atualizar Mubisys” ou importe a planilha do mês.`)}${['Investimentos (FCI)','Financiamentos (FCF)','Saldo final'].map(t=>dfcCartao(t,'Não apurado','Depende do mês coletado.')).join('')}</div>`;
+ if(anoTodo)cards=dfcCartoesAno(meses,saldos,selAno);
+ else if(!m.d)cards=`<div class="cards cards-controle">${dfcCartao(`Caixa da operação (FCO) · ${label}`,'Não apurado',`${label} sem dados coletados. Use “Atualizar Mubisys” ou importe a planilha do mês.`)}${['Investimentos (FCI)','Financiamentos (FCF)','Saldo final'].map(t=>dfcCartao(t,'Não apurado','Depende do mês coletado.')).join('')}</div>`;
  else{
   const saldoTxt=s?.final!=null?money(s.final):'Não apurado';
   const saldoNota=s?.final!=null?`Saldo inicial ${money(s.inicial)} (${s.origem==='informado'?'informado em Parâmetros':'final de '+dfcMesDesloca(label,-1)}) + geração ${money(m.d.geracao)}${marca}`:`Geração do mês ${money(m.d.geracao)}; falta o saldo inicial.`;
@@ -207,7 +225,9 @@ function renderDFC(){
  const g1=dfcPainel('Para onde foi o caixa em cada mês?','Operação, investimento e financiamento por mês. Hachurado: mês sem dados ou parcial (*); os valores do mês parcial estão nos cards e na tabela.',gEmpilhadas(meses.map(x=>({rotulo:rot(x),valores:fechado(x)?{fco:x.d.fco,fci:x.d.fci,fcf:x.d.fcf}:{},linha:null})),{series:[{chave:'fco',rotulo:'Operação (FCO)'},{chave:'fci',rotulo:'Investimento (FCI)'},{chave:'fcf',rotulo:'Financiamento (FCF)'}],selecionado:sel,titulo:'Fluxo de caixa por mês'}));
  const g2=dfcPainel('A operação se paga sozinha?','Caixa da operação mês a mês: acima de zero, a operação gera caixa; abaixo, consome. Mês parcial (*) fica de fora até fechar.',gLinhaArea(meses.map(x=>({rotulo:rot(x),valor:fechado(x)?x.d.fco:null})),{selecionado:sel,titulo:'Caixa da operação',rotulo:'FCO',cor:'marca'}),false);
  const g3=dfcPainel('Quanto sobrou no banco?','Saldo final de cada mês fechado: saldo inicial + ajuste (quando o saldo informado difere) + geração de caixa.',gLinhaArea(meses.map((x,i)=>({rotulo:rot(x),valor:fechado(x)&&saldos[i]?.final!=null?saldos[i].final:null})),{selecionado:sel,titulo:'Saldo final',rotulo:'Saldo final',cor:'marca'}),false);
- return cards+dfcNotaSaldo(label,s,todos,perm)+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+(m.d?dfcContas(m):'')+dfcTabela(label,meses,saldos);
+ // No ano, as contas de cada bloco ficam por mês: a composição de um mês sai ao escolher o mês.
+ const contas=anoTodo?`<p class="hint dfc-ano-contas">${esc(`Ano ${ano} inteiro, de janeiro a ${String(fimAno).split('/')[0]}. As contas de cada bloco são mostradas por mês: escolha um mês na barra para ver a composição; o acumulado de cada linha está na tabela abaixo.`)}</p>`:m.d?dfcContas(m):'';
+ return cards+dfcNotaSaldo(label,s,todos,perm)+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+contas+dfcTabela(label,meses,saldos);
 }
 // Planilha do ano (mesmas linhas da tabela, com o acumulado).
 function dfcCSV(){
