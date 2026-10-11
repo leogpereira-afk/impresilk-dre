@@ -331,7 +331,7 @@ function carregarGiro(forcar=false){
   .catch(e=>{if(seq!==giroUI.seq)return;const m=String(e?.message||e||'');
   // Servidor anterior a esta fase responde com o erro de período (validarPeriodo vem antes da fonte).
   giroUI.erro=/desconhecida|Fonte inválida|intervalo válido/i.test(m)?'O servidor ainda não tem a leitura do capital de giro: ela é publicada sozinha pelo Painel, que roda de hora em hora mas costuma atrasar algumas horas. Tente de novo mais tarde.':/abort/i.test(m)?'O servidor demorou a responder.':m;})
-  .finally(()=>{if(seq!==giroUI.seq)return;giroUI.busy=false;giroUI.em=Date.now();if(state.view==='giro'&&typeof render==='function'){render();giroFocar();}});
+  .finally(()=>{if(seq!==giroUI.seq)return;giroUI.busy=false;giroUI.em=Date.now();if(['giro','balanco'].includes(state.view)&&typeof render==='function'){render();giroFocar();}});
 }
 function giroFocar(){if(!giroUI.foco||typeof document==='undefined'||typeof document.querySelector!=='function')return;document.querySelector('[data-giro-recarregar]')?.focus?.();if(!giroUI.busy)giroUI.foco=false;}
 function giroEstoque(base){
@@ -507,3 +507,213 @@ function wirePrecos(){
  document.addEventListener('change',e=>{if(e.target?.closest?.('[data-precos-sim]')&&e.target.name==='imposto'){precosUI.imposto=e.target.value;const b=precoBase(state.periodo),r=precoSimular(b,state.periodo),out=e.target.closest('[data-precos-sim]').querySelector('.precos-sim-resultado');if(out)out.innerHTML=`${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}`;}});
 }
 if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wirePrecos);
+
+/* ── BALANÇO GERENCIAL · FASE 8 ─────────────────────────────────────────────
+   Fim de cada mês fechado, as duas empresas juntas, sem inventar saldo:
+   - caixa e bancos: o saldo bancário do início do mês seguinte, quando informado em
+     Parâmetros (é o saldo real do banco); senão, o saldo final do Fluxo de caixa (DFC)
+     de um mês fechado. Saldo negativo vai para o passivo ("Banco no vermelho");
+   - contas a receber e a pagar: posição do fim do mês remontada pelo robô do
+     histórico (erp_posicoes.py), a carteira inteira, sem o corte de 60 dias.
+     Vencidos antes do corte de dívida antiga e títulos sem vencimento ficam fora,
+     à parte. O DAS e o DARF do mês e os salários já são contas a pagar no Mubisys
+     (3.02 e 2.02): não há estimativa à parte, para não contar duas vezes;
+   - estoque (Prazos, estoque e metas) e imobilizado, empréstimos e parcelamento do
+     DAS (Saldos do balanço) vêm de Parâmetros; sem cadastro no mês, vale o último
+     informado, marcado com o mês de onde veio. Com o saldo devedor informado, as
+     parcelas de empréstimo do Mubisys (3.04) não somam de novo; sem ele, entram
+     como aproximação marcada. As parcelas do parcelamento do DAS lançadas no Mubisys
+     caem nos impostos a pagar (o robô ainda não separa pelo plano de contas): com o
+     saldo do parcelamento informado, os impostos saem marcados como aproximados.
+   Patrimônio líquido = ativo − passivo (gerencial, não contábil). Sem o caixa ou sem
+   a posição do mês, nada é somado; faltando cadastro, com valor aproximado ou com
+   título ilegível, o total sai marcado como parcial; saldo herdado sai marcado (†). */
+const BAL_LINHAS=[
+ {id:'caixa',lado:'ativo',nome:'Caixa e bancos',curto:'caixa'},{id:'receber',lado:'ativo',nome:'Contas a receber',curto:'a receber'},{id:'estoque',lado:'ativo',nome:'Estoques',curto:'estoque'},{id:'imobilizado',lado:'ativo',nome:'Imobilizado',curto:'imobilizado'},
+ {id:'bancoNegativo',lado:'passivo',nome:'Banco no vermelho',curto:'banco no vermelho'},
+ {id:'fornecedores',lado:'passivo',nome:'Fornecedores, salários e despesas a pagar',curto:'fornecedores'},{id:'impostos',lado:'passivo',nome:'Impostos e taxas a pagar',curto:'impostos a pagar'},{id:'socios',lado:'passivo',nome:'Sócios a pagar',curto:'sócios a pagar'},
+ {id:'semClasse',lado:'passivo',nome:'A pagar sem classificação',curto:'a pagar sem classificação'},{id:'emprestimos',lado:'passivo',nome:'Empréstimos e financiamentos',curto:'empréstimos'},{id:'parcelamento',lado:'passivo',nome:'Parcelamento do DAS',curto:'parcelamento do DAS'}];
+// Linhas do caixa e da posição do mês: sem qualquer uma delas, o balanço não é somado.
+const BAL_ESSENCIAIS=['caixa','bancoNegativo','receber','fornecedores','impostos','socios','semClasse'];
+const balUI={contas:true,mensal:false};
+// Número do servidor só se for número; do cadastro, também o texto numérico antigo.
+const balNum=v=>typeof v==='number'&&Number.isFinite(v)?v:null;
+const balCad=v=>v==null||v===''||typeof v==='boolean'||!Number.isFinite(Number(v))?null:Number(v);
+const balReais=c=>c/100+0;
+const balLista=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0]||'';
+const balCurto=id=>BAL_LINHAS.find(l=>l.id===id)?.curto||id;
+const balLado=id=>BAL_LINHAS.find(l=>l.id===id)?.lado;
+const balDia=iso=>{const t=Date.parse(iso||'');return Number.isFinite(t)?new Date(t).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'}):'';};
+// Por que o balanço do mês não foi somado (do caixa e da posição), numa frase.
+const balNaoSomado=b=>'Não somado: '+[...new Set(b.faltaBase.map(id=>b.linhas[id].motivo))].join('; ')+'.';
+// Cadastro de Parâmetros no mês ou, sem ele, o último informado antes (com o mês de onde
+// veio). Mês que ainda não chegou não herda nada.
+function balCadastro(label,campo,secao='balanco'){
+ const k=typeof paramMesChave==='function'?paramMesChave(label):null,cad=state.cfg?.parametros?.[secao]||{};if(!k||k>dfcHoje().slice(0,7))return null;
+ const ult=Object.keys(cad).filter(x=>/^\d{4}-(0[1-9]|1[0-2])$/.test(x)&&x<=k&&balCad(cad[x]?.[campo])!=null).sort().pop();
+ return ult?{valor:balCad(cad[ult][campo]),mes:paramMesLabel(ult),proprio:ult===k,revisadoEm:cad[ult].revisadoEm||null}:null;
+}
+// Caixa do fim do mês (ver o cabeçalho): o informado do início do mês seguinte ou o da DFC.
+function balCaixa(label,dm,s){
+ const prox=typeof dfcMesDesloca==='function'?dfcMesDesloca(label,1):null,acabou=(F.periodo(label)?.ate||'9')<dfcHoje();
+ const inf=acabou&&prox&&typeof dfcSaldoInformado==='function'?dfcSaldoInformado(prox):null;
+ if(inf!=null)return {valor:inf,origem:'Parâmetros',informado:true,nota:`saldo bancário do início de ${prox} informado em Parâmetros: o saldo real do banco no fim de ${label}`};
+ if(!dm?.reg)return {valor:null,motivo:`${label} sem dados coletados`};
+ if(dm.parcial)return {valor:null,motivo:dm.emAndamento?`${label} ainda não fechou`:`${label} coletado só até ${dfcDia(dm.ate)||'uma data não registrada'}`};
+ if(s?.final==null)return {valor:null,motivo:'sem o saldo inicial no Fluxo de caixa'};
+ return {valor:s.final,origem:'Fluxo de caixa',nota:`saldo final de ${label} no Fluxo de caixa${s.origem==='informado'?', a partir do saldo inicial informado em Parâmetros':''}${Math.abs(s.diferenca||0)>=.01?'; a geração do mês não fecha com o ERP, confira no Fluxo de caixa':''}`};
+}
+function balApurar(label,hist,saldos){
+ const k=typeof paramMesChave==='function'?paramMesChave(label):null,pos=(Array.isArray(hist)?hist:[]).find(m=>m?.id===k)||null;
+ const dm=typeof dfcMes==='function'?dfcMes(label):null,s=saldos?.get?.(monthSortKey(label))||null,L={},avisos=[];
+ // Caixa: saldo negativo (cheque especial, conta garantida) é dívida com o banco: vai para o passivo.
+ const cx=balCaixa(label,dm,s);
+ if(cx.valor==null){L.caixa=cx;L.bancoNegativo={valor:null,motivo:cx.motivo};}
+ else if(cx.valor<0){L.caixa={...cx,valor:0,nota:cx.nota+'; negativo: está no passivo, em "Banco no vermelho"'};L.bancoNegativo={valor:balReais(-Math.round(cx.valor*100)),origem:cx.origem,nota:'saldo bancário negativo no fim do mês (cheque especial ou conta garantida)'};}
+ else{L.caixa=cx;L.bancoNegativo={valor:0,origem:cx.origem,nota:'sem saldo negativo no banco'};}
+ // Contas a receber e a pagar: a posição do fim do mês, sem o corte de 60 dias.
+ const semPos=pos?{valor:null,motivo:'a posição do fim do mês veio sem este valor'}:{valor:null,motivo:`sem a posição do fim de ${label}`};
+ const r=pos?.receber,rec=balNum(r?.totalSemHorizonte),rec60=balNum(r?.total);
+ L.receber=!pos?{...semPos}:rec!=null?{valor:rec,origem:'Mubisys',nota:'títulos em aberto no fim do mês, vencidos e a vencer, inclusive os fora da DRE (como no Painel)'}:rec60!=null?{valor:rec60,origem:'Mubisys',aproximado:true,nota:'só os que vencem até 60 dias do fechamento'}:{...semPos};
+ const pg=pos?.pagar,obj=x=>x&&typeof x==='object'&&!Array.isArray(x)?x:null,gs=obj(pg?.gruposSemHorizonte),g60=obj(pg?.grupos),G=gs||g60,curto=!gs&&!!g60;
+ const grupo=(ids,nota)=>{if(!G)return {...semPos};const v=ids.map(i=>balNum(G[i]));if(v.some(x=>x==null))return {...semPos};return {valor:balReais(v.reduce((t,x)=>t+Math.round(x*100),0)),origem:'Mubisys',aproximado:curto,nota:nota+(curto?'; só os que vencem até 60 dias do fechamento':'')};};
+ L.fornecedores=grupo(['producao','apoio','predio'],'produção (1.xx), apoio e administrativo com os salários (2.xx) e prédio (3.03)');
+ L.impostos=grupo(['impostos'],'centro 3.02, com o DAS e o DARF lançados como contas a pagar');
+ L.socios=grupo(['socios'],'centro 3.01 (retiradas, arrendamento e benefícios)');
+ L.semClasse=grupo(['semClasse'],'centro de custo sem classe reconhecida; classifique no Mubisys');
+ // Cadastros de Parâmetros: o do mês ou o último informado antes, marcado.
+ const ces=balCadastro(label,'estoque','operacao');
+ L.estoque=ces?{valor:ces.valor,origem:'Parâmetros',cadastro:ces,nota:'estoque do fim do mês'}:{valor:null,falta:true,motivo:`estoque do fim de ${label} não informado em Parâmetros`};
+ const ci=balCadastro(label,'imobilizado');
+ L.imobilizado=ci?{valor:ci.valor,origem:'Parâmetros',cadastro:ci,nota:'máquinas, veículos e instalações'}:{valor:null,falta:true,motivo:'não informado em Parâmetros'};
+ const empErp=G?balNum(G.emprestimos):null,ce=balCadastro(label,'emprestimos'),ger=Date.parse(pos?.geradoEm||'');
+ const alcance=curto?'que vencem até 60 dias do fechamento':Number.isFinite(ger)?`com vencimento até ${balDia(new Date(ger+730*864e5).toISOString())} (2 anos depois da remontagem)`:'com vencimento até 2 anos depois da remontagem';
+ L.emprestimos=ce?{valor:ce.valor,origem:'Parâmetros',cadastro:ce,nota:`saldo devedor informado${empErp>0?`; as parcelas lançadas no Mubisys (${money(empErp)}) já estão nele e não somam de novo`:''}`}
+  :empErp>0?{valor:empErp,origem:'Mubisys',aproximado:true,nota:`parcelas lançadas no Mubisys (3.04) ${alcance}, com os juros a vencer: informe o saldo devedor em Parâmetros`}
+  :{valor:null,falta:true,motivo:'saldo devedor não informado em Parâmetros'};
+ const cp=balCadastro(label,'parcelamentoDAS'),parcPaga=balNum(dm?.d?.valores?.parcelamentoDAS);
+ L.parcelamento=cp?{valor:cp.valor,origem:'Parâmetros',cadastro:cp,nota:'saldo do parcelamento informado'}:{valor:null,falta:true,motivo:`saldo não informado em Parâmetros${parcPaga>0?`; houve parcela paga em ${label} (${money(parcPaga)})`:''}`};
+ // Parcelas do parcelamento já lançadas no Mubisys caem no 3.02 e estão também no saldo
+ // informado. Enquanto o robô não separar pelo plano de contas, os impostos ficam marcados
+ // quando há evidência: imposto que vence depois dos 60 dias (não é o DAS do mês) ou parcela
+ // do parcelamento paga no mês seguinte.
+ const prox=typeof dfcMesDesloca==='function'?dfcMesDesloca(label,1):null,dmP=prox&&typeof dfcMes==='function'?dfcMes(prox):null;
+ const impAlem=gs&&g60?(balNum(gs.impostos)||0)-(balNum(g60.impostos)||0):0,parcProx=balNum(dmP?.d?.valores?.parcelamentoDAS);
+ if(cp?.valor>0&&L.impostos.valor>0&&(impAlem>.005||parcProx>0)){L.impostos={...L.impostos,aproximado:true,nota:L.impostos.nota+'; pode incluir parcelas do parcelamento do DAS já lançadas no Mubisys, que também estão no saldo do parcelamento'};
+  avisos.push(`Os impostos a pagar no fim de ${label} (${money(L.impostos.valor)}) podem incluir parcelas do parcelamento do DAS já lançadas no Mubisys, que também estão no saldo do parcelamento informado (${money(cp.valor)}): essa parte do passivo pode estar contada duas vezes. A separação automática depende de o robô ler o plano de contas dos títulos.`);}
+ // Totais em centavos. Sem caixa ou sem a posição, nada é somado.
+ const faltaBase=BAL_ESSENCIAIS.filter(id=>L[id].valor==null),apurado=!faltaBase.length;
+ const semCadastro=BAL_LINHAS.filter(l=>L[l.id].valor==null&&!BAL_ESSENCIAIS.includes(l.id)).map(l=>l.id);
+ const anteriores=BAL_LINHAS.filter(l=>L[l.id].valor!=null&&L[l.id].cadastro&&!L[l.id].cadastro.proprio).map(l=>l.id);
+ const aproximados=BAL_LINHAS.filter(l=>L[l.id].valor!=null&&L[l.id].aproximado).map(l=>l.id);
+ const cob=pos?.cobertura||{},ilegiveis=[cob.semValor,cob.semEmissao,cob.pagamentoInvalido].reduce((t,x)=>t+(balNum(x)||0),0);
+ const soma=lado=>BAL_LINHAS.filter(l=>l.lado===lado&&L[l.id].valor!=null).reduce((t,l)=>t+Math.round(L[l.id].valor*100),0);
+ const ativo=apurado?balReais(soma('ativo')):null,passivo=apurado?balReais(soma('passivo')):null,pl=apurado?balReais(soma('ativo')-soma('passivo')):null;
+ // Fora do balanço: dito, nunca somado.
+ const corte=typeof pos?.corte==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(pos.corte)?recData(pos.corte):'o corte';
+ const fora=pos?[[`A receber vencido antes de ${corte}`,r?.antigas],[`A pagar vencido antes de ${corte}`,pg?.antigas],['A receber sem vencimento',r?.semVencimento],['A pagar sem vencimento',pg?.semVencimento]].map(([rotulo,x])=>({rotulo,valor:balNum(x?.valor),quantidade:balNum(x?.quantidade)})).filter(x=>x.valor>0):[];
+ // Avisos: nenhum deles muda um valor; dizem o que conferir.
+ const dasP=balNum(dmP?.d?.valores?.das);
+ if(L.impostos.valor!=null&&dasP>0&&L.impostos.valor+.005<dasP)avisos.push(`Os impostos a pagar no fim de ${label} (${money(L.impostos.valor)}) são menores que o Simples da competência ${label} pago em ${prox}${dmP.parcial?' até agora':''} (${money(dasP)}): o DAS ou o DARF pode não ter sido lançado como conta a pagar até o fechamento. O balanço não soma nada por conta própria; confira no Mubisys.`);
+ if(ilegiveis>0)avisos.push(`${ilegiveis} título(s) do Mubisys ilegíveis (sem valor, emissão ou pagamento legível) ficaram fora da posição de ${label}: o balanço sai marcado como parcial.`);
+ const aId=balNum(dm?.d?.valores?.aIdentificar);
+ if(aId>0)avisos.push(`${money(aId)} entraram em ${label} como Entradas a identificar e estão no caixa. Se pagaram um título que seguia aberto no fim do mês, o a receber está contado duas vezes; se foram sinal de pedido, falta o adiantamento no passivo. Identifique e dê baixa no Mubisys; o balanço não desconta nada por conta própria.`);
+ const foraDRE=(balNum(r?.foraDRE?.valor)||0)+(balNum(pg?.foraDRE?.valor)||0);
+ if(L.caixa.valor!=null&&!cx.informado&&foraDRE>0)avisos.push(`A carteira tem títulos fora da DRE (pelo menos ${money(foraDRE)} entre a receber e a pagar), mas o caixa calculado pelo Fluxo de caixa não registra o recebimento nem o pagamento deles: quando forem quitados, o patrimônio muda sem fato novo. Informe em Parâmetros o saldo bancário do início de ${prox}: ele passa a ser o caixa do fim de ${label}.`);
+ return {label,id:k,pos,dm,linhas:L,apurado,faltaBase,semCadastro,anteriores,aproximados,ilegiveis,parcial:apurado&&(semCadastro.length>0||aproximados.length>0||ilegiveis>0),ativo,passivo,pl,endiv:apurado&&ativo>0?Math.round(passivo/ativo*1000)/10:null,fora,avisos};
+}
+// O que marca o total de um lado (ou do mês inteiro, sem lado): cadastro que falta, valor
+// aproximado, título ilegível (vale para os dois lados) e saldo herdado de outro mês.
+function balMarca(b,lado){
+ if(!b.apurado)return '';
+ const doLado=id=>!lado||balLado(id)===lado,sc=b.semCadastro.filter(doLado),ap=b.aproximados.filter(doLado),an=b.anteriores.filter(doLado);
+ const partes=[sc.length?`sem ${balLista(sc.map(balCurto))}`:'',ap.length?`${balLista(ap.map(balCurto))} aproximado${ap.length>1?'s':''}`:'',b.ilegiveis?`${b.ilegiveis} título(s) ilegíveis fora`:''].filter(Boolean);
+ return (partes.length?` · parcial: ${partes.join('; ')}`:'')+(an.length?` · último informado: ${balLista(an.map(id=>`${balCurto(id)} de ${b.linhas[id].cadastro.mes}`))}`:'');
+}
+function balOrigem(x){
+ if(x.valor==null)return x.motivo||'Não apurado';
+ const c=x.cadastro,de=c?` · ${c.proprio?c.mes:`último informado: ${c.mes}`}${balDia(c.revisadoEm)?`, revisado em ${balDia(c.revisadoEm)}`:''}`:'';
+ return `${x.origem}${de}${x.aproximado?' · aproximado':''}: ${x.nota}`;
+}
+// Marca de uma célula: * aproximado, † saldo de um mês anterior.
+const balSinal=x=>x?.valor==null?'':(x.aproximado?' *':'')+(x.cadastro&&!x.cadastro.proprio?' †':'');
+function balCartoes(b){
+ if(!b.apurado)return `<div class="cards cards-controle">${['Ativo total','Passivo total','Patrimônio líquido','Endividamento'].map(t=>recCartao(t,'Não apurado',balNaoSomado(b))).join('')}</div>`;
+ const L=b.linhas,v=id=>L[id].valor==null?'não informado':money(L[id].valor),m=balMarca(b);
+ const contas=balReais(['fornecedores','impostos','socios','semClasse'].reduce((t,id)=>t+Math.round(L[id].valor*100),0));
+ const endivNota=b.endiv==null?'Ativo zero: não há como dividir.':b.endiv<=100?`De cada R$ 100,00 do ativo, ${money(Math.round(b.passivo/b.ativo*10000)/100)} são de terceiros${m}`:`As dívidas passam do que a empresa tem: são ${(b.endiv/100).toLocaleString('pt-BR',{maximumFractionDigits:1})} vezes o ativo e o patrimônio está negativo${m}`;
+ return `<div class="cards cards-controle">${recCartao('Ativo total',money(b.ativo),`Caixa ${v('caixa')}, a receber ${v('receber')}, estoque ${v('estoque')} e imobilizado ${v('imobilizado')}${balMarca(b,'ativo')}`)}${recCartao('Passivo total',money(b.passivo),`Contas a pagar no Mubisys ${money(contas)}, empréstimos ${v('emprestimos')} e parcelamento do DAS ${v('parcelamento')}${L.bancoNegativo.valor>0?`, mais ${money(L.bancoNegativo.valor)} de banco no vermelho`:''}${balMarca(b,'passivo')}`)}${recCartao('Patrimônio líquido',money(b.pl),`Ativo − passivo no fim de ${b.label}: gerencial, não é o balanço do contador${m}`,b.pl>0?'tom-entra':b.pl<0?'tom-sai':'')}${recCartao('Endividamento',b.endiv==null?'Não apurado':precoPct(b.endiv),endivNota)}</div>`;
+}
+// "Banco no vermelho" só aparece quando existe (ou falta o caixa para saber).
+const balVisivel=(l,b)=>l.id!=='bancoNegativo'||b.linhas.bancoNegativo.valor!==0;
+function balTabela(b){
+ const L=b.linhas,cel=v=>v==null?'<span class="nao-apurado">Não apurado</span>':esc(money(v));
+ const linhas=lado=>BAL_LINHAS.filter(l=>l.lado===lado&&balVisivel(l,b)).map(l=>`<tr class="dre-l-detalhe"><th scope="row">${esc(l.nome)}${balSinal(L[l.id])}</th><td class="num">${cel(L[l.id].valor)}</td><td>${esc(balOrigem(L[l.id]))}</td></tr>`).join('');
+ const total=(rotulo,v,lado)=>{const mk=balMarca(b,lado).replace(/^ · /,'').replace(/ · /g,'; ');return `<tr class="dre-l-subtotal"><th scope="row">${esc(rotulo)}</th><td class="num">${cel(v)}</td><td>${esc(b.apurado?mk?mk.charAt(0).toUpperCase()+mk.slice(1):'Completo':balNaoSomado(b))}</td></tr>`;};
+ const fora=b.fora.length?`<tbody><tr class="dre-composicao-grupo"><th scope="rowgroup" colspan="3">Fora do balanço · não somam</th></tr>${b.fora.map(x=>`<tr class="dre-l-detalhe"><th scope="row">${esc(x.rotulo)}</th><td class="num">${esc(money(x.valor))}</td><td>${esc(`${x.quantidade!=null?x.quantidade+' título(s), ':''}fora da carteira, como no Painel: confira se ainda são devidos`)}</td></tr>`).join('')}</tbody>`:'';
+ return `<details class="card bal-contas"${balUI.contas?' open':''}><summary>Balanço por conta · fim de ${esc(b.label)}</summary><div class="card-body"><div class="table-scroll"><table class="tabela-controle dre-simples-meses bal-tabela" style="min-width:560px"><caption>Balanço gerencial · fim de ${esc(b.label)} · R$ · * = aproximado · † = saldo de um mês anterior</caption><thead><tr><th scope="col">Conta</th><th scope="col" class="num">Saldo</th><th scope="col">De onde vem</th></tr></thead><tbody><tr class="dre-composicao-grupo"><th scope="rowgroup" colspan="3">Ativo · o que a empresa tem</th></tr>${linhas('ativo')}${total('Total do ativo',b.ativo,'ativo')}</tbody><tbody><tr class="dre-composicao-grupo"><th scope="rowgroup" colspan="3">Passivo · o que a empresa deve</th></tr>${linhas('passivo')}${total('Total do passivo',b.passivo,'passivo')}</tbody><tbody><tr class="dre-l-resultado"><th scope="row">Patrimônio líquido (ativo − passivo)</th><td class="num ${b.pl>0?'tom-entra':b.pl<0?'tom-sai':''}">${cel(b.pl)}</td><td>Gerencial: sem depreciação, provisões nem capital social</td></tr></tbody>${fora}</table></div></div></details>`;
+}
+// Ano do mês escolhido, mês a mês (mesmas regras), para a tabela, o gráfico e a planilha.
+function balAno(label,hist,saldos){const ano=String(label).split('/')[1];return PT_MON.map(x=>balApurar(x+'/'+ano,hist,saldos));}
+const BAL_TOTAIS=[['ativo','Total do ativo'],['passivo','Total do passivo'],['pl','Patrimônio líquido'],['endiv','Endividamento (%)']];
+// Linhas do ano: "Banco no vermelho" só quando algum mês tiver.
+const balLinhasAno=serie=>BAL_LINHAS.filter(l=>l.id!=='bancoNegativo'||serie.some(b=>b.linhas.bancoNegativo.valor>0));
+const balCabecalho=b=>`${b.label}${b.parcial?' *':''}${b.anteriores.length?' †':''}`;
+function balMensal(label,serie){
+ const ano=String(label).split('/')[1],sel=b=>monthSortKey(b.label)===monthSortKey(label)?'selected-month':'',cel=(b,v,pct,sinal='')=>`<td class="num ${sel(b)}">${v==null?'<span class="muted" title="Não apurado">—</span>':esc((pct?precoPct(v):money(v))+sinal)}</td>`;
+ const linhas=[...balLinhasAno(serie).map(l=>`<tr class="dre-l-detalhe"><th scope="row">${esc(l.nome)}</th>${serie.map(b=>cel(b,b.linhas[l.id].valor,false,balSinal(b.linhas[l.id]))).join('')}</tr>`),...BAL_TOTAIS.map(([k,n])=>`<tr class="dre-l-${k==='pl'?'resultado':'subtotal'}"><th scope="row">${esc(n)}</th>${serie.map(b=>cel(b,b[k],k==='endiv')).join('')}</tr>`)].join('');
+ return `<details class="card bal-mensal"${balUI.mensal?' open':''}><summary>Balanço mês a mês · ${esc(ano)}</summary><div class="card-body"><div class="actions"><button type="button" data-bal-csv>Baixar planilha (CSV)</button></div><div class="table-scroll"><table class="tabela-controle dre-simples-meses bal-meses"><caption>Fim de cada mês · R$ · — = sem dados · * = aproximado (no mês: parcial) · † = saldo de um mês anterior · mês sem caixa ou sem a posição não é somado</caption><thead><tr><th scope="col">Conta</th>${serie.map(b=>`<th scope="col" class="num ${sel(b)}">${esc(balCabecalho(b))}</th>`).join('')}</tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
+}
+// Observação de um mês na planilha: o que foi somado e o que está marcado.
+function balObservacao(b){
+ if(!b.apurado)return balNaoSomado(b);
+ const p=[b.semCadastro.length?`sem ${balLista(b.semCadastro.map(balCurto))}`:'',b.aproximados.length?`aproximado: ${balLista(b.aproximados.map(balCurto))}`:'',b.ilegiveis?`${b.ilegiveis} título(s) ilegíveis fora`:'',b.anteriores.length?`último informado: ${balLista(b.anteriores.map(id=>`${balCurto(id)} de ${b.linhas[id].cadastro.mes}`))}`:''].filter(Boolean);
+ return p.length?(b.parcial?'Parcial: ':'')+p.join('; '):'Completo';
+}
+function balCSV(){
+ const label=state.periodo;if(!label||!F.periodo(label))return null;
+ const serie=balAno(label,giroUI.dados?.historico?.meses||[],typeof dfcSaldos==='function'?dfcSaldos():new Map());
+ const num=v=>v==null?'Não apurado':v.toFixed(2).replace('.',',');
+ const rows=[['Balanço gerencial (fim do mês)',...serie.map(b=>b.label+(b.parcial?' (parcial)':'')+(b.anteriores.length?' (com saldo de mês anterior)':''))],...balLinhasAno(serie).map(l=>[l.nome,...serie.map(b=>num(b.linhas[l.id].valor))]),...BAL_TOTAIS.map(([k,n])=>[n,...serie.map(b=>num(b[k]))]),['Observações',...serie.map(balObservacao)]];
+ download('balanco-gerencial-'+label.split('/')[1]+'.csv','﻿'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');
+ return rows;
+}
+function renderBalanco(){
+ const label=state.periodo;if(!label||!F.periodo(label))return '<p class="hint">Escolha um mês para ver o balanço.</p>';
+ carregarGiro();
+ const d=giroUI.dados,hist=Array.isArray(d?.historico?.meses)?d.historico.meses:[],saldos=typeof dfcSaldos==='function'?dfcSaldos():new Map(),perm={admin:!!state.permissoes?.admin};
+ const b=balApurar(label,hist,saldos),ult=hist.length?hist[hist.length-1]:null;
+ const acoes=`<div class="actions"><button type="button" data-giro-recarregar aria-disabled="${giroUI.busy}">Ler de novo</button><span class="hint" role="status">${giroUI.busy?'Lendo o histórico de posições…':''}</span></div>`;
+ const erro=giroUI.erro?`<p class="param-avisos">${esc(giroUI.erro)} ${d?'Mostrando a última leitura.':'Nenhum zero foi assumido.'}</p>`:'';
+ const vazio=(titulo,texto,botao='')=>`<section class="estado-vazio bal-sem-dados"><div><h2>${esc(titulo)}</h2><p>${esc(texto)}</p></div>${botao}</section>`;
+ const irUlt=ult&&ult.id!==b.id&&typeof ult.mes==='string'?`<button type="button" data-go="balanco" data-rec-mes="${esc(ult.mes)}">Ver ${esc(ult.mes)}</button>`:'';
+ // Sem a posição do mês: diz por quê e leva ao último fechamento.
+ if(!b.pos){
+  let estado;const aberto=(F.periodo(label)?.ate||'')>=dfcHoje(),semDados=!b.dm?.reg?` ${label} também não tem dados coletados: colete no Mubisys ou importe a planilha do mês.`:'';
+  if(!d)estado=giroUI.busy||!giroUI.erro?vazio('Balanço gerencial','Lendo o histórico de posições…'):'';
+  else if(!d.historico)estado=vazio('O servidor ainda não tem o histórico de posições','Ele é publicado sozinho pelo Painel, que roda de hora em hora mas costuma atrasar algumas horas. Tente de novo mais tarde.');
+  else if(!hist.length)estado=giroSecaoHistorico(d,perm);
+  else if(b.dm?.emAndamento||(!b.dm?.reg&&aberto))estado=vazio('O balanço é do fim do mês',`${label} ainda não fechou: o balanço dele sai quando a posição do fim do mês for remontada. O último fechamento é ${ult.mes}.`,irUlt);
+  else estado=vazio(`Sem a posição de ${label}`,`O histórico de posições vai de ${hist[0].mes} a ${ult.mes}${b.id>ult.id?': a remontagem de domingo inclui os meses que fecharem até lá':''}.${semDados}`,irUlt);
+  return balCartoes(b)+erro+estado+acoes;
+ }
+ const ano=label.split('/')[1],serie=balAno(label,hist,saldos),sel=serie.findIndex(x=>monthSortKey(x.label)===monthSortKey(label));
+ const semCaixa=b.linhas.caixa.valor==null?vazio(`Falta o caixa do fim de ${label}`,`O caixa sai do saldo bancário do início de ${dfcMesDesloca(label,1)} informado em Parâmetros ou do saldo final do Fluxo de caixa: ${b.linhas.caixa.motivo}.`,'<button type="button" data-go="dfc">Ver o Fluxo de caixa</button>'):'';
+ const onde=[b.semCadastro.includes('estoque')?'o estoque em "Prazos, estoque e metas"':'',b.semCadastro.some(id=>id!=='estoque')?`${b.semCadastro.includes('estoque')?'os demais':balLista(b.semCadastro.map(balCurto))} em "Saldos do balanço"`:''].filter(Boolean).join(' e ');
+ const faltam=b.apurado&&b.semCadastro.length?vazio('Faltam saldos em Parâmetros',`Sem ${balLista(b.semCadastro.map(balCurto))} em ${label}, o balanço sai marcado como parcial. ${perm.admin?`Informe em Parâmetros: ${onde}.`:'Peça a um administrador para informar em Parâmetros.'}`,`<button type="button" data-go="parametros" data-rec-mes="${esc(label)}">${perm.admin?'Informar em Parâmetros':'Ver Parâmetros'}</button>`):'';
+ const avisos=b.avisos.length?`<div class="param-avisos bal-avisos"><ul>${b.avisos.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>`:'';
+ const anteriores=b.anteriores.length?` Vale o último saldo informado para ${balLista(b.anteriores.map(id=>`${balCurto(id)} (${b.linhas[id].cadastro.mes})`))}: revise em Parâmetros.`:'';
+ const nota=`<p class="hint bal-nota">${esc(`Fim de ${label}, as duas empresas juntas. Contas a receber e a pagar remontadas em ${recHora(b.pos.gravadoEm||b.pos.geradoEm)} com os títulos do Mubisys de hoje: título cancelado ou renegociado depois do fechamento não aparece. Não é o balanço do contador: sem depreciação, provisões nem capital social.${anteriores}`)}</p>`;
+ const itens=lado=>BAL_LINHAS.filter(l=>l.lado===lado&&balVisivel(l,b)).map(l=>({rotulo:l.nome+balSinal(b.linhas[l.id]),valor:b.linhas[l.id].valor}));
+ const sub=t=>`<h3 style="margin:0 0 2px;font-size:13px">${t}</h3>`;
+ const g1=recPainel('Do que é feito o balanço?',`O que a empresa tem (ativo, em azul) e o que deve (passivo, em vermelho) no fim de ${label}, do maior para o menor. * = aproximado · † = saldo de um mês anterior.`,`<div class="param-aliq-grade"><div class="param-aliq">${sub('Tem · ativo')}${gBarrasOrdenadas(itens('ativo'),{cor:'entrada',limite:4,titulo:`Ativo no fim de ${label}`})}</div><div class="param-aliq">${sub('Deve · passivo')}${gBarrasOrdenadas(itens('passivo'),{cor:'saida',limite:7,titulo:`Passivo no fim de ${label}`})}</div></div>`);
+ // Barras só dos meses completos; parcial (*) e sem dados ficam hachurados, como na DFC.
+ const g2=recPainel('O patrimônio cresce?',`Patrimônio líquido gerencial (ativo − passivo) no fim de cada mês de ${ano}. † = usa saldo de um mês anterior. Hachurado: mês sem caixa ou sem a posição, ou parcial (*); o valor parcial está na tabela "Balanço mês a mês".`,gEmpilhadas(serie.map(x=>({rotulo:x.label.slice(0,3)+(x.parcial?'*':x.apurado&&x.anteriores.length?'†':''),valores:x.apurado&&!x.parcial?{pl:x.pl}:{},linha:null})),{series:[{chave:'pl',rotulo:'Patrimônio líquido'}],selecionado:sel,titulo:'Patrimônio líquido no fim de cada mês'}));
+ return balCartoes(b)+nota+erro+semCaixa+faltam+avisos+acoes+`<div class="graficos-controle">${g1}${g2}</div>`+balTabela(b)+balMensal(label,serie);
+}
+function wireBalanco(){
+ if(typeof document==='undefined'||typeof document.addEventListener!=='function')return;
+ document.addEventListener('click',e=>{if(e.target?.closest?.('[data-bal-csv]'))balCSV();});
+ document.addEventListener('toggle',e=>{const c=e.target?.classList;if(c?.contains('bal-contas'))balUI.contas=e.target.open;else if(c?.contains('bal-mensal'))balUI.mensal=e.target.open;},true);
+}
+if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wireBalanco);

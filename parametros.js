@@ -6,6 +6,8 @@
                                 saldoInicial, metaReceita, metaResultado, pdd90, revisadoEm}
    - tributos[conta]         = {local, empresa, recorrencia, vencimento, previsto,
                                 observacao, revisadoEm}
+   - balanco[AAAA-MM]        = {imobilizado, emprestimos, parcelamentoDAS, revisadoEm}
+                                (Fase 8: o que o Mubisys não guarda e o balanço precisa)
    - historico               = [{em, caminho, anterior, novo}] (últimas 300)
    Campo vazio fica null e aparece como "Não apurado": nada vira zero. A
    alíquota efetiva ainda não informada aparece com o padrão provisório,
@@ -26,11 +28,12 @@ const PARAM_CAMPOS={
  simples:{anexo:'Anexo',rbt12:'RBT12',aliquota:'Alíquota efetiva',folha12:'Folha de 12 meses'},
  operacao:{prazoRecebimento:'Prazo de recebimento',prazoPagamento:'Prazo de pagamento',estoque:'Estoque no fim do mês',saldoInicial:'Saldo bancário no início do mês',metaReceita:'Meta de receita',metaResultado:'Meta de resultado',pdd90:'Provisão acima de 90 dias'},
  tributos:{local:'Local',empresa:'Empresa',recorrencia:'Recorrência',vencimento:'Dia de vencimento',previsto:'Valor previsto',observacao:'Observação'},
+ balanco:{imobilizado:'Imobilizado',emprestimos:'Empréstimos e financiamentos',parcelamentoDAS:'Parcelamento do DAS'},
  empresas:{cnpj:'CNPJ',sede:'Sede'},
  restauracao:{backup:'Backup de'}
 };
 // Como cada campo numérico é lido e mostrado (no formato brasileiro).
-const PARAM_FORMATO={rbt12:'moeda',folha12:'moeda',estoque:'moeda',saldoInicial:'moeda',metaReceita:'moeda',metaResultado:'moeda',previsto:'moeda',aliquota:'pct',pdd90:'pct',prazoRecebimento:'int',prazoPagamento:'int',vencimento:'int'};
+const PARAM_FORMATO={rbt12:'moeda',folha12:'moeda',estoque:'moeda',saldoInicial:'moeda',metaReceita:'moeda',metaResultado:'moeda',previsto:'moeda',imobilizado:'moeda',emprestimos:'moeda',parcelamentoDAS:'moeda',aliquota:'pct',pdd90:'pct',prazoRecebimento:'int',prazoPagamento:'int',vencimento:'int'};
 
 // ── meses ───────────────────────────────────────────────────────────────
 function paramMesChave(label){const [m,a]=String(label||'').split('/'),i=PT_MON.indexOf(m);return i<0||!/^\d{4}$/.test(a||'')?null:`${a}-${String(i+1).padStart(2,'0')}`;}
@@ -78,6 +81,7 @@ const paramTom=v=>v>0?'tom-sai':v<0?'tom-entra':'';
 const paramCfg=()=>state.cfg?.parametros||{};
 const paramSimples=(empresa,label)=>paramCfg().simples?.[paramMesChave(label)]?.[empresa]||null;
 const paramOperacao=label=>paramCfg().operacao?.[paramMesChave(label)]||null;
+const paramBalanco=label=>paramCfg().balanco?.[paramMesChave(label)]||null;
 // Alíquota do mês: a informada vale; sem ela, o padrão provisório, marcado.
 function paramAliquota(empresa,label){const p=paramSimples(empresa,label);return paramNum(p?.aliquota)?{valor:Number(p.aliquota),origem:'informada'}:{valor:PARAM_ALIQUOTA_PADRAO,origem:'padrao'};}
 // Fator R = folha de 12 meses ÷ RBT12 (em %), só para Anexo III ou V, sem
@@ -202,6 +206,10 @@ function paramValidarOperacao(d){
  const v={prazoRecebimento:paramLerNumero(d.prazoRecebimento,'Prazo de recebimento',{min:0,max:365,inteiro:true}),prazoPagamento:paramLerNumero(d.prazoPagamento,'Prazo de pagamento',{min:0,max:365,inteiro:true}),
   estoque:paramLerNumero(d.estoque,'Estoque',{min:0,max:1e10}),saldoInicial:paramLerNumero(d.saldoInicial,'Saldo bancário',{min:-1e10,max:1e10}),
   metaReceita:paramLerNumero(d.metaReceita,'Meta de receita',{min:0,max:1e10}),metaResultado:paramLerNumero(d.metaResultado,'Meta de resultado',{min:-1e10,max:1e10}),pdd90:paramLerNumero(d.pdd90,'Provisão acima de 90 dias',{min:0,max:100,casas:4})};
+ return paramVazio(v)?null:v;
+}
+function paramValidarBalanco(d){
+ const v={imobilizado:paramLerNumero(d.imobilizado,'Imobilizado',{min:0,max:1e10}),emprestimos:paramLerNumero(d.emprestimos,'Empréstimos e financiamentos',{min:0,max:1e10}),parcelamentoDAS:paramLerNumero(d.parcelamentoDAS,'Parcelamento do DAS',{min:0,max:1e10})};
  return paramVazio(v)?null:v;
 }
 function paramValidarTributo(d){
@@ -375,10 +383,22 @@ function paramBlocoOperacao(label,admin){
  ${c('pdd90','Provisão para vencidos há mais de 90 dias (%)')}</div><p class="param-erro" role="alert"></p>${admin?fo.pendente:''}
  ${admin?`<div class="actions"><button class="primary" type="submit">Salvar prazos, estoque e metas · ${esc(label)}</button>${trazivel?`<button type="button" data-param-copiar="operacao">Trazer de ${esc(ant)}</button>`:''}</div>`:''}</form></section>`;
 }
+// Saldos do balanço (Fase 8): só o que o Mubisys não guarda. O que já é conta a pagar
+// (salários, fornecedores, DAS e DARF do mês) entra pelo Mubisys; o saldo devedor do
+// empréstimo substitui as parcelas lançadas no Mubisys (3.04), que não somam de novo.
+function paramBlocoBalanco(label,admin){
+ const b=paramBalanco(label),ant=paramMesDesloca(label,-1),bAnt=paramBalanco(ant),fb=paramFormAttrs('balanco',{mes:label},b);
+ const c=(nome,rotulo,op={})=>paramCampo(nome,rotulo,paramValorCampo(fb.r,nome,b?.[nome]),op,!admin);
+ return `<section class="param-bloco" aria-labelledby="param-balanco-titulo"><div class="param-bloco-topo"><h2 id="param-balanco-titulo">Saldos do balanço · ${esc(label)}</h2><p>O que o Balanço gerencial precisa no fim do mês e o Mubisys não guarda. Não repita aqui o que já é conta a pagar no Mubisys: salários, fornecedores, DAS e DARF do mês entram por lá. O saldo devedor do empréstimo substitui as parcelas lançadas no Mubisys (3.04), que não somam de novo. Sem cadastro num mês, o balanço usa o último informado e diz de que mês veio. ${esc(paramRevisado(b))}.</p></div>
+ <form class="param-form" ${fb.attrs} novalidate><div class="form-grid param-grade-3">
+ ${c('imobilizado','Imobilizado no fim do mês (R$)',{dica:'Máquinas, veículos e instalações, pelo valor no fim do mês (de mercado, não o preço de compra)'})}${c('emprestimos','Saldo devedor de empréstimos e financiamentos (R$)',{dica:'Pelo extrato do banco: o principal que falta pagar, sem os juros a vencer'})}${c('parcelamentoDAS','Saldo do parcelamento do DAS (R$)',{dica:'Pelo extrato do parcelamento na Receita: o que falta pagar'})}</div><p class="param-erro" role="alert"></p>${admin?fb.pendente:''}
+ ${admin?`<div class="actions"><button class="primary" type="submit">Salvar saldos do balanço · ${esc(label)}</button>${bAnt?`<button type="button" data-param-copiar="balanco">Trazer de ${esc(ant)}</button>`:''}</div>`:''}</form></section>`;
+}
 function paramDescreveCaminho(c){
  const [secao,a,b]=c||[];
  if(secao==='simples')return `Simples · ${paramNomeEmpresa(b)||b} · ${paramMesLabel(a)}`;
  if(secao==='operacao')return `Prazos, estoque e metas · ${paramMesLabel(a)}`;
+ if(secao==='balanco')return `Saldos do balanço · ${paramMesLabel(a)}`;
  if(secao==='tributos')return `Imposto ou taxa · ${paramNomeConta(a)} (${a})`;
  if(secao==='empresas')return `Empresa · ${paramNomeEmpresa(a)||a}`;
  if(secao==='restauracao')return 'Recuperação de backup';
@@ -408,7 +428,7 @@ function renderParametros(){
  return paramCards(label)
   +`${admin?'':'<p class="note">Somente administradores alteram parâmetros. Os valores abaixo são de consulta.</p>'}`
   +`<section class="param-bloco bloco-simples" aria-labelledby="param-simples-titulo"><div class="param-bloco-topo"><h2 id="param-simples-titulo">Simples Nacional · competência ${esc(label)}</h2><p>Impresilk e Universo, as duas no Simples, cada uma com seu CNPJ, anexo, RBT12 e alíquota. A alíquota muda todo mês: o cadastro guarda o histórico. O imposto de cada competência sai do PGDAS em duas contas por empresa, DAS (2.4.1.2 e 2.4.1.3) e DARF (2.4.3.1 e 2.4.3.2), e é pago no mês seguinte; o parcelamento (2.4.1.1) é dívida e fica de fora. A folha do Fator R não inclui retiradas: não há pró-labore. ICMS, DIFAL e os demais tributos fora do Simples ficam no quadro de impostos por local.</p>${consolidado?`<ul class="param-avisos"><li>${esc(consolidado)}</li></ul>`:''}</div><div class="param-empresas">${PARAM_EMPRESAS.map(e=>paramBlocoEmpresa(e,label,admin)).join('')}</div>${paramGraficosSimples(label)}</section>`
-  +paramBlocoTributos(label,admin)+paramBlocoOperacao(label,admin)+paramHistorico();
+  +paramBlocoTributos(label,admin)+paramBlocoOperacao(label,admin)+paramBlocoBalanco(label,admin)+paramHistorico();
 }
 
 // ── interação: delegação no documento (a tela é redesenhada a cada render) ──
@@ -447,6 +467,7 @@ async function paramSalvarForm(form,limpar=false){
  try{
   if(tipo==='simples'){const k=paramMesChave(form.dataset.mes);caminho=['simples',k,form.dataset.empresa];valor=paramValidarSimples(dados);msg=`Simples da ${paramNomeEmpresa(form.dataset.empresa)} em ${form.dataset.mes} salvo.`;}
   else if(tipo==='operacao'){caminho=['operacao',paramMesChave(form.dataset.mes)];valor=paramValidarOperacao(dados);msg=`Prazos, estoque e metas de ${form.dataset.mes} salvos.`;}
+  else if(tipo==='balanco'){caminho=['balanco',paramMesChave(form.dataset.mes)];valor=paramValidarBalanco(dados);msg=`Saldos do balanço de ${form.dataset.mes} salvos.`;}
   else if(tipo==='tributo'){caminho=['tributos',form.dataset.conta];valor=limpar?null:paramValidarTributo(dados);msg=limpar?'Cadastro do imposto apagado.':'Imposto ou taxa salvo.';}
   else if(tipo==='empresa'){caminho=['empresas',form.dataset.empresa];valor=paramValidarEmpresa(dados);msg=`CNPJ e sede da ${paramNomeEmpresa(form.dataset.empresa)} salvos.`;}
   else return;
@@ -484,7 +505,7 @@ function wireParametros(){
   if(b.dataset.paramTributo){paramAbrirTributo(b.dataset.paramTributo);return;}
   if(b.hasAttribute?.('data-param-descartar')){const f=b.closest('form[data-param-form]');if(f){paramRascunhos.delete(paramChaveForm(f));render();}return;}
   if(b.dataset.paramLimpar){const f=b.closest('form[data-param-form]');if(f&&confirm('Apagar o cadastro deste imposto? O histórico guarda o valor anterior.'))paramSalvarForm(f,true);return;}
-  if(b.dataset.paramCopiar){const f=b.closest('form[data-param-form]'),ant=paramMesDesloca(f.dataset.mes,-1);const v0=b.dataset.paramCopiar==='simples'?paramSimples(f.dataset.empresa,ant):paramOperacao(ant),{saldoInicial:_saldo,...v}=v0||{};paramPreencher(f,b.dataset.paramCopiar==='simples'?v0:v);
+  if(b.dataset.paramCopiar){const f=b.closest('form[data-param-form]'),ant=paramMesDesloca(f.dataset.mes,-1);const v0=b.dataset.paramCopiar==='simples'?paramSimples(f.dataset.empresa,ant):b.dataset.paramCopiar==='balanco'?paramBalanco(ant):paramOperacao(ant),{saldoInicial:_saldo,...v}=v0||{};paramPreencher(f,b.dataset.paramCopiar==='simples'?v0:v);
    paramAtualizarFolha(f);paramRegistrarRascunho(f);
    const erro=f.querySelector('.param-erro');if(erro){erro.textContent=`Valores de ${ant} trazidos para conferência. Nada foi salvo ainda.`;erro.classList.add('param-info');}}
  });

@@ -204,8 +204,15 @@ export function resumirHistorico(regs) {
         emitidoProducao: Array.isArray(f.pagar.emitidoPorCentro) ? reais(somaCentros(f.pagar.emitidoPorCentro, x => x === 'producao')) : null } : null,
     };
     const grupos = Object.fromEntries(GRUPOS.map(g => [g.id, reais(somaCentros(pc, x => x === g.id))]));
+    // Balanço (Fase 8): cada classe com o que vence depois dos 60 dias, para separar as parcelas de empréstimo.
+    const gruposSemHorizonte = Object.fromEntries(GRUPOS.map(g => [g.id, reais(somaCentros(pc, x => x === g.id) + somaCentros(reg.pagar.alemPorCentro, x => x === g.id))]));
     const operacional = somaCentros(pc, x => ncg.has(x)), operacionalAlem = somaCentros(reg.pagar.alemPorCentro, x => ncg.has(x));
     const alemRec = Number.isFinite(reg.receber.alemHorizonte?.valor) ? reg.receber.alemHorizonte.valor : 0;
+    const alemPag = Number.isFinite(reg.pagar.alemHorizonte?.valor) ? reg.pagar.alemHorizonte.valor : 0;
+    // Fora da carteira (vencidos antes do corte, sem vencimento): à parte, nunca somados.
+    const fora = lado => ({ antigas: typeof reg[lado].antigas === 'object' ? reg[lado].antigas : null, semVencimento: typeof reg[lado].semVencimento === 'object' ? reg[lado].semVencimento : null });
+    // Fora da DRE do a pagar: o balanço avisa quando o caixa da DFC não acompanha esses títulos.
+    const foraDREPagar = typeof reg.pagar.foraDRE === 'object' ? reg.pagar.foraDRE : null;
     // O que ficou de fora deste fechamento: o mês sai marcado como parcial, como a posição de hoje.
     const sv = lado => (typeof reg[lado].semVencimento === 'object' ? reg[lado].semVencimento?.quantidade : reg[lado].semVencimento) || 0;
     const cob = reg.cobertura || {}, motivos = [];
@@ -215,8 +222,8 @@ export function resumirHistorico(regs) {
     if (ileg > 0) motivos.push(`${ileg} título(s) do Mubisys ilegíveis na remontagem (sem valor, emissão ou pagamento legível)`);
     meses.push({
       id: reg.id, mes: reg.mes, fim: reg.fim, geradoEm: reg.geradoEm ?? null, gravadoEm: reg.gravadoEm ?? null, corte: reg.corte ?? null,
-      receber: { total: reg.receber.total, totalSemHorizonte: reais(Math.round(reg.receber.total * 100) + Math.round(alemRec * 100)), faixas: reg.receber.faixas ?? null, antigas: reg.receber.antigas ?? null, foraDRE: reg.receber.foraDRE ?? null, alemHorizonte: reg.receber.alemHorizonte ?? null },
-      pagar: { total: reg.pagar.total, operacional: reais(operacional), operacionalSemHorizonte: reais(operacional + operacionalAlem), grupos, semClasse: grupos.semClasse, faixas: reg.pagar.faixas ?? null, alemHorizonte: reg.pagar.alemHorizonte ?? null },
+      receber: { total: reg.receber.total, totalSemHorizonte: reais(Math.round(reg.receber.total * 100) + Math.round(alemRec * 100)), faixas: reg.receber.faixas ?? null, antigas: reg.receber.antigas ?? null, foraDRE: reg.receber.foraDRE ?? null, alemHorizonte: reg.receber.alemHorizonte ?? null, semVencimento: fora('receber').semVencimento },
+      pagar: { total: reg.pagar.total, totalSemHorizonte: reais(Math.round(reg.pagar.total * 100) + Math.round(alemPag * 100)), operacional: reais(operacional), operacionalSemHorizonte: reais(operacional + operacionalAlem), grupos, gruposSemHorizonte, semClasse: grupos.semClasse, faixas: reg.pagar.faixas ?? null, alemHorizonte: reg.pagar.alemHorizonte ?? null, foraDRE: foraDREPagar, ...fora('pagar') },
       parcial: motivos.length > 0, motivos,
       ncgSemEstoque: reais(Math.round(reg.receber.total * 100) - operacional),
       fluxos: fluxo(reg.fluxos), fluxos3m: fluxo(reg.fluxos3m),
