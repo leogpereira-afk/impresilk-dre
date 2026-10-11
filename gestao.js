@@ -230,3 +230,87 @@ function wireMenuLateral(){
 }
 if(typeof document!=='undefined')document.addEventListener('DOMContentLoaded',wireMenuLateral);
 
+
+/* ── RECEBÍVEIS E AGING · FASE 5 ──────────────────────────────────────────
+   Posição da carteira a receber que o Painel atualiza a cada 20 minutos, lida pelo
+   dre-sync (indicadores, fonte 'recebiveis') e agregada lá com a régua da tela
+   Contas Atrasadas do Painel: vencido a partir de 1 dia; dívida vencida antes do
+   corte do Painel fica fora dos números e aparece à parte. É uma foto: não muda
+   com o mês escolhido. A provisão (PDD) é estimativa gerencial: o % de Parâmetros
+   do mês da posição sobre o vencido há mais de 90 dias; não entra no caixa nem na
+   DRE. Nada ausente vira zero. */
+const recUI={dados:null,erro:'',busy:false,em:0,seq:0,aberto:false,foco:false};
+function carregarRecebiveis(forcar=false){
+ // Uma leitura por minuto, com ou sem erro: a tela redesenha ao chegar e não pode pedir de novo em laço.
+ if(recUI.busy||(!forcar&&Date.now()-recUI.em<60000))return;
+ const seq=++recUI.seq;recUI.busy=true;recUI.erro='';recUI.em=Date.now();
+ Promise.resolve().then(()=>api('indicadores',{fonte:'recebiveis'})).then(r=>{if(seq!==recUI.seq)return;if(!r?.ok)throw new Error(r?.erro||'A leitura não foi confirmada pelo servidor.');if(r.fonte!=='recebiveis')throw new Error('Fonte inválida.');recUI.dados=r;})
+  .catch(e=>{if(seq!==recUI.seq)return;const m=String(e?.message||e||'');// O servidor anterior à Fase 5 responde à fonte nova com o erro de período (validarPeriodo vem antes).
+  recUI.erro=/desconhecida|Fonte inválida|intervalo válido/i.test(m)?'O servidor ainda não tem a leitura dos recebíveis: ela é publicada sozinha em até 1 hora depois do envio. Tente de novo mais tarde.':/abort/i.test(m)?'O servidor demorou a responder.':m;})
+  .finally(()=>{if(seq!==recUI.seq)return;recUI.busy=false;recUI.em=Date.now();if(state.view==='recebiveis'&&typeof render==='function'){render();recFocar();}});
+}
+// "Ler de novo" redesenha a tela: o foco volta ao botão para quem usa teclado.
+function recFocar(){if(!recUI.foco||typeof document==='undefined'||typeof document.querySelector!=='function')return;document.querySelector('[data-rec-recarregar]')?.focus?.();if(!recUI.busy)recUI.foco=false;}
+const recMes=base=>/^\d{4}-\d{2}/.test(base||'')?PT_MON[Number(base.slice(5,7))-1]+'/'+base.slice(0,4):null;
+const recData=iso=>/^\d{4}-\d{2}-\d{2}/.test(iso||'')?`${iso.slice(8,10)}/${iso.slice(5,7)}/${iso.slice(0,4)}`:'';
+const recHora=em=>{const t=Date.parse(em||'');return Number.isFinite(t)?new Date(t).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'data não registrada';};
+const recPct=(a,b)=>b>0&&a!=null?(Math.round(a/b*1000)/10).toLocaleString('pt-BR')+'%':'—';
+const recDias=v=>v==null?'Não apurado':`${Number(v).toLocaleString('pt-BR')} dia${Math.abs(v)===1?'':'s'}`;
+function recCartao(rotulo,valor,nota,tom=''){return `<div class="metric metric-param"><span class="label">${esc(rotulo)}</span><strong class="${tom}">${esc(valor)}</strong><small>${esc(nota)}</small></div>`;}
+function recPainel(titulo,descricao,html,largo=true){return `<section class="chart-card dre-grafico${largo?' dre-grafico-largo':''}"><div class="chart-heading"><div><h2>${esc(titulo)}</h2><p>${esc(descricao)}</p></div></div>${html}</section>`;}
+// Provisão estimada: % de Parâmetros do mês da posição sobre a faixa acima de 90 dias.
+function recProvisao(d){
+ const mes=recMes(d.posicao?.base),p=mes&&typeof paramOperacao==='function'?paramOperacao(mes)?.pdd90:null,pct=p==null||p===''||!Number.isFinite(Number(p))?null:Number(p);
+ const d91=d.faixas?.find(f=>f.id==='d91')?.valor??null;
+ return {mes,pct,base:d91,valor:pct==null||d91==null?null:Math.round(d91*pct)/100};
+}
+// Série diária do Painel reduzida ao último ponto de cada semana (no máximo 13).
+function recSemanas(serie){
+ const porSemana=new Map();for(const p of serie||[]){const t=Date.parse(p.dia+'T00:00:00Z');if(!Number.isFinite(t))continue;porSemana.set(Math.floor((t/86400000+3)/7),p);}
+ return [...porSemana.values()].slice(-13).map(p=>({rotulo:`${p.dia.slice(8,10)}/${p.dia.slice(5,7)}`,valor:p.dso}));
+}
+function renderRecebiveis(){
+ carregarRecebiveis();
+ const d=recUI.dados,ok=!!d?.disponivel,perm={admin:!!state.permissoes?.admin};
+ const acoes=`<div class="actions"><button type="button" data-rec-recarregar aria-disabled="${recUI.busy}">Ler de novo</button>${ok?'<button type="button" data-rec-csv>Baixar títulos vencidos (CSV)</button>':''}<span class="hint" role="status">${recUI.busy?'Lendo o Painel…':''}</span></div>`;
+ const erro=recUI.erro?`<p class="param-avisos">${esc(recUI.erro)} ${d?'Mostrando a última leitura.':'Nenhum zero foi assumido.'}</p>`:'';
+ if(!ok){
+  const motivo=d?.avisos?.[0]||(recUI.busy||!recUI.erro?'Lendo a posição dos recebíveis no Painel…':'Sem leitura dos recebíveis.');
+  const nao=['A receber','Vencido','Provisão estimada (PDD)','Maior devedor'].map(t=>recCartao(t,'Não apurado','Depende da posição do Painel.')).join('');
+  return `<div class="cards cards-controle">${nao}</div>${erro}<section class="estado-vazio rec-sem-dados"><div><h2>${d?'Os recebíveis do Painel não estão disponíveis':'Recebíveis do Painel'}</h2><p>${esc(motivo)}</p></div></section>${acoes}`;
+ }
+ const t=d.totais,pdd=recProvisao(d),top=d.clientes?.itens?.[0],posicao=recHora(d.posicao?.em),irParam=`data-go="parametros"${pdd.mes?` data-rec-mes="${esc(pdd.mes)}"`:''}`;
+ const cards=`<div class="cards cards-controle">${recCartao('A receber',money(t.aberto),`${t.titulos} título${t.titulos===1?'':'s'} de ${t.clientes} cliente${t.clientes===1?'':'s'}: vencidos e a vencer em até 90 dias`)}${recCartao('Vencido',money(t.vencido),`${recPct(t.vencido,t.aberto)} do que há a receber · ${t.vencidos} título${t.vencidos===1?'':'s'}`,t.vencido>0?'tom-sai':'')}${pdd.valor!=null?recCartao('Provisão estimada (PDD)',money(pdd.valor),`Estimativa: ${pdd.pct.toLocaleString('pt-BR')}% de ${pdd.mes} (Parâmetros) sobre ${money(pdd.base)} vencidos há mais de 90 dias; não entra no caixa nem na DRE`,pdd.valor>0?'tom-sai':''):recCartao('Provisão estimada (PDD)','Não informado',`Falta o % de provisão acima de 90 dias de ${pdd.mes||'o mês da posição'} em Parâmetros; vencido há mais de 90 dias: ${pdd.base==null?'não apurado':money(pdd.base)}`)}${top?recCartao('Maior devedor',money(top.vencido),`${top.nome} · ${recPct(top.vencido,t.vencido)} do vencido · atraso de até ${recDias(top.maiorAtraso)}`,top.vencido>0?'tom-sai':''):recCartao('Maior devedor',money(0),'Nenhum título vencido na posição')}</div>`;
+ const antigas=d.antigas?.quantidade?` Vencidos antes de ${recData(d.corte?.data)} (${d.antigas.quantidade} título${d.antigas.quantidade===1?'':'s'}, ${money(d.antigas.valor)}) ficam fora dos números, como na tela Contas Atrasadas do Painel.`:'';
+ const linhaPosicao=`<p class="hint rec-posicao">Posição do Painel de ${esc(posicao)} (a carga roda a cada 20 minutos); dias de atraso contados até hoje, como no Painel. Esta tela é uma foto da carteira: não muda com o mês escolhido.${esc(antigas)}</p>`;
+ // Avisos do servidor que a tela já diz em outro lugar: a janela de 90 dias (card A receber) e as antigas (linha da posição).
+ const jaDito=a=>/^"A vencer" cobre/.test(a)||(!!d.antigas?.quantidade&&a.startsWith(`${d.antigas.quantidade} título(s) vencido(s) antes de`));
+ const restantes=(d.avisos||[]).filter(a=>!jaDito(a)),avisos=restantes.length?`<ul class="param-avisos rec-avisos">${restantes.map(a=>`<li>${esc(a)}</li>`).join('')}</ul>`:'';
+ const semPdd=pdd.valor==null?`<section class="estado-vazio rec-sem-pdd"><div><h2>Falta a política de provisão</h2><p>${esc(perm.admin?`Informe em Parâmetros o % de provisão para vencidos há mais de 90 dias de ${pdd.mes||'o mês da posição'}; a provisão estimada sai daí.`:`Peça a um administrador para informar em Parâmetros o % de provisão para vencidos há mais de 90 dias de ${pdd.mes||'o mês da posição'}.`)}</p></div><button type="button" ${irParam}>${perm.admin?'Informar em Parâmetros':'Ver Parâmetros'}</button></section>`:'';
+ const g1=recPainel('Quanto do que vou receber já está atrasado?',`O que há a receber (${money(t.aberto)}) por faixa de atraso na data da posição.`,gCemPorCento(d.faixas.map(f=>({rotulo:f.rotulo,valor:f.valor})),{titulo:'Recebíveis por faixa de atraso'}));
+ const demais=d.clientes?.demais?.quantidade?` Os demais ${d.clientes.demais.quantidade} devedores somam ${money(d.clientes.demais.vencido)}.`:'';
+ const g2=t.vencidos?recPainel('Quem concentra os atrasos?',`Vencido por cliente, os dez maiores; os cinco primeiros somam ${d.clientes?.top5Pct==null?'—':d.clientes.top5Pct.toLocaleString('pt-BR')+'%'} do vencido.${demais}`,gBarrasOrdenadas((d.clientes?.itens||[]).map(c=>({rotulo:c.nome,valor:c.vencido})),{limite:10,cor:'saida',titulo:'Maiores devedores'}),false)
+  :recPainel('Quem concentra os atrasos?','Vencido por cliente, os dez maiores.','<p class="hint rec-sem-vencido">Nenhum título vencido na posição.</p>',false);
+ const g3=recPainel('A carteira está envelhecendo?','Idade média dos títulos em aberto (dias desde a emissão, ponderada pelo saldo), gravada pelo Painel uma vez por dia; um ponto por semana.',gLinhaArea(recSemanas(d.prazo?.serie),{titulo:'Idade média da carteira',rotulo:'Dias',cor:'marca',formato:recDias,selecionado:recSemanas(d.prazo?.serie).length-1}),false);
+ const parametro=pdd.mes&&typeof paramOperacao==='function'?paramOperacao(pdd.mes)?.prazoRecebimento:null;
+ const prazo=`<p class="note rec-prazo">Prazo concedido médio da carteira: <b>${esc(recDias(d.prazo?.concedido?.dias))}</b> (vencimento − emissão, ponderado pelo saldo; ${d.prazo?.concedido?.com??0} de ${d.prazo?.concedido?.total??0} títulos com emissão). Em Parâmetros (${esc(pdd.mes||'mês da posição')}): <b>${esc(parametro==null||parametro===''?'não informado':recDias(Number(parametro)))}</b>. Idade média da carteira: <b>${esc(recDias(d.prazo?.idade?.dias))}</b>, a mesma conta do DSO da tela Contas Atrasadas do Painel. O prazo realizado (pagamento − emissão) ainda não é apurado: a carga do Painel não traz os títulos pagos com a data de emissão.</p>`;
+ const faixas=`<div class="table-scroll"><table class="tabela-controle rec-faixas"><caption>Por faixa de atraso · posição de ${esc(recData(d.posicao?.base))}</caption><thead><tr><th scope="col">Faixa</th><th scope="col" class="num">Títulos</th><th scope="col" class="num">Valor</th><th scope="col" class="num">% do que há a receber</th></tr></thead><tbody>${d.faixas.map(f=>`<tr><th scope="row">${esc(f.rotulo)}</th><td class="num">${f.quantidade}</td><td class="num">${esc(money(f.valor))}</td><td class="num">${esc(recPct(f.valor,t.aberto))}</td></tr>`).join('')}</tbody></table></div>`;
+ const titulos=`<div class="table-scroll"><table class="tabela-controle rec-titulos"><caption>Títulos vencidos, do maior para o menor${d.truncado?` · os ${d.titulosVencidos.length} maiores de ${t.vencidos}`:''}</caption><thead><tr><th scope="col">Cliente</th><th scope="col">NF</th><th scope="col">O.S.</th><th scope="col">Vencimento</th><th scope="col" class="num">Dias</th><th scope="col" class="num">Valor</th></tr></thead><tbody>${d.titulosVencidos.map(x=>`<tr><th scope="row">${esc(x.cliente)}</th><td>${esc(x.nf||'—')}</td><td>${esc(x.os||'—')}</td><td>${esc(recData(x.vencimento))}</td><td class="num">${x.dias}</td><td class="num">${esc(money(x.valor))}</td></tr>`).join('')||'<tr><td colspan="6">Nenhum título vencido na posição.</td></tr>'}</tbody></table></div>`;
+ return cards+linhaPosicao+acoes+erro+avisos+semPdd+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+prazo+`<details class="card rec-detalhe"${recUI.aberto?' open':''}><summary>Faixas e títulos vencidos · ${t.vencidos}</summary><div class="card-body">${faixas}${titulos}</div></details>`;
+}
+// Planilha dos títulos vencidos da posição (os mesmos da tabela).
+function recCSV(){
+ const d=recUI.dados;if(!d?.disponivel)return null;
+ const rows=[['Recebíveis vencidos · posição do Painel',recHora(d.posicao?.em)],['Corte de dívida antiga',recData(d.corte?.data),d.corte?.origem==='painel'?'configuração do Painel':'padrão'],[],['Cliente','NF','O.S.','Vencimento','Dias de atraso','Faixa','Valor (R$)'],
+  ...d.titulosVencidos.map(x=>[x.cliente,x.nf,x.os,recData(x.vencimento),String(x.dias),d.faixas.find(f=>f.id===x.faixa)?.rotulo||x.faixa,x.valor.toFixed(2).replace('.',',')]),...(d.truncado?[[`Lista com os ${d.titulosVencidos.length} maiores de ${d.totais.vencidos} títulos vencidos.`]]:[])];
+ download('recebiveis-vencidos-'+(d.posicao?.base||'posicao')+'.csv','﻿'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');
+ return rows;
+}
+function wireRecebiveis(){
+ if(typeof document==='undefined'||typeof document.addEventListener!=='function')return;
+ document.addEventListener('click',e=>{const b=e.target?.closest?.('[data-rec-csv],[data-rec-recarregar]');if(!b)return;if(b.hasAttribute('data-rec-csv'))recCSV();else if(!recUI.busy){recUI.foco=true;carregarRecebiveis(true);if(typeof render==='function')render();recFocar();}});
+ // A provisão é do mês da posição: Parâmetros abre nesse mês (antes do onclick que troca de tela).
+ document.addEventListener('click',e=>{const b=e.target?.closest?.('[data-rec-mes]');if(b&&b.dataset.recMes)state.periodo=b.dataset.recMes;},true);
+ document.addEventListener('toggle',e=>{if(e.target?.classList?.contains('rec-detalhe'))recUI.aberto=e.target.open;},true);
+}
+if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wireRecebiveis);
