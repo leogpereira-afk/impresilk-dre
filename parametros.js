@@ -12,8 +12,10 @@
    sempre marcado, e nunca é gravada como se tivesse sido informada.
    O DAS de cada empresa é pago no mês seguinte ao da competência (2.4.1.2 e
    2.4.1.3); o parcelamento (2.4.1.1) é dívida e fica à parte. */
-const PARAM_EMPRESAS=[{id:'impresilk',nome:'Impresilk',das:'2.4.1.2'},{id:'universo',nome:'Universo',das:'2.4.1.3'}];
-const PARAM_DAS='2.4.1',PARAM_DAS_PARCELAMENTO='2.4.1.1',PARAM_IMPOSTOS='2.4';
+// O imposto do Simples do mês sai do PGDAS em duas contas: DAS (2.4.1) e DARF (2.4.3),
+// cada uma com uma subconta por empresa. O parcelamento (2.4.1.1) é dívida.
+const PARAM_EMPRESAS=[{id:'impresilk',nome:'Impresilk',das:'2.4.1.2',darf:'2.4.3.1'},{id:'universo',nome:'Universo',das:'2.4.1.3',darf:'2.4.3.2'}];
+const PARAM_DAS='2.4.1',PARAM_DARF='2.4.3',PARAM_DAS_PARCELAMENTO='2.4.1.1',PARAM_IMPOSTOS='2.4';
 const PARAM_ANEXOS=['I','II','III','IV','V'];
 // Padrão provisório até o extrato do PGDAS-D de cada empresa: aparece marcado
 // em todo lugar, não entra em gráfico e não é gravado como valor informado.
@@ -103,18 +105,24 @@ const paramAteTexto=p=>p?.parcial?` até ${paramDiaMes(p.ate)||'agora'} (mês em
 // que estiver lançado no DAS fora dessas subcontas (resto), que nunca some.
 function paramDasMes(label){
  const m=paramMesInfo(label);if(!m)return null;
- const v=c=>F.valorConta(m.reg,c),guias=Object.fromEntries(PARAM_EMPRESAS.map(e=>[e.id,v(e.das)])),parc=v(PARAM_DAS_PARCELAMENTO),total=v(PARAM_DAS);
+ const v=c=>F.valorConta(m.reg,c),soma=(...xs)=>xs.every(x=>x==null)?null:Math.round(xs.reduce((t,x)=>t+(x||0),0)*100)/100;
+ const guias=Object.fromEntries(PARAM_EMPRESAS.map(e=>[e.id,soma(v(e.das),v(e.darf))])),parc=v(PARAM_DAS_PARCELAMENTO),total=soma(v(PARAM_DAS),v(PARAM_DARF));
  const conhecido=Object.values(guias).reduce((s,x)=>s+(x||0),0)+(parc||0);
  const resto=total==null?0:Math.round((total-conhecido)*100)/100;
  return {guias,parc,total,resto:Math.abs(resto)>=.01?resto:0,parcial:m.parcial,ate:m.ate};
 }
 
-// ── impostos e taxas fora do DAS, a partir das contas 2.4 ───────────────
+// ── impostos e taxas fora do Simples (DAS e DARF), a partir das contas 2.4 ───────────────
 function paramNomeConta(code){
  for(const r of [...state.records].sort((a,b)=>monthSortKey(b.label)-monthSortKey(a.label))){const c=r.cells?.find(c=>c.code===code);if(c?.name)return c.name;}
  return code;
 }
-const paramForaDoDas=c=>c.startsWith(PARAM_IMPOSTOS+'.')&&c!==PARAM_DAS&&!c.startsWith(PARAM_DAS+'.');
+// " · Mubisys 2.3.2" ao lado do código do painel (com o mês, para achar a origem de conta renomeada)
+const paramMub=(code,reg)=>{const r=typeof CodigosMubisys!=='undefined'?CodigosMubisys.rotulo(code,reg):'';return r?' · '+esc(r):'';};
+const paramNoSimples=c=>[PARAM_DAS,PARAM_DARF].some(p=>c===p||c.startsWith(p+'.'));
+const paramForaDoDas=c=>c.startsWith(PARAM_IMPOSTOS+'.')&&!paramNoSimples(c);
+// Pago no Simples do mês (DAS + DARF), para tirar do total da conta 2.4.
+const paramSimplesPago=reg=>(F.valorConta(reg,PARAM_DAS)||0)+(F.valorConta(reg,PARAM_DARF)||0);
 const paramOrdemCodigo=(a,b)=>{const x=a.split('.').map(Number),y=b.split('.').map(Number);for(let i=0;i<Math.max(x.length,y.length);i++){const d=(x[i]??-1)-(y[i]??-1);if(d)return d;}return 0;};
 function paramItemTributo(code,cad){
  const nome=paramNomeConta(code),pai=code.split('.').length>3?paramNomeConta(code.split('.').slice(0,-1).join('.')):null,rotulo=pai&&pai!==code?`${pai} · ${nome}`:nome;
@@ -122,7 +130,7 @@ function paramItemTributo(code,cad){
  const sugestao={empresa:/impresilk/i.test(nome)?'impresilk':/universo/i.test(nome)?'universo':'',local:/iptu/i.test(pai||'')?nome:''};
  return {code,nome,rotulo,sugestao,cadastro:cad[code]||null};
 }
-// Linhas da tabela: as folhas da conta 2.4 fora do DAS e os cadastros de contas
+// Linhas da tabela: as folhas da conta 2.4 fora do Simples e os cadastros de contas
 // que ainda são folha. Cadastro numa conta que ganhou subcontas vira órfão:
 // aparece à parte e não soma, para não contar o mesmo dinheiro duas vezes.
 function paramContasTributos(){
@@ -135,7 +143,8 @@ function paramContasTributos(){
 function paramTributosOrfaos(){
  const codes=new Set();for(const r of state.records)for(const c of r.cells||[])if(paramForaDoDas(c.code))codes.add(c.code);
  const cad=paramCfg().tributos||{};
- return Object.keys(cad).filter(k=>[...codes].some(o=>o.startsWith(k+'.'))).sort(paramOrdemCodigo).map(code=>({...paramItemTributo(code,cad),filhas:[...codes].filter(o=>o.startsWith(code+'.')).sort(paramOrdemCodigo)}));
+ // também o cadastro de conta que passou para o Simples (DAS e DARF): não soma, mas não some
+ return Object.keys(cad).filter(k=>paramNoSimples(k)||[...codes].some(o=>o.startsWith(k+'.'))).sort(paramOrdemCodigo).map(code=>({...paramItemTributo(code,cad),noSimples:paramNoSimples(code),filhas:[...codes].filter(o=>o.startsWith(code+'.')).sort(paramOrdemCodigo)}));
 }
 function paramLocalDoItem(t){
  const c=t.cadastro;if(c?.local)return {texto:c.local,origem:'cadastro'};
@@ -286,13 +295,13 @@ function paramCards(label){
  else{
   const conhecidas=PARAM_EMPRESAS.filter(e=>d.guias[e.id]!=null),soma=conhecidas.reduce((s,e)=>s+d.guias[e.id],0);
   das=!conhecidas.length&&d.resto?'A conferir':soma?money(soma):'Sem guia no mês';
-  notaDas=`Guias da competência ${ant}${d.parcial?`, coletadas até ${paramDiaMes(d.ate)} (mês em andamento)`:''}. Parcelamento à parte: ${d.parc?money(d.parc):'sem parcela no mês'}.${d.resto?` ${money(d.resto)} lançados no DAS fora das subcontas da Impresilk e da Universo.`:''}`;
+  notaDas=`DAS e DARF da competência ${ant}${d.parcial?`, coletados até ${paramDiaMes(d.ate)} (mês em andamento)`:''}. Parcelamento à parte: ${d.parc?money(d.parc):'sem parcela no mês'}.${d.resto?` ${money(d.resto)} lançados no DAS e no DARF fora das subcontas da Impresilk e da Universo.`:''}`;
   if(d.resto)chipDas=paramChipConferir;
   if(conhecidas.length||!d.resto)tomDas=paramTom(soma);
  }
- const m=paramMesInfo(label),tot=m?F.valorConta(m.reg,PARAM_IMPOSTOS):null,fora=m?(tot==null?0:Math.round((tot-(F.valorConta(m.reg,PARAM_DAS)||0))*100)/100):null;
- const notaFora=fora==null?`${label} ainda sem dados coletados.`:`IPTU, taxas, ICMS e DIFAL das compras, DARF de parcelamento, IOF e ISSQN (conta 2.4 sem o DAS)${m.parcial?`, coletados até ${paramDiaMes(m.ate)} (mês em andamento)`:''}.`;
- return `<div class="cards cards-controle">${aliq.join('')}${paramMetric(`DAS pago em ${label}`,das,notaDas,{tom:tomDas,chip:chipDas})}${paramMetric(`Impostos e taxas fora do DAS · ${label}`,fora==null?'Não apurado':fora?money(fora):'Sem lançamento',notaFora,{tom:paramTom(fora)})}</div>`;
+ const m=paramMesInfo(label),tot=m?F.valorConta(m.reg,PARAM_IMPOSTOS):null,fora=m?(tot==null?0:Math.round((tot-paramSimplesPago(m.reg))*100)/100):null;
+ const notaFora=fora==null?`${label} ainda sem dados coletados.`:`IPTU, taxas, ICMS e DIFAL das compras, IOF e ISSQN (conta 2.4 sem o DAS e o DARF)${m.parcial?`, coletados até ${paramDiaMes(m.ate)} (mês em andamento)`:''}.`;
+ return `<div class="cards cards-controle">${aliq.join('')}${paramMetric(`Simples pago em ${label}`,das,notaDas,{tom:tomDas,chip:chipDas})}${paramMetric(`Impostos e taxas fora do Simples · ${label}`,fora==null?'Não apurado':fora?money(fora):'Sem lançamento',notaFora,{tom:paramTom(fora)})}</div>`;
 }
 function paramCampo(nome,rotulo,valor,{dica='',inteiro=false}={},bloqueado){
  const num=!!PARAM_FORMATO[nome];
@@ -302,9 +311,10 @@ function paramRevisado(item){return item?.revisadoEm?`Revisado em ${dataBR(item.
 function paramGuiaHtml(e,seg){
  const d=paramDasMes(seg);if(!d)return esc(`${seg} ainda sem dados: a guia desta competência vence no mês seguinte.`);
  const v=d.guias[e.id];
- if(v==null&&d.resto)return esc(`Não apurado: ${money(d.resto)} do DAS de ${seg} estão fora das subcontas conhecidas. Confira no Plano de contas.`);
- if(v)return `<span class="${paramTom(v)}">${esc(money(v))}</span> ${esc(`${v<0?'estornados':'pagos'} em ${seg}${d.parcial?`, até ${paramDiaMes(d.ate)} (mês em andamento)`:''}.`)}`;
- return esc(d.parcial?`${seg} em andamento: guia ainda não paga até ${paramDiaMes(d.ate)}.`:`Nenhuma guia lançada em ${seg} na conta ${e.das}.`);
+ if(v==null&&d.resto)return esc(`Não apurado: ${money(d.resto)} do DAS e do DARF de ${seg} estão fora das subcontas conhecidas. Confira no Plano de contas.`);
+ // com valor fora das subcontas, o da empresa não é o total: diz o que falta conferir
+ if(v)return `<span class="${paramTom(v)}">${esc(money(v))}</span> ${esc(`${v<0?'estornados':'pagos'} em ${seg}${d.parcial?`, até ${paramDiaMes(d.ate)} (mês em andamento)`:''}${d.resto?`; mais ${money(d.resto)} no DAS e no DARF fora das subcontas, a conferir`:''}.`)}`;
+ return esc(d.parcial?`${seg} em andamento: guia ainda não paga até ${paramDiaMes(d.ate)}.`:`Nenhuma guia lançada em ${seg} nas contas ${e.das} (DAS) e ${e.darf} (DARF).`);
 }
 function paramBlocoEmpresa(e,label,admin){
  const p=paramSimples(e.id,label),a=paramAliquota(e.id,label),ant=paramMesDesloca(label,-1),pAnt=paramSimples(e.id,ant),seg=paramMesDesloca(label,1);
@@ -331,27 +341,27 @@ function paramGraficosSimples(label){
  // Só as guias do DAS (saída, em vermelho). O parcelamento é dívida e não entra;
  // o que estiver no DAS fora das subcontas aparece como série própria.
  const dados=meses.map(m=>({m,d:paramDasMes(m)})),comResto=dados.some(x=>x.d?.resto);
- const series=[...PARAM_EMPRESAS.map(e=>({chave:e.id,rotulo:e.nome})),...(comResto?[{chave:'resto',rotulo:'DAS sem subconta'}]:[])];
+ const series=[...PARAM_EMPRESAS.map(e=>({chave:e.id,rotulo:e.nome})),...(comResto?[{chave:'resto',rotulo:'Sem subconta'}]:[])];
  const dasMeses=dados.map(({m,d})=>{const v={};for(const s of series)v[s.chave]=!d||d.parcial?null:s.chave==='resto'?d.resto:(d.guias[s.chave]??0);return {rotulo:m.slice(0,3),valores:v,linha:null};});
- const das=paramPainel('Quanto foi para o DAS em cada mês?',`Guias pagas em ${ano}, pelo mês do pagamento (cada guia é da competência anterior). O parcelamento é dívida e fica de fora. Mês sem dados ou em andamento fica hachurado.`,gEmpilhadas(dasMeses,{series,selecionado:sel,titulo:'DAS pago por mês'}),'param-das');
+ const das=paramPainel('Quanto foi para o Simples em cada mês?',`DAS e DARF pagos em ${ano}, pelo mês do pagamento (cada guia é da competência anterior). O parcelamento é dívida e fica de fora. Mês sem dados ou em andamento fica hachurado.`,gEmpilhadas(dasMeses,{series,selecionado:sel,titulo:'Simples pago por mês (DAS e DARF)'}),'param-das');
  const linhas=PARAM_EMPRESAS.map(e=>`<div class="param-aliq"><h4>${esc(e.nome)}</h4>${gLinhaArea(meses.map(m=>{const p=paramSimples(e.id,m);return {rotulo:m.slice(0,3),valor:paramNum(p?.aliquota)?Number(p.aliquota):null};}),{selecionado:sel,titulo:`Alíquota efetiva da ${e.nome}`,formato:v=>paramPct(v,4),rotulo:'Alíquota',cor:'marca'})}</div>`).join('');
  const aliq=paramPainel('A alíquota efetiva está subindo?',`Só os meses informados do extrato do PGDAS-D. O padrão provisório (${paramPct(PARAM_ALIQUOTA_PADRAO)}) não entra no gráfico.`,`<div class="param-aliq-grade">${linhas}</div>`);
  return `<div class="graficos-controle">${das}${aliq}</div>`;
 }
 function paramBlocoTributos(label,admin){
- const itens=paramContasTributos().map(t=>({...t,pago:paramPago(label,t.code)})),orfaos=paramTributosOrfaos();
- const m=paramMesInfo(label),tot=m?F.valorConta(m.reg,PARAM_IMPOSTOS):null,fora=m?(tot==null?0:Math.round((tot-(F.valorConta(m.reg,PARAM_DAS)||0))*100)/100):null;
+ const itens=paramContasTributos().map(t=>({...t,pago:paramPago(label,t.code)})),orfaos=paramTributosOrfaos(),regMes=paramMesInfo(label)?.reg||null;
+ const m=paramMesInfo(label),tot=m?F.valorConta(m.reg,PARAM_IMPOSTOS):null,fora=m?(tot==null?0:Math.round((tot-paramSimplesPago(m.reg))*100)/100):null;
  const soma=Math.round(itens.reduce((s,t)=>s+(t.pago.valor||0),0)*100)/100,dif=fora!=null?Math.round((fora-soma)*100)/100:0;
  const ate=m?.parcial?` até ${paramDiaMes(m.ate)} (mês em andamento)`:'';
  const barras=itens.filter(t=>t.pago.valor).map(t=>({rotulo:t.rotulo,valor:t.pago.valor}));if(Math.abs(dif)>=.01)barras.push({rotulo:'Sem subconta específica',valor:dif});
- const grafico=paramPainel('Onde estão os impostos e taxas do mês?',`Pagos em ${label}${ate}, fora do DAS, do maior para o menor.`,!m?GX.aviso('barras',`Não apurado: ${label} ainda sem dados coletados.`):barras.length?gBarrasOrdenadas(barras,{cor:'saida',limite:8,titulo:`Impostos e taxas pagos em ${label}${ate}`}):GX.aviso('barras',`Nenhum imposto ou taxa fora do DAS lançado em ${label}${ate}.`));
+ const grafico=paramPainel('Onde estão os impostos e taxas do mês?',`Pagos em ${label}${ate}, fora do Simples, do maior para o menor.`,!m?GX.aviso('barras',`Não apurado: ${label} ainda sem dados coletados.`):barras.length?gBarrasOrdenadas(barras,{cor:'saida',limite:8,titulo:`Impostos e taxas pagos em ${label}${ate}`}):GX.aviso('barras',`Nenhum imposto ou taxa fora do Simples lançado em ${label}${ate}.`));
  const linhas=itens.map(t=>({...t,local:paramLocalDoItem(t),sit:paramSituacao(t,t.pago)})).sort((a,b)=>(a.local.texto?0:1)-(b.local.texto?0:1)||a.local.texto.localeCompare(b.local.texto,'pt-BR')||paramOrdemCodigo(a.code,b.code));
  const locais=[...new Set(linhas.map(t=>t.local.texto).filter(Boolean))];
  const celulaLocal=l=>l.texto?`${esc(l.texto)}${l.origem==='sugestao'?' <small class="param-sugestao">pelo nome da conta</small>':l.origem==='sede'?' <small class="param-sugestao">sede</small>':''}`:'<span class="nao-apurado">Sem local</span>';
  const pagoTxt=p=>p.estado==='sem-mes'?'Não apurado':p.valor?money(p.valor):'Sem lançamento';
- const tabela=`<div class="table-scroll"><table class="tabela-controle tabela-tributos"><caption>Impostos e taxas por local · ${esc(label)}${esc(ate)}</caption><thead><tr><th scope="col">Imposto ou taxa</th><th scope="col">Local</th><th scope="col">Empresa</th><th scope="col">Recorrência</th><th scope="col" class="num">Vence dia</th><th scope="col" class="num">Previsto</th><th scope="col" class="num">Pago no mês</th><th scope="col">Situação</th>${admin?'<th scope="col"><span class="sr-only">Editar</span></th>':''}</tr></thead><tbody>${linhas.map(t=>{const c=t.cadastro||{};return `<tr><th scope="row">${esc(t.rotulo)} <small class="param-conta">${esc(t.code)}</small></th><td>${celulaLocal(t.local)}</td><td>${esc(paramNomeEmpresa(c.empresa||'')||'—')}</td><td>${esc(c.recorrencia||'—')}</td><td class="num">${esc(paramNum(c.vencimento)?String(c.vencimento):'—')}</td><td class="num">${esc(paramNum(c.previsto)?money(c.previsto):'—')}</td><td class="num ${paramTom(t.pago.valor)}">${esc(pagoTxt(t.pago))}</td><td><span class="param-sit sit-${t.sit.classe}">${esc(t.sit.texto)}</span></td>${admin?`<td><button type="button" class="link-cadastro" data-param-tributo="${esc(t.code)}" aria-label="${esc('Editar '+t.rotulo)}">Editar</button></td>`:''}</tr>`;}).join('')}${Math.abs(dif)>=.01?`<tr><th scope="row">Sem subconta específica</th><td colspan="5">Diferença entre o total da conta 2.4 (sem o DAS) e a soma dos itens.</td><td class="num ${paramTom(dif)}">${esc(money(dif))}</td><td></td>${admin?'<td></td>':''}</tr>`:''}</tbody>${m?`<tfoot><tr><th scope="row">Total fora do DAS${esc(ate)}</th><td colspan="5"></td><td class="num ${paramTom(fora)}">${esc(fora?money(fora):'Sem lançamento')}</td><td colspan="${admin?2:1}"></td></tr></tfoot>`:''}</table></div>`;
- const orfaosHtml=orfaos.length?`<div class="param-avisos param-orfaos"><p><b>Cadastro sem uso:</b> estas contas ganharam subcontas e o valor agora é lançado nelas. Copie o local e o vencimento para as subcontas e apague o cadastro antigo.</p><ul>${orfaos.map(o=>`<li>${esc(o.rotulo)} <small class="param-conta">${esc(o.code)}</small> → ${esc(o.filhas.join(', '))}${admin?` <button type="button" class="link-cadastro" data-param-tributo="${esc(o.code)}" aria-label="${esc('Editar o cadastro antigo de '+o.rotulo)}">Editar</button>`:''}</li>`).join('')}</ul></div>`:'';
- return `<section class="param-bloco" aria-labelledby="param-tributos-titulo"><div class="param-bloco-topo"><h2 id="param-tributos-titulo" tabindex="-1">Impostos e taxas por local</h2><p>Tudo o que se paga fora do DAS, local por local: IPTU de cada imóvel, taxas de cada empresa, ICMS e DIFAL, DARF, IOF e ISSQN. As linhas vêm do plano de contas (2.4); o cadastro diz onde, de quem, quando vence e quanto se espera pagar. O ICMS e o DIFAL das compras em outros estados são pagos na conta 2.4.2: informe no local a UF de origem das compras. O DARF (2.4.3) é parcelamento.</p>${locais.length?`<p class="param-locais"><b>${locais.length} ${locais.length===1?'local':'locais'}:</b> ${locais.map(esc).join(' · ')}</p>`:''}</div>${grafico}${linhas.length?tabela:'<p class="hint">Nenhuma conta de imposto fora do DAS nos meses coletados.</p>'}${orfaosHtml}</section>`;
+ const tabela=`<div class="table-scroll"><table class="tabela-controle tabela-tributos"><caption>Impostos e taxas por local · ${esc(label)}${esc(ate)}</caption><thead><tr><th scope="col">Imposto ou taxa</th><th scope="col">Local</th><th scope="col">Empresa</th><th scope="col">Recorrência</th><th scope="col" class="num">Vence dia</th><th scope="col" class="num">Previsto</th><th scope="col" class="num">Pago no mês</th><th scope="col">Situação</th>${admin?'<th scope="col"><span class="sr-only">Editar</span></th>':''}</tr></thead><tbody>${linhas.map(t=>{const c=t.cadastro||{};return `<tr><th scope="row">${esc(t.rotulo)} <small class="param-conta">${esc(t.code)}${paramMub(t.code,regMes)}</small></th><td>${celulaLocal(t.local)}</td><td>${esc(paramNomeEmpresa(c.empresa||'')||'—')}</td><td>${esc(c.recorrencia||'—')}</td><td class="num">${esc(paramNum(c.vencimento)?String(c.vencimento):'—')}</td><td class="num">${esc(paramNum(c.previsto)?money(c.previsto):'—')}</td><td class="num ${paramTom(t.pago.valor)}">${esc(pagoTxt(t.pago))}</td><td><span class="param-sit sit-${t.sit.classe}">${esc(t.sit.texto)}</span></td>${admin?`<td><button type="button" class="link-cadastro" data-param-tributo="${esc(t.code)}" aria-label="${esc('Editar '+t.rotulo)}">Editar</button></td>`:''}</tr>`;}).join('')}${Math.abs(dif)>=.01?`<tr><th scope="row">Sem subconta específica</th><td colspan="5">Diferença entre o total da conta 2.4 (sem o DAS e o DARF) e a soma dos itens.</td><td class="num ${paramTom(dif)}">${esc(money(dif))}</td><td></td>${admin?'<td></td>':''}</tr>`:''}</tbody>${m?`<tfoot><tr><th scope="row">Total fora do Simples${esc(ate)}</th><td colspan="5"></td><td class="num ${paramTom(fora)}">${esc(fora?money(fora):'Sem lançamento')}</td><td colspan="${admin?2:1}"></td></tr></tfoot>`:''}</table></div>`;
+ const orfaosHtml=orfaos.length?`<div class="param-avisos param-orfaos"><p><b>Cadastro sem uso:</b> a conta ganhou subcontas (o valor agora é lançado nelas) ou passou para o quadro do Simples. Copie o que precisar e apague o cadastro antigo.</p><ul>${orfaos.map(o=>`<li>${esc(o.rotulo)} <small class="param-conta">${esc(o.code)}${paramMub(o.code,regMes)}</small> → ${esc(o.noSimples?'agora no quadro do Simples (DAS e DARF)':o.filhas.join(', '))}${admin?` <button type="button" class="link-cadastro" data-param-tributo="${esc(o.code)}" aria-label="${esc('Editar o cadastro antigo de '+o.rotulo)}">Editar</button>`:''}</li>`).join('')}</ul></div>`:'';
+ return `<section class="param-bloco" aria-labelledby="param-tributos-titulo"><div class="param-bloco-topo"><h2 id="param-tributos-titulo" tabindex="-1">Impostos e taxas por local</h2><p>Tudo o que se paga fora do Simples, local por local: IPTU de cada imóvel, taxas de cada empresa, ICMS e DIFAL das compras, IOF e ISSQN. As linhas vêm do plano de contas (2.4); o cadastro diz onde, de quem, quando vence e quanto se espera pagar. O ICMS e o DIFAL das compras em outros estados são pagos na conta 2.4.2: informe no local a UF de origem das compras. O DAS e o DARF do PGDAS ficam no quadro do Simples. Ao lado de cada código do painel vai o código da mesma conta no Mubisys.</p>${locais.length?`<p class="param-locais"><b>${locais.length} ${locais.length===1?'local':'locais'}:</b> ${locais.map(esc).join(' · ')}</p>`:''}</div>${grafico}${linhas.length?tabela:'<p class="hint">Nenhuma conta de imposto fora do Simples nos meses coletados.</p>'}${orfaosHtml}</section>`;
 }
 function paramBlocoOperacao(label,admin){
  const o=paramOperacao(label),ant=paramMesDesloca(label,-1),oAnt=paramOperacao(ant),fo=paramFormAttrs('operacao',{mes:label},o);
@@ -395,7 +405,7 @@ function renderParametros(){
  const consolidado=paramAvisoConsolidado(label);
  return paramCards(label)
   +`${admin?'':'<p class="note">Somente administradores alteram parâmetros. Os valores abaixo são de consulta.</p>'}`
-  +`<section class="param-bloco bloco-simples" aria-labelledby="param-simples-titulo"><div class="param-bloco-topo"><h2 id="param-simples-titulo">Simples Nacional · competência ${esc(label)}</h2><p>Impresilk e Universo, as duas no Simples, cada uma com seu CNPJ, anexo, RBT12 e alíquota. A alíquota muda todo mês: o cadastro guarda o histórico. A guia de cada competência (2.4.1.2 e 2.4.1.3) é paga no mês seguinte; o parcelamento (2.4.1.1) é dívida e fica de fora. A folha do Fator R não inclui retiradas: não há pró-labore. DIFAL e os demais tributos fora do DAS ficam no quadro de impostos por local.</p>${consolidado?`<ul class="param-avisos"><li>${esc(consolidado)}</li></ul>`:''}</div><div class="param-empresas">${PARAM_EMPRESAS.map(e=>paramBlocoEmpresa(e,label,admin)).join('')}</div>${paramGraficosSimples(label)}</section>`
+  +`<section class="param-bloco bloco-simples" aria-labelledby="param-simples-titulo"><div class="param-bloco-topo"><h2 id="param-simples-titulo">Simples Nacional · competência ${esc(label)}</h2><p>Impresilk e Universo, as duas no Simples, cada uma com seu CNPJ, anexo, RBT12 e alíquota. A alíquota muda todo mês: o cadastro guarda o histórico. O imposto de cada competência sai do PGDAS em duas contas por empresa, DAS (2.4.1.2 e 2.4.1.3) e DARF (2.4.3.1 e 2.4.3.2), e é pago no mês seguinte; o parcelamento (2.4.1.1) é dívida e fica de fora. A folha do Fator R não inclui retiradas: não há pró-labore. ICMS, DIFAL e os demais tributos fora do Simples ficam no quadro de impostos por local.</p>${consolidado?`<ul class="param-avisos"><li>${esc(consolidado)}</li></ul>`:''}</div><div class="param-empresas">${PARAM_EMPRESAS.map(e=>paramBlocoEmpresa(e,label,admin)).join('')}</div>${paramGraficosSimples(label)}</section>`
   +paramBlocoTributos(label,admin)+paramBlocoOperacao(label,admin)+paramHistorico();
 }
 

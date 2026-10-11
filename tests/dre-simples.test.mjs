@@ -38,7 +38,7 @@ test('cada conta cai na linha certa pela regra mais específica; o que não é d
  const c=context(),k=code=>c.run(`DRESimples.classificar(${JSON.stringify(code)}).linha`),conf=code=>c.run(`DRESimples.classificar(${JSON.stringify(code)}).conferir`);
  const esperado={'1.1.1':'vendas','1.2.51':'vendas','1.5.2':'vendas','1.6.2':'vendas','1.3.2':'receitasFinanceiras','1.4.2':'emprestimos','1.7':'aIdentificar',
   '2.1.4':'pessoal','2.1.12':'variaveis','2.9.2':'pessoal','2.2.1':'administrativas','2.2.6':'devolucoes','2.8.3':'administrativas','2.8.5':'variaveis',
-  '2.4.1.2':'das','2.4.1.3':'das','2.4.1.51':'das','2.4.1.1':'dividas','2.4.2':'variaveis','2.4.3':'dividas','2.4.3.1':'dividas','2.4.8':'impostosVendas','2.4.5.1':'taxas','2.4.6.2':'taxas','2.4.7':'despesasFinanceiras',
+  '2.4.1.2':'das','2.4.1.3':'das','2.4.1.51':'das','2.4.1.1':'dividas','2.4.2':'variaveis','2.4.3':'das','2.4.3.1':'das','2.4.8':'impostosVendas','2.4.5.1':'taxas','2.4.6.2':'taxas','2.4.7':'despesasFinanceiras',
   '2.5.3':'ocupacao','2.3.2':'ocupacao','2.6.9':'variaveis','2.6.3':'variaveis','2.6.1':'investimentos','2.7.2':'veiculos','2.7.1':'investimentos','2.10.1':'variaveis','2.11.4':'variaveis','2.12.1':'variaveis',
   '2.12.11':'marketing','2.12.12':'marketing','2.12.51':'marketing','2.12.52':'marketing',
   '2.13.1':'despesasFinanceiras','2.13.5':'despesasFinanceiras','2.13.6':'dividas','2.13.7.1.3':'dividas','2.13.7.1.1':'investimentos','2.13.7.1.2':'investimentos','2.13.52':'semDetalhamento','2.13':'semDetalhamento','2.13.8':'semDetalhamento',
@@ -50,7 +50,7 @@ test('cada conta cai na linha certa pela regra mais específica; o que não é d
  assert.match(conf('2.13.8'),/Bancária fora das subcontas de tarifa e juros/,'bancária nova não vira juros sem aviso');
  assert.match(conf('2.6.51'),/Conta nova ou renomeada no ERP/);assert.match(conf('2.7.51'),/Conta nova ou renomeada no ERP/);
  assert.equal(conf('2.1.51'),'','renomeada em Funcionários continua pessoal sem alarme');
- assert.match(c.run("DRESimples.classificar('2.4.3').nota"),/parcelamento/);assert.match(c.run("DRESimples.classificar('2.4.2').nota"),/compras em outros estados/);assert.match(c.run("DRESimples.classificar('2.6.4').nota"),/tintas/);assert.equal(conf('2.6.3'),'','dúvida de todo mês vai em nota');
+ assert.match(c.run("DRESimples.classificar('2.4.3').nota"),/DARF do PGDAS: imposto do Simples do mês/);assert.match(c.run("DRESimples.classificar('2.4.2').nota"),/compras em outros estados/);assert.match(c.run("DRESimples.classificar('2.6.4').nota"),/tintas/);assert.equal(conf('2.6.3'),'','dúvida de todo mês vai em nota');
  assert.equal(conf('2.20'),'Saída sem linha na DRE');assert.match(conf('3.1'),/fora do plano/);
 });
 test('apuração: subtotais, resíduo da conta mãe e percentual sobre as vendas',()=>{
@@ -81,12 +81,19 @@ test('mês sem dados é null (nunca zero); valor estranho não vira NaN; registr
 });
 test('DAS da competência: tudo o que saiu no DAS menos o parcelamento, com o resto à vista',()=>{
  const c=context();
- assert.deepEqual(c.json('DRESimples.dasDaGuia(state.records[1])'),{impresilk:500,universo:100,guias:600,resto:0,total:600,temGuia:true});
+ assert.deepEqual(c.json('DRESimples.dasDaGuia(state.records[1])'),{impresilk:500,universo:100,guias:600,resto:0,total:600,darf:null,temGuia:true});
  c.__r={cells:[cel('2.4.1','DAS',1700),cel('2.4.1.1','Parcelamento',300),cel('2.4.1.3','Universo',200),cel('2.4.1.51','DAS Impresilk',1200)]};
- assert.deepEqual(c.json('DRESimples.dasDaGuia(__r)'),{impresilk:null,universo:200,guias:200,resto:1200,total:1400,temGuia:true},'conta renomeada não some');
- c.__r={cells:[cel('2.4.1','DAS',1400)]};assert.deepEqual(c.json('DRESimples.dasDaGuia(__r)'),{impresilk:null,universo:null,guias:0,resto:1400,total:1400,temGuia:true},'só o total: há DAS pago');
- c.__r={cells:[cel('2.4.1','DAS',null),cel('2.4.1.2','Impresilk',null),cel('2.4.1.3','Universo',null)]};assert.deepEqual(c.json('DRESimples.dasDaGuia(__r)'),{impresilk:null,universo:null,guias:0,resto:0,total:0,temGuia:false});
+ assert.deepEqual(c.json('DRESimples.dasDaGuia(__r)'),{impresilk:null,universo:200,guias:200,resto:1200,total:1400,darf:null,temGuia:true},'conta renomeada não some');
+ c.__r={cells:[cel('2.4.1','DAS',1400)]};assert.deepEqual(c.json('DRESimples.dasDaGuia(__r)'),{impresilk:null,universo:null,guias:0,resto:1400,total:1400,darf:null,temGuia:true},'só o total: há DAS pago');
+ c.__r={cells:[cel('2.4.1','DAS',null),cel('2.4.1.2','Impresilk',null),cel('2.4.1.3','Universo',null)]};assert.deepEqual(c.json('DRESimples.dasDaGuia(__r)'),{impresilk:null,universo:null,guias:0,resto:0,total:0,darf:null,temGuia:false});
  assert.equal(c.run('DRESimples.dasDaGuia(null)'),null);
+});
+test('DARF do PGDAS é imposto do Simples do mês: entra com o DAS, por empresa, no resultado e na competência',()=>{
+ const cells=troca(SET,{'2':10750,'2.4':1200},[cel('2.4.3','DARF',200),cel('2.4.3.1','Impresilk',200)]);
+ const c=context({registros:[reg('Ago/2026','2026-08-31',AGO),reg('Set/2026','2026-09-30',cells)]});
+ const a=apurar(c);assert.equal(a.linhas.das,800,'DAS 600 + DARF 200');assert.equal(a.linhas.dividas,1200,'DARF não é dívida');assert.equal(a.diferenca,0);
+ assert.deepEqual(c.json('DRESimples.dasDaGuia(state.records[1])'),{impresilk:700,universo:100,guias:800,resto:0,total:800,darf:200,temGuia:true});
+ c.__r={cells:[cel('2.4.3','DARF',300),cel('2.4.3.2','Universo',300)]};assert.deepEqual(c.json('DRESimples.dasDaGuia(__r)'),{impresilk:null,universo:300,guias:300,resto:0,total:300,darf:300,temGuia:true},'só DARF também é guia do Simples');
 });
 test('no Simples, IRPJ e CSLL vazios valem zero fora do DAS e não deixam o mês "parcial"',()=>{
  const c=context(),v=JSON.stringify(VALORES);
@@ -101,7 +108,7 @@ test('tela de caixa: cards clicáveis com a cor certa, cascata com o DAS em verm
  const cards=[...h.matchAll(/<button type="button" class="metric metric-param" data-dre-origem><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong>/g)].map(m=>[m[1],m[2],m[3]]);
  assert.deepEqual(cards.map(x=>x[0]),['Vendas · Set/2026','Margem de contribuição','Resultado operacional (EBITDA de caixa)','Resultado do mês']);
  assert.deepEqual(cards.map(x=>x[1]),['tom-entra','tom-entra','tom-entra','tom-entra']);assert.match(cards[1][2],/R\$\s5\.250,00/);
- assert.match(h,/class="g-marca-dado g-cor-saida"[^>]*data-dica="\(−\) DAS do mês\n-R\$\s600,00 · -6% da base"/);
+ assert.match(h,/class="g-marca-dado g-cor-saida"[^>]*data-dica="\(−\) Simples do mês \(DAS e DARF\)\n-R\$\s600,00 · -6% da base"/);
  assert.match(h,/Margem de contribuição: R\$\s5\.250,00 \(52,5%\)/);
  const prej=context({registros:[reg('Set/2026','2026-09-30',troca(SET,{'2':14750,'2.5':5000,'2.5.2':5000}))]}).run('renderDRE()');
  assert.match(prej,/<span class="label">Resultado do mês<\/span><strong class="tom-sai">/,'prejuízo em vermelho');
@@ -146,33 +153,33 @@ test('o mês de comparação escolhido vale, inclusive de outro ano; sem dados, 
 test('competência: DAS pago ao lado do informado, comparação de outro ano, percentuais sobre a receita bruta',()=>{
  const cfg={demonstrativosCompetencia:{versao:1,meses:{Ago_2026:comp('Ago/2026'),Jul_2026:comp('Jul/2026',{...VALORES,produtos:18000}),Ago_2025:comp('Ago/2025',{...VALORES,produtos:16000})}}};
  const c=context({periodo:'Ago/2026',cfg});c.run("dreUI.base='competencia'");const h=c.run('renderDRE()');
- assert.match(h,/DAS da competência Ago\/2026 pago em Set\/2026: R\$\s600,00 \(Impresilk R\$\s500,00 · Universo R\$\s100,00\)\. Informado em “Tributos sobre vendas”: R\$\s500,00 — menor que o DAS pago: confira\./);
+ assert.match(h,/Simples da competência Ago\/2026 \(DAS e DARF\) pago em Set\/2026: R\$\s600,00 \(Impresilk R\$\s500,00 · Universo R\$\s100,00\)\. Informado em “Tributos sobre vendas”: R\$\s500,00 — menor que o Simples pago \(DAS e DARF\): confira\./);
  assert.match(linhaTabela(h,'(=) Lucro / prejuízo líquido'),/R\$\s8\.400,00<\/td><td class="num">42%<\/td><td class="num tom-entra">R\$\s6\.400,00<\/td><td class="num">35,6%<\/td>/);
  assert.match(h,/data-dica="Ago\n42%"/);
  const c2=context({periodo:'Ago/2026',cfg,comparar:'Ago/2025'});c2.run("dreUI.base='competencia'");assert.match(c2.run('renderDRE()'),/Comparação · Ago\/2026 contra Ago\/2025/);
  const outra={demonstrativosCompetencia:{versao:1,meses:{Ago_2026:comp('Ago/2026'),Jul_2026:comp('Jul/2026',VALORES,'Só Impresilk')}}};
  const c3=context({periodo:'Ago/2026',cfg:outra});c3.run("dreUI.base='competencia'");assert.match(c3.run('renderDRE()'),/sem comparação: empresas diferentes/);
  const ren=REGISTROS.map(r=>r.label!=='Set/2026'?r:{...r,cells:troca(SET,{'2.4.1':1100,'2.4':1200,'2':10750},[cel('2.4.1.51','DAS Impresilk',200)])});
- const c4=context({periodo:'Ago/2026',cfg,registros:ren});c4.run("dreUI.base='competencia'");assert.match(c4.run('renderDRE()'),/· R\$\s200,00 no DAS fora das subcontas, a conferir\)/);
+ const c4=context({periodo:'Ago/2026',cfg,registros:ren});c4.run("dreUI.base='competencia'");assert.match(c4.run('renderDRE()'),/· R\$\s200,00 no DAS e no DARF fora das subcontas, a conferir\)/);
  const ir={demonstrativosCompetencia:{versao:1,meses:{Ago_2026:comp('Ago/2026',{...VALORES,tributosLucro:300})}}};
  const c5=context({periodo:'Ago/2026',cfg:ir});c5.run("dreUI.base='competencia'");assert.match(c5.run('renderDRE()'),/\(−\) IRPJ e CSLL fora do Simples\n-R\$\s300,00/,'IRPJ informado aparece como degrau');
  const sem={demonstrativosCompetencia:{versao:1,meses:{Ago_2026:comp('Ago/2026',{...VALORES,tributosVendas:null})}}};
  const c6=context({periodo:'Ago/2026',cfg:sem});c6.run("dreUI.base='competencia'");const h6=c6.run('renderDRE()');
- assert.match(h6,/Informado em “Tributos sobre vendas”: não informado\./);assert.match(h6,/<th scope="row">\(−\) Tributos sobre vendas \(DAS e ISS fora dele\)<\/th><td class="num">Não apurado<\/td>/,'tributo vazio não vira zero na cascata');
+ assert.match(h6,/Informado em “Tributos sobre vendas”: não informado\./);assert.match(h6,/<th scope="row">\(−\) Tributos sobre vendas \(Simples e ISS fora dele\)<\/th><td class="num">Não apurado<\/td>/,'tributo vazio não vira zero na cascata');
  const set=context({periodo:'Set/2026',cfg:{demonstrativosCompetencia:{versao:1,meses:{Set_2026:comp('Set/2026')}}}});set.run("dreUI.base='competencia'");
- const hs=set.run('renderDRE()');assert.match(hs,/DAS da competência Set\/2026 pago em Out\/2026: R\$\s700,00 [^.]*, até 08\/10 \(mês em andamento\)\./);assert.doesNotMatch(hs,/menor que o DAS pago/,'mês de pagamento incompleto não acusa diferença');
+ const hs=set.run('renderDRE()');assert.match(hs,/Simples da competência Set\/2026 \(DAS e DARF\) pago em Out\/2026: R\$\s700,00 [^.]*, até 08\/10 \(mês em andamento\)\./);assert.doesNotMatch(hs,/menor que o Simples pago/,'mês de pagamento incompleto não acusa diferença');
 });
 test('formulário da competência: oferece o DAS pago só com o mês fechado, e não apaga o que foi digitado',()=>{
  const abrir=(label,registros=REGISTROS)=>{const c=context({periodo:label,registros});c.run('dialog=(t,h)=>{__dlg={t,h}}');c.run(`abrirCompetencia(${JSON.stringify(label)})`);return c;};
  const c=abrir('Ago/2026'),h=c.run('__dlg.h');
- assert.match(h,/DAS da competência Ago\/2026 pago em Set\/2026: R\$\s600,00[^<]*<button type="button" id="competenciaUsarDAS">Usar em “Tributos sobre vendas”<\/button>/);
+ assert.match(h,/Simples da competência Ago\/2026 \(DAS e DARF\) pago em Set\/2026: R\$\s600,00[^<]*<button type="button" id="competenciaUsarDAS">Usar em “Tributos sobre vendas”<\/button>/);
  assert.match(h,/<input name="tributosVendas" type="text" inputmode="decimal" value=""/,'nada é preenchido sem a pessoa pedir');
  c.els.competenciaUsarDAS.onclick();assert.equal(c.campo.value,'600,00');
  c.campo.value='1.100,00';c.els.competenciaUsarDAS.onclick();assert.equal(c.confirmou,1,'pede confirmação antes de trocar');assert.equal(c.campo.value,'1.100,00','sem confirmação, o valor digitado fica');
  const parcial=abrir('Set/2026').run('__dlg.h');assert.doesNotMatch(parcial,/competenciaUsarDAS/,'mês de pagamento em andamento não oferece o botão');assert.match(parcial,/até 08\/10 \(mês em andamento\)/);
  const neg=abrir('Ago/2026',REGISTROS.map(r=>r.label!=='Set/2026'?r:{...r,cells:troca(SET,{'2.4.1.2':-50,'2.4.1.3':0,'2.4.1':250,'2.4':350})})).run('__dlg.h');assert.doesNotMatch(neg,/competenciaUsarDAS/,'estorno não vira sugestão');
  const total=abrir('Ago/2026',REGISTROS.map(r=>r.label!=='Set/2026'?r:{...r,cells:[cel('1','R',100),cel('2','D',1400),cel('2.4','Impostos',1400),cel('2.4.1','DAS',1400)]})).run('__dlg.h');
- assert.match(total,/pago em Set\/2026: R\$\s1\.400,00 \(Impresilk sem guia · Universo sem guia · R\$\s1\.400,00 no DAS fora das subcontas, a conferir\)/);assert.match(total,/competenciaUsarDAS/);
+ assert.match(total,/pago em Set\/2026: R\$\s1\.400,00 \(Impresilk sem guia · Universo sem guia · R\$\s1\.400,00 no DAS e no DARF fora das subcontas, a conferir\)/);assert.match(total,/competenciaUsarDAS/);
 });
 test('planilha da base de caixa leva a DRE Simples; composição escapa nomes do ERP; apuração não se repete a cada render',()=>{
  const c=context();c.run('download=(n,t)=>{__csv=t}');c.run('exportarDRECSV()');const csv=c.run('__csv');

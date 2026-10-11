@@ -59,16 +59,16 @@ test('alíquota sem extrato usa o padrão provisório, sempre marcado e fora do 
 });
 test('cards: DAS pago no mês sem o parcelamento e impostos fora do DAS pela conta 2.4',()=>{
  const h=tela(context());
- assert.match(h,/DAS pago em Set\/2026<\/span><strong class="tom-sai">R\$\s1\.400,00<\/strong><small>Guias da competência Ago\/2026\. Parcelamento à parte: R\$\s300,00\.<\/small>/);
- assert.match(h,/Impostos e taxas fora do DAS · Set\/2026<\/span><strong class="tom-sai">R\$\s100,00<\/strong>/);
+ assert.match(h,/Simples pago em Set\/2026<\/span><strong class="tom-sai">R\$\s1\.400,00<\/strong><small>DAS e DARF da competência Ago\/2026\. Parcelamento à parte: R\$\s300,00\.<\/small>/);
+ assert.match(h,/Impostos e taxas fora do Simples · Set\/2026<\/span><strong class="tom-sai">R\$\s100,00<\/strong>/);
  const vazio=tela(context({periodo:'Jul/2026'}));
- assert.match(vazio,/DAS pago em Jul\/2026<\/span><strong class="">Não apurado<\/strong>/);
+ assert.match(vazio,/Simples pago em Jul\/2026<\/span><strong class="">Não apurado<\/strong>/);
  assert.doesNotMatch(vazio,/R\$\s0,00/,'mês sem dados nunca vira zero');
 });
 test('textos da tela seguem os fatos do negócio',()=>{
  const h=tela(context());
- assert.match(h,/guia de cada competência \(2\.4\.1\.2 e 2\.4\.1\.3\) é paga no mês seguinte; o parcelamento \(2\.4\.1\.1\) é dívida e fica de fora/);
- assert.match(h,/A folha do Fator R não inclui retiradas: não há pró-labore/);assert.match(h,/O ICMS e o DIFAL das compras em outros estados são pagos na conta 2\.4\.2: informe no local a UF de origem das compras\. O DARF \(2\.4\.3\) é parcelamento\./);
+ assert.match(h,/DAS \(2\.4\.1\.2 e 2\.4\.1\.3\) e DARF \(2\.4\.3\.1 e 2\.4\.3\.2\), e é pago no mês seguinte; o parcelamento \(2\.4\.1\.1\) é dívida e fica de fora/);
+ assert.match(h,/A folha do Fator R não inclui retiradas: não há pró-labore/);assert.match(h,/O ICMS e o DIFAL das compras em outros estados são pagos na conta 2\.4\.2: informe no local a UF de origem das compras\. O DAS e o DARF do PGDAS ficam no quadro do Simples\./);
 });
 test('guia da competência é a do mês seguinte; mês em andamento é marcado com a data do corte',()=>{
  const ago=tela(context({periodo:'Ago/2026'}));assert.match(ago,/<dd><span class="tom-sai">R\$\s1\.200,00<\/span> pagos em Set\/2026\.<\/dd>/,'só o valor em vermelho');
@@ -80,12 +80,12 @@ test('guia da competência é a do mês seguinte; mês em andamento é marcado c
 test('DAS que não fecha com a conta 2.4.1 aparece como "a conferir", nunca some',()=>{
  const reg=structuredClone(REGISTROS);reg[1].cells=[...base,cel('2.4','Despesas Impostos',1800),cel('2.4.1','DAS',1700),cel('2.4.1.1','Parcelamento Impresilk',300),cel('2.4.1.3','Universo',200),cel('2.4.1.51','DAS Impresilk',1200),cel('2.4.8','ISSQN',100)];
  const h=tela(context({registros:reg}));
- assert.match(h,/DAS pago em Set\/2026<\/span><strong class="tom-sai">R\$\s200,00<\/strong><small>[^<]*R\$\s1\.200,00 lançados no DAS fora das subcontas da Impresilk e da Universo\.<\/small><span class="origem-dado origem-padrao">A conferir no Plano de contas<\/span>/);
+ assert.match(h,/Simples pago em Set\/2026<\/span><strong class="tom-sai">R\$\s200,00<\/strong><small>[^<]*R\$\s1\.200,00 lançados no DAS e no DARF fora das subcontas da Impresilk e da Universo\.<\/small><span class="origem-dado origem-padrao">A conferir no Plano de contas<\/span>/);
  const ago=tela(context({periodo:'Ago/2026',registros:reg}));
- assert.match(ago,/Não apurado: R\$\s1\.200,00 do DAS de Set\/2026 estão fora das subcontas conhecidas/,'a Impresilk não lê "nenhuma guia" quando há DAS sem subconta');
- assert.match(h,/DAS sem subconta/,'o gráfico mostra o resto como série própria');
+ assert.match(ago,/Não apurado: R\$\s1\.200,00 do DAS e do DARF de Set\/2026 estão fora das subcontas conhecidas/,'a Impresilk não lê "nenhuma guia" quando há DAS sem subconta');
+ assert.match(h,/Sem subconta/,'o gráfico mostra o resto como série própria');
  const soPai=structuredClone(REGISTROS);soPai[1].cells=[...base,cel('2.4','Despesas Impostos',1400),cel('2.4.1','DAS',1400)];
- assert.match(tela(context({registros:soPai})),/DAS pago em Set\/2026<\/span><strong class="">A conferir<\/strong>/,'mês só com o total do DAS não vira "sem guia"');
+ assert.match(tela(context({registros:soPai})),/Simples pago em Set\/2026<\/span><strong class="">A conferir<\/strong>/,'mês só com o total do DAS não vira "sem guia"');
 });
 test('gráfico do DAS: só as guias (sem o parcelamento), em tons de saída, mês parcial e sem dados hachurados',()=>{
  const h=tela(context());const das=h.slice(h.indexOf('param-das'));
@@ -102,16 +102,16 @@ test('impostos por local: folhas da conta 2.4 sem o DAS, com nome do pai, sugest
  assert.match(h,/Feliciano Martins 127 <small class="param-sugestao">pelo nome da conta<\/small>/);
  const set=tela(context());
  assert.match(set,/<th scope="row">Sem subconta específica<\/th><td colspan="5">[^<]*<\/td><td class="num tom-sai">R\$\s50,00<\/td>/,'2.4 sem DAS = 100, itens = 50: a diferença aparece, não some');
- assert.match(set,/<th scope="row">Total fora do DAS<\/th><td colspan="5"><\/td><td class="num tom-sai">R\$\s100,00<\/td>/);
+ assert.match(set,/<th scope="row">Total fora do Simples<\/th><td colspan="5"><\/td><td class="num tom-sai">R\$\s100,00<\/td>/);
  assert.match(ler('compacto.css'),/\.tabela-tributos td\.num\.tom-sai\{color:var\(--red\)\}/,'pago em vermelho também na tabela');
 });
 test('mês em andamento: card, gráfico, total e situação dizem até quando foi coletado',()=>{
  const h=tela(context({periodo:'Out/2026'}));
- assert.match(h,/Impostos e taxas fora do DAS · Out\/2026<\/span><strong class="tom-sai">R\$\s120,00<\/strong><small>[^<]*coletados até 08\/10 \(mês em andamento\)\./);
- assert.match(h,/Pagos em Out\/2026 até 08\/10 \(mês em andamento\), fora do DAS/);
- assert.match(h,/Total fora do DAS até 08\/10 \(mês em andamento\)<\/th>/);
- assert.match(h,/ICMS <small class="param-conta">2\.4\.2<\/small>[\s\S]*?Pago até agora · sem cadastro/);
- assert.match(h,/ISSQN <small class="param-conta">2\.4\.8<\/small>[\s\S]*?Mês em andamento · sem cadastro/);
+ assert.match(h,/Impostos e taxas fora do Simples · Out\/2026<\/span><strong class="tom-sai">R\$\s120,00<\/strong><small>[^<]*coletados até 08\/10 \(mês em andamento\)\./);
+ assert.match(h,/Pagos em Out\/2026 até 08\/10 \(mês em andamento\), fora do Simples/);
+ assert.match(h,/Total fora do Simples até 08\/10 \(mês em andamento\)<\/th>/);
+ assert.match(h,/ICMS <small class="param-conta">2\.4\.2 · Mubisys 2\.3\.2<\/small>[\s\S]*?Pago até agora · sem cadastro/);
+ assert.match(h,/ISSQN <small class="param-conta">2\.4\.8 · Mubisys 2\.3\.8<\/small>[\s\S]*?Mês em andamento · sem cadastro/);
 });
 test('situação compara o pago com o cadastro; só "Mensal" acusa falta; estorno é dito',()=>{
  const cfg={parametros:{tributos:{'2.4.5.1':{recorrencia:'Mensal',previsto:300},'2.4.2':{recorrencia:'Mensal'},'2.4.8':{recorrencia:'Eventual'},'2.4.5.5':{recorrencia:'Anual parcelado'}}}};
@@ -131,7 +131,7 @@ test('cadastro numa conta que ganhou subcontas não é somado duas vezes',()=>{
  const reg=structuredClone(REGISTROS);reg[1].cells=[...base,cel('2.4','Despesas Impostos',2200),cel('2.4.1','DAS',1700),cel('2.4.1.1','Parcelamento Impresilk',300),cel('2.4.1.2','Impresilk',1200),cel('2.4.1.3','Universo',200),cel('2.4.2','ICMS',500),cel('2.4.2.1','ICMS Impresilk',300),cel('2.4.2.2','ICMS Universo',200)];
  const c=context({registros:reg,cfg:{parametros:{tributos:{'2.4.2':{local:'MG (DIFAL)'}}}}});
  const codes=c.json('paramContasTributos().map(t=>t.code)');assert.ok(!codes.includes('2.4.2')&&codes.includes('2.4.2.1')&&codes.includes('2.4.2.2'),'a conta mãe sai da lista quando ganha subcontas');
- const h=tela(c);assert.doesNotMatch(h,/Sem subconta específica/);assert.match(h,/Cadastro sem uso:[\s\S]*ICMS <small class="param-conta">2\.4\.2<\/small> → 2\.4\.2\.1, 2\.4\.2\.2/);
+ const h=tela(c);assert.doesNotMatch(h,/Sem subconta específica/);assert.match(h,/Cadastro sem uso:[\s\S]*ICMS <small class="param-conta">2\.4\.2 · Mubisys 2\.3\.2<\/small> → 2\.4\.2\.1, 2\.4\.2\.2/);
 });
 test('número no formato brasileiro: milhar com ponto, decimal com vírgula; o resto é recusado, nunca vira vazio',()=>{
  const c=context();const n=s=>c.run(`paramNumeroBR(${JSON.stringify(s)})`);
@@ -142,6 +142,21 @@ test('número no formato brasileiro: milhar com ponto, decimal com vírgula; o r
  assert.equal(c.run("paramValidarSimples({aliquota:'7,4583'})").aliquota,7.4583,'alíquota guarda até 4 casas');
  assert.equal(c.run("paramParaCampo('rbt12',1200000)"),'1.200.000,00');assert.equal(c.run("paramNumeroBR(paramParaCampo('rbt12',1234567.8))"),1234567.8,'o que volta ao campo é lido de novo igual');
  assert.match(c.run('renderParametros()'),/<input name="rbt12" type="text" inputmode="decimal" autocomplete="off"/,'campo de texto: o navegador não reinterpreta a vírgula');
+});
+test('DARF do PGDAS conta no Simples: card, guia por empresa e gráfico; sai de "fora do Simples" e da tabela por local',()=>{
+ const reg=structuredClone(REGISTROS);reg[1].cells=[...base,cel('2.4','Despesas Impostos',2300),cel('2.4.1','DAS',1700),cel('2.4.1.1','Parcelamento Impresilk',300),cel('2.4.1.2','Impresilk',1200),cel('2.4.1.3','Universo',200),cel('2.4.3','DARF',500),cel('2.4.3.1','Impresilk',400),cel('2.4.3.2','Universo',100),cel('2.4.8','ISSQN',100)];
+ const h=tela(context({registros:reg}));
+ assert.match(h,/Simples pago em Set\/2026<\/span><strong class="tom-sai">R\$\s1\.900,00<\/strong>/,'DAS 1.400 + DARF 500');
+ assert.match(h,/Impostos e taxas fora do Simples · Set\/2026<\/span><strong class="tom-sai">R\$\s100,00<\/strong>/,'só o ISSQN');
+ assert.doesNotMatch(h.slice(h.indexOf('tabela-tributos')),/2\.4\.3/,'DARF não aparece como imposto fora do Simples');
+ assert.match(h,/data-dica="Set\nImpresilk: R\$\s1\.600,00\nUniverso: R\$\s300,00"/,'gráfico do Simples com DAS + DARF por empresa');
+ const ago=tela(context({periodo:'Ago/2026',registros:reg}));assert.match(ago,/R\$\s1\.600,00<\/span> pagos em Set\/2026\./);
+ const resto=structuredClone(reg);resto[1].cells=resto[1].cells.map(x=>x.code==='2.4.3'?{...x,value:700}:x.code==='2.4'?{...x,value:2500}:x);
+ assert.match(tela(context({periodo:'Ago/2026',registros:resto})),/R\$\s1\.600,00<\/span> pagos em Set\/2026; mais R\$\s200,00 no DAS e no DARF fora das subcontas, a conferir\./,'o da empresa não se passa pelo total');
+});
+test('cadastro antigo do DARF não some: aparece como sem uso, com Editar',()=>{
+ const h=tela(context({periodo:'Ago/2026',cfg:{parametros:{tributos:{'2.4.3.1':{local:'BH'}}}}}));
+ assert.match(h,/Cadastro sem uso:[\s\S]*<small class="param-conta">2\.4\.3\.1 · Mubisys 2\.3\.3\.1<\/small> → agora no quadro do Simples \(DAS e DARF\) <button type="button" class="link-cadastro" data-param-tributo="2\.4\.3\.1"/);
 });
 test('validação: anexo, faixas, inteiros, CNPJ, Fator R exato e avisos condicionais',()=>{
  const c=context();const v=s=>c.run(s);

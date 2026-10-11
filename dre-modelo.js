@@ -6,7 +6,7 @@ var DREModelo=(()=>{
   ['outrasVendas','Outras receitas de vendas','Receitas','Outras receitas da atividade principal. Não inclua empréstimos.'],
   ['devolucoes','Devoluções e cancelamentos','Deduções','Informe o valor da redução, como número positivo.'],
   ['descontos','Descontos incondicionais','Deduções','Descontos que reduzem o valor da venda.'],
-  ['tributosVendas','Tributos sobre vendas','Deduções','No Simples: o DAS da competência e o ISS pago fora dele. ICMS e DIFAL das compras ficam nos custos.'],
+  ['tributosVendas','Tributos sobre vendas','Deduções','No Simples: o imposto da competência (DAS e DARF do PGDAS) e o ISS pago fora dele. ICMS e DIFAL das compras ficam nos custos.'],
   ['custos','Custo dos produtos e serviços vendidos','Operação','Materiais consumidos, mão de obra e demais custos correspondentes às vendas; não são todas as compras do mês.'],
   ['despesasVendas','Despesas com vendas','Operação','Comissões, divulgação e estrutura comercial do período.'],
   ['administrativas','Despesas administrativas','Operação','Despesas administrativas incorridas, pagas ou não.'],
@@ -111,7 +111,7 @@ var DRESimples=(()=>{
   '2.4':R('taxas','Imposto lançado sem subconta'),
   '2.4.1':R('das','DAS fora das subcontas da Impresilk e da Universo'),'2.4.1.1':R('dividas','','Parcelamento do DAS é dívida'),'2.4.1.2':R('das'),'2.4.1.3':R('das'),
   '2.4.2':R('variaveis','','ICMS e DIFAL das compras em outros estados: custo da compra'),'2.4.8':R('impostosVendas','','ISS pago fora do DAS'),
-  '2.4.3':R('dividas','','DARF de parcelamento: é dívida, não despesa do mês'),
+  '2.4.3':R('das','DARF fora das subcontas da Impresilk e da Universo','DARF do PGDAS: imposto do Simples do mês'),'2.4.3.1':R('das','','DARF do PGDAS: imposto do Simples do mês'),'2.4.3.2':R('das','','DARF do PGDAS: imposto do Simples do mês'),
   '2.4.4':R('taxas'),'2.4.5':R('taxas'),'2.4.6':R('taxas'),'2.4.7':R('despesasFinanceiras'),
   '2.5':R('ocupacao'),
   '2.6':R('variaveis','','Manutenção e insumos das máquinas (tintas etc.): acompanham a produção'),'2.6.1':R('investimentos','','Compra de máquina é investimento'),
@@ -127,7 +127,7 @@ var DRESimples=(()=>{
  // [id, nome, tipo, sentido]: sentido +1 entra, −1 sai (para a cor e a cascata)
  const LINHAS=[
   ['vendas','Receita bruta de vendas','total',1],
-  ['das','(−) DAS do mês','deducao',-1],['impostosVendas','(−) ISS fora do DAS','deducao',-1],['devolucoes','(−) Devoluções a clientes','deducao',-1],
+  ['das','(−) Simples do mês (DAS e DARF)','deducao',-1],['impostosVendas','(−) ISS fora do DAS','deducao',-1],['devolucoes','(−) Devoluções a clientes','deducao',-1],
   ['receitaLiquida','(=) Receita líquida','subtotal',1],
   ['variaveis','(−) Custos variáveis pagos','custo',-1],
   ['margemContribuicao','(=) Margem de contribuição','subtotal',1],
@@ -181,14 +181,73 @@ var DRESimples=(()=>{
   return {linhas,composicao,conferir,caixa,diferenca:Math.round((linhas.variacao-caixa)*100)/100,
    margens:{margemContribuicao:pct('margemContribuicao'),ebitda:pct('ebitda'),resultado:pct('resultado'),receitaLiquida:pct('receitaLiquida')},pct};
  }
- // DAS de uma competência: a guia é paga no mês seguinte. Recebe o registro do
- // mês do pagamento; o que estiver no DAS fora das subcontas aparece em "resto".
+ // Imposto do Simples de uma competência (DAS 2.4.1 e DARF do PGDAS 2.4.3), pago no
+ // mês seguinte. Recebe o registro do mês do pagamento; o parcelamento (2.4.1.1)
+ // fica de fora; o que estiver fora das subcontas de cada empresa vai em "resto".
  function dasDaGuia(regPagamento){
   if(!regPagamento)return null;
   const vc=code=>{const c=regPagamento.cells?.find(x=>x.code===code);return c&&c.value!=null&&c.value!==''&&Number.isFinite(Number(c.value))?cent(c.value):null;};
-  const imp=vc('2.4.1.2'),uni=vc('2.4.1.3'),parc=vc('2.4.1.1'),tot=vc('2.4.1');
-  const resto=tot==null?0:tot-(imp||0)-(uni||0)-(parc||0),guias=(imp||0)+(uni||0);
-  return {impresilk:imp==null?null:imp/100,universo:uni==null?null:uni/100,guias:guias/100,resto:resto/100,total:(guias+resto)/100,temGuia:imp!=null||uni!=null||resto!==0};
+  const soma=(...xs)=>xs.every(x=>x==null)?null:xs.reduce((t,x)=>t+(x||0),0);
+  const imp=soma(vc('2.4.1.2'),vc('2.4.3.1')),uni=soma(vc('2.4.1.3'),vc('2.4.3.2')),parc=vc('2.4.1.1'),das=vc('2.4.1'),darf=vc('2.4.3');
+  const tot=soma(das,darf),guias=(imp||0)+(uni||0),resto=tot==null?0:tot-guias-(parc||0);
+  return {impresilk:imp==null?null:imp/100,universo:uni==null?null:uni/100,guias:guias/100,resto:resto/100,total:(guias+resto)/100,darf:darf==null?null:darf/100,temGuia:imp!=null||uni!=null||resto!==0};
  }
  return {REGRAS,LINHAS,FIXAS,classificar,apurar,dasDaGuia};
+})();
+
+/* Código da conta no Mubisys. O painel guarda a numeração ANTIGA do plano (a da
+   planilha de Dez/2025 a Jul/2026) para a série histórica continuar comparável; o
+   robô (scripts/erp_mes.py, traduzir_plano) converte a numeração nova do Mubisys
+   trocando prefixos. Aqui se faz a volta: gera os candidatos e só aceita os que a
+   própria tradução de ida leva de volta ao mesmo código. As três tabelas são cópia
+   das do robô (o teste tests/codigos-mubisys.test.mjs confere que não divergem). */
+var CodigosMubisys=(()=>{
+ const DE_PARA_PLANO_NOVO=[['2.13.5','2.13.6'],['2.13.3','2.14.3.5'],['2.13.4','2.16'],['2.13.2','2.13.7.1'],['2.13.1','2.13.7.1'],['2.11','2.14'],['2.10','2.13'],['2.9','2.12'],['2.8','2.11'],['2.7','2.8'],['2.6','2.7'],['2.5','2.6'],['2.4','2.5'],['2.3','2.4']];
+ const DE_PARA_SUBCONTA=[['2.1.12.1.4','2.1.15.4'],['2.1.12.1.5','2.1.15.5'],['2.2.4.5.1','2.2.5.5.1'],['2.2.7.2.1','2.3.2.1'],['2.1.11.1','2.1.12.1'],['2.1.11.2','2.1.12.2'],['2.1.11.3','2.1.11.1'],['2.1.11.4','2.1.16'],['2.1.11.6','2.1.11.4'],['2.1.11.7','2.1.19'],['2.1.15.1','2.1.18'],['2.1.18.1','2.9.1'],['2.1.18.2','2.9.2'],['2.13.4.1','2.16.3'],['2.2.7.1','2.3.1'],['2.8.1.1','2.10.1.1'],['2.8.1.2','2.10.1.2'],['2.8.1.3','2.10.1.3'],['2.8.1.5','2.10.1.5'],['2.8.9.1','2.11.1'],['2.8.9.3','2.11.3'],['2.8.9.4','2.11.4'],['2.1.11','2.1.13'],['2.1.12','2.1.14'],['2.1.14','2.2.2'],['2.2.2','2.2.3'],['2.2.5','2.2.6'],['2.2.6','2.2.7'],['2.8.2','2.10.2'],['2.8.3','2.10.3'],['2.8.4','2.10.4'],['2.8.7','2.10.7']];
+ const DE_PARA_FIXAS=[['2.4.1','2.5.1'],['2.4.3','2.5.3']];
+ const REGRAS=[...DE_PARA_SUBCONTA,...DE_PARA_FIXAS,...DE_PARA_PLANO_NOVO],PRIMEIRO_CODIGO=51;
+ // Ida (igual ao robô): só despesas (2.*) são traduzidas; primeira regra que casa.
+ function traduzir(c){c=String(c);if(!c.startsWith('2.'))return c;for(const [novo,canon] of REGRAS)if(c===novo||c.startsWith(novo+'.'))return canon+c.slice(novo.length);return c;}
+ const prefixo=(c,p)=>c===p||c.startsWith(p+'.');
+ // Volta: candidatos das regras cujo destino casa com o código; vale o que a ida
+ // devolve igual. Regra de folha que tem o código EXATO como destino é a resposta
+ // (ex.: 2.16.3 ← 2.13.4.1); abaixo dela, as duas leituras possíveis aparecem.
+ function candidatos(code){
+  const validos=[];for(const [novo,canon] of REGRAS)if(prefixo(code,canon)){const n=novo+code.slice(canon.length);if(traduzir(n)===code)validos.push({n,exato:canon===code});}
+  if(!validos.length)return traduzir(code)===code?[code]:[];
+  const exatos=validos.filter(x=>x.exato);return [...new Set((exatos.length?exatos:validos).map(x=>x.n))].sort();
+ }
+ // Conta separada pelo robô por mudança de nome (algum nível 51 em diante): a
+ // pendência do mês diz de qual conta veio. Filha de renomeada herda a origem da mãe.
+ function origemRenomeada(code,reg){
+  const pend=c=>(reg?.pendencias||[]).find(x=>x?.tipo==='conta-renomeada-no-erp'&&x.conta===c);
+  const partes=code.split('.');
+  for(let i=partes.length;i>1;i--){const anc=partes.slice(0,i).join('.'),m=String(pend(anc)?.texto||'').match(/a conta (\d+(?:\.\d+)*) aparece/);if(m)return m[1]+code.slice(anc.length);}
+  return null;
+ }
+ const ROBO={'2.99':'criada pelo robô (fatura sem detalhamento)','1.1.98':'criada pelo robô (recebido sem O.S. completa)','1.1.99':'criada pelo robô (produto sem classificação)'};
+ const NORDESTE='2.13.7.1';
+ // Resultado: {tipo, codigos, texto}. tipo: igual | traduzido | varios | os | robo | renomeada | dividida | sem-codigo.
+ function noMubisys(code,reg=null){
+  code=String(code||'');
+  if(!/^\d+(\.\d+)*$/.test(code))return {tipo:'sem-codigo',codigos:[],texto:''};
+  if(ROBO[code])return {tipo:'robo',codigos:[],texto:ROBO[code]};
+  const partes=code.split('.'),temNovo=partes.slice(1).some(x=>Number(x)>=PRIMEIRO_CODIGO);
+  // vendas: produto sem código próprio ganha 51 em diante, a partir da O.S.
+  if(code.startsWith('1.')&&temNovo)return {tipo:'os',codigos:[],texto:'criada pela O.S.'};
+  if(code.startsWith('2.')&&temNovo){
+   const origem=origemRenomeada(code,reg),cs=origem?candidatos(origem):[];
+   return {tipo:'renomeada',codigos:cs,texto:cs.length?`renomeada; no Mubisys ${cs.join(' ou ')}`:'renomeada pelo robô: conferir no Mubisys'};
+  }
+  // Nordeste: o Mubisys tem 2.13.1 e 2.13.2; o robô separa pela descrição em .1/.2/.3.
+  if(prefixo(code,NORDESTE)&&code!==NORDESTE)return {tipo:'dividida',codigos:['2.13.1','2.13.2'],texto:'Mubisys 2.13.1 ou 2.13.2 (separado pela descrição)'};
+  // 2.13.7 soma as parcelas do Nordeste (2.13.1/2.13.2); o que fica direto nela vem do 2.10.7.
+  if(code==='2.13.7')return {tipo:'varios',codigos:['2.10.7','2.13.1','2.13.2'],texto:'Mubisys 2.13.1 ou 2.13.2 (Nordeste) ou 2.10.7'};
+  const cs=candidatos(code);
+  if(!cs.length)return {tipo:'sem-codigo',codigos:[],texto:'conferir no Mubisys'};
+  return {tipo:cs.length>1?'varios':cs[0]===code?'igual':'traduzido',codigos:cs,texto:`Mubisys ${cs.join(' ou ')}`};
+ }
+ // Rótulo curto para pôr ao lado do código do painel (vazio quando é o mesmo).
+ function rotulo(code,reg=null){const r=noMubisys(code,reg);return r.tipo==='igual'?'':r.texto;}
+ return {traduzir,candidatos,noMubisys,rotulo,DE_PARA_PLANO_NOVO,DE_PARA_SUBCONTA,DE_PARA_FIXAS};
 })();
