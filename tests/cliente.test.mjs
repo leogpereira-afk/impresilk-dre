@@ -76,3 +76,24 @@ test('ausência e escopo de um mês não são substituídos pelos do último mê
  const c=client();const r=vm.runInContext(`(()=>{const d=monthsToDataset([{id:'Jan_2026',label:'Jan/2026',company:'Impresilk',basis:'Caixa',cells:[{code:'1',value:100}]},{id:'Fev_2026',label:'Fev/2026',company:'Impresilk + Universo',basis:'Caixa gerencial',cells:[{code:'1',value:200},{code:'2',value:50}]}]);return monthRecord(d,0,'agora')})()`,c);
  assert.equal(r.company,'Impresilk');assert.equal(r.basis,'Caixa');assert.equal(r.cells.length,1);
 });
+
+// Cópia offline sem espaço (11/10/2026): o aviso voltava a cada releitura automática da nuvem.
+function cheio(c,limite){const s=new Map();const tam=()=>[...s].reduce((t,[k,v])=>t+k.length+v.length,0);
+ c.localStorage={getItem:k=>s.has(k)?s.get(k):null,removeItem:k=>s.delete(k),get length(){return s.size;},key:i=>[...s.keys()][i]??null,
+  setItem(k,v){const antes=s.get(k);s.set(k,String(v));if(tam()>limite){if(antes==null)s.delete(k);else s.set(k,antes);throw new DOMException('cheio','QuotaExceededError');}}};return s;}
+test('sem espaço: sai só cópia descartável da nuvem (nunca fila nem login) e grava de novo',()=>{
+ const c=client();const avisos=[];c.toast=(m,t)=>avisos.push([m,t]);const s=cheio(c,2000);
+ vm.runInContext("STORE_KEY='dre_v2_data:eu';QUEUE_KEY='dre_v2_queue:eu'",c);
+ s.set('impresilk_dre_cracha','x'.repeat(50));s.set('dre_v2_queue:eu','[1]');s.set('impresilk_dre_queue','[2]');s.set('dre_v2_queue:outro','[3]');s.set('dre_v2_data:outro','y'.repeat(900));s.set('impresilk_dre_data','z'.repeat(600));s.set('dre_v2_data:eu','w'.repeat(300));
+ assert.equal(vm.runInContext("salvarLocal({months:[],accounts:[],registros:[{id:'a',cells:['"+'v'.repeat(900)+"']}]})",c),true,'coube depois de liberar');
+ assert.deepEqual([...s.keys()].sort(),['dre_v2_data:eu','dre_v2_queue:eu','dre_v2_queue:outro','impresilk_dre_cracha','impresilk_dre_queue']);assert.deepEqual(avisos,[]);
+});
+test('sem espaço mesmo assim: segue na sessão, sem cópia velha, e avisa uma vez só',()=>{
+ const c=client();const avisos=[];c.toast=(m,t)=>avisos.push([m,t]);const s=cheio(c,400);
+ vm.runInContext("STORE_KEY='dre_v2_data:eu';QUEUE_KEY='dre_v2_queue:eu'",c);s.set('dre_v2_data:eu','{"velha":true}');s.set('dre_v2_queue:eu','[9]');
+ for(let i=0;i<3;i++)assert.equal(vm.runInContext(`salvarLocal({n:${i},grande:'${'g'.repeat(500)}'})`,c),false);
+ assert.equal(avisos.length,1,'a releitura automática não repete o aviso');assert.equal(avisos[0][1],undefined,'aviso informativo, não erro');assert.match(avisos[0][0],/Sem espaço neste navegador para a cópia offline/);
+ assert.equal(s.has('dre_v2_data:eu'),false,'a cópia velha não volta num recarregamento offline');assert.equal(s.get('dre_v2_queue:eu'),'[9]');
+ assert.equal(vm.runInContext('getCurrentData().n',c),2,'a sessão usa o dado novo');
+ c.localStorage.setItem=()=>{throw new Error('disco');};vm.runInContext('salvarLocal({})',c);assert.match(avisos[1][0],/Falha ao salvar no navegador: disco/);assert.equal(avisos[1][1],'err','outra falha continua avisando como erro');
+});

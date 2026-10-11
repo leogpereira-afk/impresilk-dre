@@ -166,14 +166,33 @@ function getCurrentData() {
 }
 
 // grava o dataset avisando quando o armazenamento do navegador encher —
-// antes a falha era silenciosa e o usuário perdia dados sem saber
+// antes a falha era silenciosa e o usuário perdia dados sem saber.
+// O navegador guarda uns 5 MB por site (e o github.io é dividido com os outros
+// sistemas). Sem espaço, saem as cópias da nuvem que não servem mais (a velha deste
+// crachá, a da versão antiga e as de outros crachás; filas de edição e login nunca)
+// e grava de novo. Se ainda não couber, segue só nesta sessão, sem deixar cópia velha
+// para um recarregamento offline, e avisa uma vez: a releitura automática da nuvem
+// (a cada coleta) repetia o aviso; a barra de sincronização já diz "sem cópia offline".
+let avisouSemCopia=false;
+const copiaDescartavel=k=>k===STORE_KEY||k==='impresilk_dre_data'||/^dre_v2_data:/.test(k);
+function liberarCopiasLocais(){
+  const ks=[];try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(copiaDescartavel(String(k)))ks.push(k);}}catch(_){}
+  for(const k of new Set([STORE_KEY,'impresilk_dre_data',...ks]))try{localStorage.removeItem(k);}catch(_){}
+}
 function salvarLocal(dataset) {
   sessionDataset=dataset;
-  try { localStorage.setItem(STORE_KEY, JSON.stringify(dataset)); return true; }
+  const texto=JSON.stringify(dataset);
+  try { localStorage.setItem(STORE_KEY, texto); return true; }
   catch (e) {
-    const cheio = e && (e.name === 'QuotaExceededError' || e.code === 22);
-    if (typeof toast === 'function')
-      toast(cheio ? 'Cópia offline indisponível neste navegador. Os dados atuais continuam nesta sessão; edições pendentes são preservadas.' : 'Falha ao salvar no navegador: ' + (e && e.message || e), 'err');
+    const cheio = e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014);
+    if (cheio) {
+      liberarCopiasLocais();
+      try { localStorage.setItem(STORE_KEY, texto); return true; } catch (_) { try{localStorage.removeItem(STORE_KEY);}catch(_){} }
+      if (!avisouSemCopia && typeof toast === 'function') toast('Sem espaço neste navegador para a cópia offline do DRE. Os dados aparecem normalmente enquanto a página estiver aberta; edições pendentes continuam guardadas.');
+      avisouSemCopia=true;
+      return false;
+    }
+    if (typeof toast === 'function') toast('Falha ao salvar no navegador: ' + (e && e.message || e), 'err');
     return false;
   }
 }
