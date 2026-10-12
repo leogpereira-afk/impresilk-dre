@@ -38,6 +38,11 @@ class Historico(unittest.TestCase):
         self.assertNotIn("Fulano", log)
         self.assertNotIn("123", log)
 
+    def test_motivo_fixo_vai_ao_log_texto_do_servidor_nao(self):
+        self.assertEqual(H.motivo(RuntimeError("Trilha de pagamentos não fecha; nada foi gravado.")), "Trilha de pagamentos não fecha; nada foi gravado.")
+        self.assertEqual(H.motivo(RuntimeError("Cliente Fulano CNPJ 123 recusado")), "RuntimeError")
+        self.assertEqual(H.motivo(ValueError("Coleta incompleta; última versão preservada.")), "Coleta incompleta; última versão preservada.")
+
     def test_sem_trilha_tira_so_os_eventos_e_marca(self):
         reg = {"cells": [{"code": "1", "value": 10}], "eventos": [{"valor": 10}], "qualidade": {"estado": "aguardando-conferencia"}}
         P.sem_trilha(reg)

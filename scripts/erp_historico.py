@@ -55,6 +55,26 @@ ESTADOS = {
     "falhou": "falhou", "sem-tempo": "não começou: limite de tempo", "interrompido": "não começou: falhas seguidas",
 }
 FALHAS_SEGUIDAS = 3
+# Motivos que podem ir ao log público: frases fixas do robô, sem nenhum dado. Qualquer
+# outro texto (por exemplo, o que o servidor devolveu) continua escondido: só o tipo.
+MOTIVOS_SEGUROS = {
+    "Coleta incompleta; última versão preservada.",
+    "Título sem identificador; coleta não verificável.",
+    "Título alterado durante a coleta; repita para obter uma versão consistente.",
+    "Histórico não confirmado", "Histórico parcial", "Paginação inválida",
+    "Configurações não confirmadas",
+    "Configuração privada de classificação não validada; nada foi gravado.",
+    "Trilha de pagamentos não fecha; nada foi gravado.",
+    "Os totais de controle não fecham; nada foi gravado.",
+    "Conflito: versão concorrente preservada.",
+    "Gravação não confirmada pelo servidor.",
+}
+
+
+def motivo(e):
+    """O motivo da falha para o log público: a frase fixa, ou só o tipo do erro."""
+    m = str(e)
+    return m if m in MOTIVOS_SEGUROS else type(e).__name__
 
 
 def resumo_github(linhas, fim):
@@ -103,7 +123,7 @@ def main(argv=None, processar=None, aviso=print, listar=None, relogio=time.monot
             except Exception as e:  # o motivo pode citar dado: vai só o tipo do erro
                 estado = "falhou"
                 seguidas += 1
-                aviso(f"{rotulo}: falhou ({type(e).__name__}); a carga segue para o próximo mês.")
+                aviso(f"{rotulo}: falhou ({motivo(e)}); a carga segue para o próximo mês.")
                 if seguidas >= FALHAS_SEGUIDAS:
                     parar = "interrompido"
                     aviso(f"{FALHAS_SEGUIDAS} falhas seguidas: a carga para aqui (servidor ou Mubisys fora do ar?).")
