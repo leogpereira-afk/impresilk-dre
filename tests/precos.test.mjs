@@ -112,3 +112,19 @@ test('simulador: bordas e o que foi digitado continua depois de redesenhar',()=>
  c.run(`Object.assign(precosUI,{custo:'250',lucro:'12',fixas:'30',imposto:'impresilk'})`);const h=c.run('renderPrecos()');
  for(const re of [/name="custo"[^>]*value="250"/,/name="lucro"[^>]*value="12"/,/name="fixas"[^>]*value="30"/,/<option value="impresilk" selected>/])assert.match(h,re);
 });
+
+test('planilha (Fase 11.5): base, números, mês a mês do ano e o simulador; formato do Excel em português',()=>{
+ const c=tela({periodo:'Out/2026'});c.run(`__baixado=null;download=(nome,conteudo,tipo)=>{__baixado={nome,conteudo,tipo};}`);
+ assert.match(c.run('renderPrecos()'),/data-precos-csv/);
+ const rows=c.json('precosCSV()'),b=c.json('__baixado');
+ assert.equal(b.nome,'preco-equilibrio-Out_2026.csv');assert.equal(b.conteudo.charCodeAt(0),0xfeff,'BOM para acentos');assert.match(b.conteudo,/;/);
+ const linha=r=>rows.find(x=>x[0]===r);
+ assert.deepEqual(linha('Meses da média').slice(0,2),['Meses da média','Jul/2026, Ago/2026, Set/2026']);
+ assert.deepEqual(linha('Ponto de equilíbrio (vendas por mês)').slice(0,2),['Ponto de equilíbrio (vendas por mês)','4666,67']);
+ assert.deepEqual(linha('Margem de contribuição (média)'),['Margem de contribuição (média)','5833,33','50,00% das vendas']);
+ assert.equal(linha('Distância do equilíbrio em Out/2026')[1],'Não apurado','mês em andamento');
+ assert.deepEqual(linha('Set/2026').slice(-1),['fechado']);assert.deepEqual(linha('Out/2026').slice(-1),['em andamento ou incompleto']);assert.deepEqual(linha('Dez/2026').slice(1,2),['Não apurado']);
+ assert.equal(rows.some(r=>r[0]==='Simulador de preço'),false,'simulador vazio não entra');
+ c.run(`precosUI.custo='100';precosUI.lucro='10'`);const r2=c.json('precosCSV()');assert.ok(r2.some(r=>r[0]==='Preço'&&/^\d+,\d{2}$/.test(r[1])));
+ assert.equal(tela({periodo:'Mai/2026'}).json('precosCSV()'),null,'sem meses fechados: sem planilha');
+});

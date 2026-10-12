@@ -502,11 +502,34 @@ function renderPrecos(){
  const cel=v=>`<td class="num">${v==null?'<span class="muted" title="Não apurado">—</span>':esc(money(v))}</td>`;
  const linhas=serie.map(x=>{const d=x.pm.dado,dm=d&&!x.pm.parcial&&x.pe!=null?Math.round((d.vendas-x.pe)*100)/100:null;return `<tr${monthSortKey(x.l)===monthSortKey(label)?' class="selected-month"':''}><th scope="row">${esc(x.l)}${x.pm.parcial&&d?' *':''}</th>${cel(d?.vendas)}${cel(d?d.das+d.impostosVendas+d.devolucoes:null)}${cel(d?.variaveis)}${cel(d?.mc)}<td class="num">${d&&d.vendas>0?esc(precoPct(Math.round(d.mc/d.vendas*10000)/100)):'—'}</td>${cel(d?.fixas)}${cel(x.pe)}<td class="num ${x.pm.parcial||dm==null?'':dm>0?'tom-entra':dm<0?'tom-sai':''}">${dm==null?'<span class="muted" title="Não apurado">—</span>':esc(money(dm))}</td></tr>`;}).join('');
  const tabela=`<details class="card precos-mensal"><summary>Margem e equilíbrio mês a mês · ${esc(ano)}</summary><div class="card-body"><div class="table-scroll"><table class="tabela-controle precos-tabela"><caption>Base caixa · ponto de equilíbrio pela média dos três meses fechados até cada mês · * = mês em andamento ou incompleto</caption><thead><tr><th scope="col">Mês</th><th scope="col" class="num">Vendas</th><th scope="col" class="num">Impostos e devoluções</th><th scope="col" class="num">Custos variáveis</th><th scope="col" class="num">Margem de contribuição</th><th scope="col" class="num">Margem %</th><th scope="col" class="num">Despesas fixas</th><th scope="col" class="num">Ponto de equilíbrio</th><th scope="col" class="num">Distância</th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
- return cards+nota+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+tabela;
+ return cards+nota+'<div class="actions"><button type="button" data-precos-csv>Baixar planilha (CSV)</button></div>'+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+tabela;
+}
+// Planilha da tela (Fase 11.5): base da média, os quatro números, o mês a mês do ano e o
+// simulador, se preenchido. Separador ';' e vírgula decimal (Excel em português).
+function precosCSV(){
+ const label=state.periodo,b=label?precoBase(label):null;if(!b)return null;
+ const n=v=>v==null||!Number.isFinite(Number(v))?'Não apurado':Number(v).toFixed(2).replace('.',','),pc=v=>v==null||!Number.isFinite(Number(v))?'Não apurado':Number(v).toFixed(2).replace('.',',')+'%';
+ const m=precoMes(label),dist=m.dado&&!m.parcial&&b.pe!=null?Math.round((m.dado.vendas-b.pe)*100)/100:null,ano=label.split('/')[1];
+ const rows=[['Preço e ponto de equilíbrio',label,'Base caixa (linhas da DRE Simples)'],
+  ['Meses da média',b.meses.join(', '),b.n<3?`só ${b.n} mês(es) fechado(s)`:''],
+  ...(b.lacunas.length?[['Ficaram de fora',b.lacunas.map(p=>`${p.label} (${p.motivo})`).join(', ')]]:[]),
+  [],['Indicador','Valor','Observação'],
+  ['Vendas por mês (média)',n(b.vendas),''],['Simples pago (média)',n(b.das),pc(b.pct.das)+' das vendas'],['ISS e devoluções (média)',n(b.impostosVendas+b.devolucoes),''],['Custos variáveis (média)',n(b.variaveis),pc(b.pct.variaveis)+' das vendas'],
+  ['Margem de contribuição (média)',n(b.mc),pc(b.pct.mc)+' das vendas'],['Despesas fixas por mês (média)',n(b.fixas),pc(b.pct.fixas)+' das vendas'],
+  ['Ponto de equilíbrio (vendas por mês)',b.pe==null?'Sem equilíbrio':n(b.pe),b.pe==null?'margem de contribuição não positiva':''],
+  ['Distância do equilíbrio em '+label,n(dist),dist==null?(m.dado?'mês em andamento ou incompleto':'mês sem dados'):''],
+  [],['Mês','Vendas','Impostos e devoluções','Custos variáveis','Margem de contribuição','Margem %','Despesas fixas','Ponto de equilíbrio','Distância','Situação'],
+  ...PT_MON.map(x=>x+'/'+ano).map(l=>{const pm=precoMes(l),d=pm.dado,pe=d?precoBase(l)?.pe??null:null,dm=d&&!pm.parcial&&pe!=null?Math.round((d.vendas-pe)*100)/100:null;
+   return [l,n(d?.vendas),n(d?d.das+d.impostosVendas+d.devolucoes:null),n(d?.variaveis),n(d?.mc),d&&d.vendas>0?pc(Math.round(d.mc/d.vendas*10000)/100):'Não apurado',n(d?.fixas),n(pe),n(dm),!d?'sem dados':pm.parcial?'em andamento ou incompleto':'fechado'];})];
+ const sim=precoSimular(b,label);
+ if(precosUI.custo!==''||precosUI.lucro!=='')rows.push([],['Simulador de preço','Valor'],['Custo variável da unidade',precosUI.custo||''],['Lucro desejado (% do preço)',precosUI.lucro||''],['Despesas fixas (% do preço)',precosUI.fixas===''?pc(b.pct.fixas)+' (peso de hoje)':precosUI.fixas],['Imposto',(precoImpostos(b,label).find(o=>o.id===precosUI.imposto)||{}).rotulo||''],['Preço',sim.preco!=null?n(sim.preco):'Não apurado'],['Resultado',sim.texto]);
+ download('preco-equilibrio-'+safeId(label)+'.csv','\ufeff'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');
+ return rows;
 }
 // Simulador: recalcula só o resultado ao digitar (o redesenho da tela apagaria o que está sendo digitado).
 function wirePrecos(){
  if(typeof document==='undefined'||typeof document.addEventListener!=='function')return;
+ document.addEventListener('click',e=>{if(e.target?.closest?.('[data-precos-csv]'))precosCSV();});
  document.addEventListener('input',e=>{const f=e.target?.closest?.('[data-precos-sim]');if(!f||!e.target.name)return;precosUI[e.target.name]=e.target.value;const b=precoBase(state.periodo),r=precoSimular(b,state.periodo),out=f.querySelector('.precos-sim-resultado');if(out)out.innerHTML=`${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}`;});
  document.addEventListener('change',e=>{if(e.target?.closest?.('[data-precos-sim]')&&e.target.name==='imposto'){precosUI.imposto=e.target.value;const b=precoBase(state.periodo),r=precoSimular(b,state.periodo),out=e.target.closest('[data-precos-sim]').querySelector('.precos-sim-resultado');if(out)out.innerHTML=`${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}`;}});
 }
