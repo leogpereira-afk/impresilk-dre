@@ -200,7 +200,9 @@ test('conta renomeada pelo robô (51+) decide pelo nome: materiais × marketing,
  for(const n of ['Videomaker','Patrocínios','Outdoor','Instagram','Rádio','Panfletos'])assert.equal(k('2.12.52',{'2.12.52':n}).linha,'marketing',n);
  for(const n of ['Papel outdoor','Acabamento'])assert.equal(k('2.12.53',{'2.12.53':n}).linha,'variaveis',n+' é material');
  assert.match(k('2.12.51.1',{'2.12.51.1':'2.12.51.1'}).conferir,/sem nome/,'nome igual ao código: sem nome');
- assert.equal(k('2.51.1',{'2.51':'Despesas Externas','2.51.1':'Despesas de viagem'}).linha,'fixasOutras','Despesas Externas não é marketing');
+ for(const [code,n] of [['2.51','Despesas Externas'],['2.51.1','Despesas de viagem'],['2.51.1','Freelancer'],['2.51.3','Gráfica rápida'],['2.51.4','Frete'],['2.51.9','Terceirização de serviços']])
+  assert.deepEqual([k(code,{'2.51':'Despesas Externas',[code]:n}).linha,k(code,{'2.51':'Despesas Externas',[code]:n}).conferir],['variaveis',''],'Despesas Externas (2021) → custo variável: '+n);
+ assert.equal(k('2.52',{'2.52':'Outra coisa'}).linha,'fixasOutras','nome desconhecido continua sem linha');
  assert.equal(k('2.12.51.3.1',{'2.12.51.3.1':'3mm'}).conferir,'','pelo nome: sem alarme');
  // 2.51 "Despesas Publicitárias": o grupo inteiro é marketing; outro nome segue sem linha.
  assert.equal(k('2.51.1.1.2',{'2.51':'Despesas Publicitárias','2.51.1.1.2':'Leitoso'}).linha,'marketing');

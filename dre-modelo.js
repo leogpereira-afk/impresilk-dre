@@ -155,6 +155,9 @@ var DRESimples=(()=>{
  // Material vence: "Papel outdoor" é papel, não anúncio.
  const NOME_MATERIAL=/papel|lona|vinil|\d+ ?mm\b|pvc|acm|chapa|manta|acr[ií]lico|adesivo|tinta|acabamento|leitoso/i;
  const ehMarketing=n=>NOME_MARKETING.test(n)&&!NOME_MATERIAL.test(n);
+ // "Despesas Externas" (2.51 em 2021): viagem, freelancer, frete, gráfica rápida e
+ // terceirização ligados à produção → custo variável (Léo, 12/10).
+ const NOME_EXTERNAS=/despesas externas|terceiriz|freelanc|frete|gr[aá]fica r[aá]pida|viage/i;
  const NOME_SOCIOS=/distribui[cç][aã]o|retirada|s[oó]cio|pr[oó] ?-?labore/i;
  function porNome(partes,nomeDe){
   const i=partes.findIndex((s,j)=>j>0&&Number(s)>=51);if(i<0)return null;
@@ -165,6 +168,7 @@ var DRESimples=(()=>{
    return ehMarketing(proprio)?{...R('marketing','','Marketing pelo nome (conta renomeada pelo robô)'),regra}:{...R('variaveis','','Material pelo nome (conta renomeada pelo robô)'),regra};
   }
   if(raiz==='2'&&cadeia.some(ehMarketing))return {...R('marketing','','Marketing pelo nome (conta renomeada pelo robô)'),regra};
+  if(raiz==='2'&&cadeia.some(n=>NOME_EXTERNAS.test(n)))return {...R('variaveis','','Serviço externo da produção (conta renomeada pelo robô)'),regra};
   if(raiz==='2.14'&&NOME_SOCIOS.test(todos))return {...R('socios','','Retirada de sócio (conta renomeada pelo robô)'),regra};
   return null;
  }
