@@ -255,6 +255,13 @@ class Revisao1210Test(unittest.TestCase):
     def test_tres_404_seguidos_sao_janela_vazia(self):
         with patch.object(previa,'call',side_effect=previa.Mubisys404()),patch.object(previa.time,'sleep'),patch('builtins.print'):
             self.assertEqual(previa.coletar('contas-pagar',datetime.date(2024,6,29),datetime.date(2024,6,30)),[])
+    def test_404_em_resposta_parcial_do_servidor_tambem_conta(self):
+        r404={'ok':True,'parcial':True,'diagnostico':{'motivo':'http','http':404},'itens':[]}
+        with patch.object(previa,'call',return_value=r404),patch.object(previa.time,'sleep'),patch('builtins.print'):
+            self.assertEqual(previa.coletar('contas-pagar',datetime.date(2023,4,29),datetime.date(2023,4,30)),[])
+        outro={'ok':True,'parcial':True,'diagnostico':{'motivo':'http','http':500},'itens':[]}
+        with patch.object(previa,'call',return_value=outro),patch.object(previa.time,'sleep'),patch('builtins.print'):
+            with self.assertRaisesRegex(RuntimeError,'Coleta incompleta'):previa.coletar('contas-pagar',datetime.date(2023,4,29),datetime.date(2023,4,30))
     def test_404_que_pisca_nao_vira_vazio(self):
         respostas=[previa.Mubisys404(),{'ok':True,'itens':[{'id':7,'valor_pagamento':10,'data_pagamento':'2024-06-29'}]}]
         with patch.object(previa,'call',side_effect=respostas),patch.object(previa.time,'sleep'),patch('builtins.print'):

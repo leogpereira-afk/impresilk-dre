@@ -207,12 +207,14 @@ def coletar(recurso, ini, fim):
             except JanelaGrande:
                 r = {"ok": True, "parcial": True, "diagnostico": {"motivo": "tempo-ou-rede"}}
             except Mubisys404:
-                vazios += 1
                 r = {"ok": True, "parcial": True, "diagnostico": {"motivo": "http", "http": 404}}
             diag = r.get("diagnostico") or {}
             completa = r.get("ok") is True and not r.get("parcial") and isinstance(r.get("itens"), list)
             if completa:
                 break
+            # O 404 também chega como resposta parcial do dre-financas (paginação): conta igual.
+            if diag.get("motivo") == "http" and diag.get("http") == 404 and not (r.get("itens") or []):
+                vazios += 1
             if tentativa < 2:
                 print(f"  janela {a} → {b} incompleta; repetindo consulta", flush=True)
                 time.sleep(5 * (tentativa + 1))
