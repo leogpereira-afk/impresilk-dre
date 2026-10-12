@@ -22,10 +22,13 @@ test('meses sãos: nenhuma falha nem atenção além do saldo inicial que falta;
  const sem=app(BOM,{simples:aliquotas}).json('auditarTudo()'),d=so(sem,'atencao').filter(x=>x.grupo==='dfc');
  assert.deepEqual(d.map(x=>[x.mes,x.texto]),[['Jan/2026','Jan/2026 a Mar/2026 sem saldo inicial no Fluxo de caixa (3 meses): nenhum saldo bancário informado antes: informe em Parâmetros o saldo do início de um mês']],'uma causa, um achado, com a faixa');assert.equal(sem.limpos,0,'os meses do trecho continuam com problema');
 });
-test('estrutura: mãe menor que as filhas, total que não fecha, código repetido e valor que não é número são falhas',()=>{
+test('estrutura: mãe menor que as filhas, total menor que as contas, código repetido e valor que não é número são falhas',()=>{
  const ruim=mes(1).map(c=>c.code==='2.4'?{...c,value:900}:c.code==='1'?{...c,value:12000}:c);ruim.push(cel('2.12.1','Impressão',1),cel('2.5','Fixas','abc'));
  const r=app([reg('Jan/2026','2026-01-31',ruim)],{simples:aliquotas}).json('auditarTudo()'),f=so(r,'falha').map(x=>x.texto).join(' | ');
- assert.match(f,/conta\(s\)-mãe não fecham com as filhas: .*2\.4: R\$\s900,00 contra R\$\s1\.000,00 nas filhas/);assert.match(f,/1: R\$\s12\.000,00 contra R\$\s10\.000,00 nas filhas/);
+ assert.match(f,/conta\(s\)-mãe não fecham com as filhas: .*2\.4: R\$\s900,00 contra R\$\s1\.000,00 nas filhas/);assert.doesNotMatch(f,/1: R\$\s12\.000,00/,'total maior que as contas não é falha');
+ assert.ok(so(r,'atencao').some(x=>x.grupo==='classificacao'&&/^recebimentos sem conta no Mubisys: R\$\s2\.000,00 \(16,7% das entradas\)/.test(x.texto)),'é cadastro: atenção com a %');
+ const menor=app([reg('Jan/2026','2026-01-31',mes(1).map(c=>c.code==='1'?{...c,value:9000}:c))],{simples:aliquotas}).json('auditarTudo()');
+ assert.ok(so(menor,'falha').some(x=>/1: R\$\s9\.000,00 contra R\$\s10\.000,00 nas filhas/.test(x.texto)),'total MENOR que as contas continua falha');
  assert.match(f,/1 código\(s\) de conta repetido\(s\)/);assert.match(f,/1 conta\(s\) com valor que não é número/);
  const sem2=app([reg('Jan/2026','2026-01-31',mes(1).filter(c=>c.code!=='2'))],{simples:aliquotas}).json('auditarTudo()');assert.ok(so(sem2,'falha').some(x=>x.texto==='sem o total de saídas (2)'));
  const direta=app([reg('Jan/2026','2026-01-31',mes(1).map(c=>c.code==='2.12'?{...c,value:4500}:c.code==='2'?{...c,value:7500}:c))],{simples:aliquotas}).json('auditarTudo()');

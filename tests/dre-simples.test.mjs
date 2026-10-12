@@ -40,12 +40,13 @@ test('cada conta cai na linha certa pela regra mais específica; o que não é d
   '2.1.4':'pessoal','2.1.12':'variaveis','2.9.2':'pessoal','2.2.1':'administrativas','2.2.6':'devolucoes','2.8.3':'administrativas','2.8.5':'variaveis',
   '2.4.1.2':'das','2.4.1.3':'das','2.4.1.51':'das','2.4.1.1':'dividas','2.4.2':'variaveis','2.4.3':'das','2.4.3.1':'das','2.4.8':'impostosVendas','2.4.5.1':'taxas','2.4.6.2':'taxas','2.4.7':'despesasFinanceiras',
   '2.5.3':'ocupacao','2.3.2':'ocupacao','2.6.9':'variaveis','2.6.3':'variaveis','2.6.1':'investimentos','2.7.2':'veiculos','2.7.1':'investimentos','2.10.1':'variaveis','2.11.4':'variaveis','2.12.1':'variaveis',
-  '2.12.11':'marketing','2.12.12':'marketing','2.12.51':'marketing','2.12.52':'marketing',
+  '2.12.11':'marketing','2.12.12':'marketing','2.12.51':'variaveis','2.12.52':'variaveis',
   '2.13.1':'despesasFinanceiras','2.13.5':'despesasFinanceiras','2.13.6':'dividas','2.13.7.1.3':'dividas','2.13.7.1.1':'investimentos','2.13.7.1.2':'investimentos','2.13.52':'semDetalhamento','2.13':'semDetalhamento','2.13.8':'semDetalhamento',
   '2.14.1.1':'socios','2.14.2':'socios','2.14.3':'dividas','2.14.3.4':'investimentos','2.15.7':'marketing','2.16.3':'investimentos','2.16.51':'dividas','2.17.3':'dividas','2.18':'transferencias','2.99':'semDetalhamento','2.20':'fixasOutras','1.8':'foraOutras'};
  for(const [code,linha] of Object.entries(esperado))assert.equal(k(code),linha,code);
  assert.equal(conf('2.4.1.51'),'DAS fora das subcontas da Impresilk e da Universo');assert.equal(conf('2.16.51'),'Empréstimo de terceiros dentro de Investimentos');
- for(const x of ['2.12.11','2.12.12','2.12.51','2.12.52'])assert.equal(conf(x),'Conta de marketing dentro de Materiais',x);
+ for(const x of ['2.12.11','2.12.12'])assert.equal(conf(x),'',x);
+ for(const x of ['2.12.51','2.12.52'])assert.match(conf(x),/sem nome: confirme se é material ou marketing/,x);
  assert.equal(conf('2.4'),'Imposto lançado sem subconta');assert.equal(conf('2.4.5.1'),'','IPTU não acende alarme');
  assert.match(conf('2.13.8'),/Bancária fora das subcontas de tarifa e juros/,'bancária nova não vira juros sem aviso');
  assert.match(conf('2.6.51'),/Conta nova ou renomeada no ERP/);assert.match(conf('2.7.51'),/Conta nova ou renomeada no ERP/);
@@ -188,4 +189,27 @@ test('planilha da base de caixa leva a DRE Simples; composição escapa nomes do
  const h=context({registros:x}).run('renderDRE()');assert.match(h,/· 1 a conferir<\/summary>/);assert.doesNotMatch(h,/<img src=x/);assert.match(h,/&lt;img src=x onerror=alert\(1\)&gt;/);
  const p=context();p.run('const __a=DRESimples.apurar;__n=0;DRESimples.apurar=r=>{__n++;return __a(r)}');p.run('renderDRE()');const primeira=p.run('__n');p.run('renderDRE()');
  assert.ok(primeira<=3,'um por mês com dados, não 26');assert.equal(p.run('__n'),primeira,'o segundo render reaproveita');
+});
+
+test('conta renomeada pelo robô (51+) decide pelo nome: materiais × marketing, publicidade e retirada de sócio',()=>{
+ const c=context(),k=(code,nomes)=>JSON.parse(c.run(`JSON.stringify(DRESimples.classificar(${JSON.stringify(code)},x=>(${JSON.stringify(nomes)})[x]))`));
+ // Em Materiais vale o nome da própria conta, mesmo debaixo de um grupo chamado "Agência".
+ assert.equal(k('2.12.51',{'2.12.51':'Agência'}).linha,'marketing');
+ assert.equal(k('2.12.51.3.1',{'2.12.51':'Agência','2.12.51.3':'Chapas','2.12.51.3.1':'3mm'}).linha,'variaveis');
+ for(const n of ['PVC expandido','ACM Kynar','Manta magnética','Acabamentos diversos','6mm'])assert.equal(k('2.12.52.1',{'2.12.52.1':n}).linha,'variaveis',n);
+ for(const n of ['Videomaker','Patrocínios','Outdoor','Instagram','Rádio','Panfletos'])assert.equal(k('2.12.52',{'2.12.52':n}).linha,'marketing',n);
+ for(const n of ['Papel outdoor','Acabamento'])assert.equal(k('2.12.53',{'2.12.53':n}).linha,'variaveis',n+' é material');
+ assert.match(k('2.12.51.1',{'2.12.51.1':'2.12.51.1'}).conferir,/sem nome/,'nome igual ao código: sem nome');
+ assert.equal(k('2.51.1',{'2.51':'Despesas Externas','2.51.1':'Despesas de viagem'}).linha,'fixasOutras','Despesas Externas não é marketing');
+ assert.equal(k('2.12.51.3.1',{'2.12.51.3.1':'3mm'}).conferir,'','pelo nome: sem alarme');
+ // 2.51 "Despesas Publicitárias": o grupo inteiro é marketing; outro nome segue sem linha.
+ assert.equal(k('2.51.1.1.2',{'2.51':'Despesas Publicitárias','2.51.1.1.2':'Leitoso'}).linha,'marketing');
+ assert.equal(k('2.51',{'2.51':'Outra coisa'}).linha,'fixasOutras');
+ // 2.14.51 "Distribuição Leonardo" (retirada de sócio): o grupo inteiro é sócio.
+ for(const code of ['2.14.51','2.14.51.2','2.14.51.3'])assert.deepEqual([k(code,{'2.14.51':'Distribuição Leonardo','2.14.51.2':'Leonardo','2.14.51.3':'Combustível'}).linha,k(code,{'2.14.51':'Distribuição Leonardo'}).conferir],['socios',''],code);
+ assert.match(k('2.14.51',{'2.14.51':'Outra conta'}).conferir,/Conta nova ou renomeada no ERP/,'sem nome de sócio: continua a conferir');
+ // Na apuração, o nome vem das células do próprio mês.
+ const reg={label:'Set/2026',cells:[{code:'1',name:'Receitas',value:1000},{code:'1.1',name:'CV',value:1000},{code:'2',name:'Despesas',value:300},{code:'2.12',name:'Materiais',value:300},{code:'2.12.51',name:'Agência',value:300},{code:'2.12.51.1',name:'6mm',value:200}]};
+ const a=JSON.parse(c.run(`JSON.stringify(DRESimples.apurar(${JSON.stringify(reg)}).linhas)`));
+ assert.deepEqual([a.variaveis,a.marketing],[200,100]);
 });

@@ -118,7 +118,7 @@ var DRESimples=(()=>{
   '2.7':R('veiculos'),'2.7.1':R('investimentos','','Compra de veículo é investimento'),
   '2.8':R('administrativas'),'2.8.5':R('variaveis','','Comissão acompanha a venda'),
   '2.9':R('pessoal'),'2.10':R('variaveis'),'2.11':R('variaveis'),'2.12':R('variaveis','','Compras pagas no mês, não o custo do que foi vendido'),
-  '2.12.11':R('marketing','Conta de marketing dentro de Materiais'),'2.12.12':R('marketing','Conta de marketing dentro de Materiais'),'2.12.51':R('marketing','Conta de marketing dentro de Materiais'),'2.12.52':R('marketing','Conta de marketing dentro de Materiais'),
+  '2.12.11':R('marketing','','Marketing lançado dentro de Materiais'),'2.12.12':R('marketing','','Marketing lançado dentro de Materiais'),
   '2.13':R('semDetalhamento','Bancária fora das subcontas de tarifa e juros: confira se é dívida ou despesa'),'2.13.1':R('despesasFinanceiras'),'2.13.2':R('despesasFinanceiras'),'2.13.3':R('despesasFinanceiras'),'2.13.4':R('despesasFinanceiras'),'2.13.5':R('despesasFinanceiras'),'2.13.6':R('dividas'),'2.13.7':R('dividas'),'2.13.7.1.1':R('investimentos'),'2.13.7.1.2':R('investimentos'),'2.13.52':R('semDetalhamento','Fatura de cartão sem os lançamentos'),
   '2.14':R('socios'),'2.14.3':R('dividas'),'2.14.3.4':R('investimentos'),
   '2.15':R('marketing'),'2.16':R('investimentos'),'2.16.51':R('dividas','Empréstimo de terceiros dentro de Investimentos'),
@@ -146,8 +146,31 @@ var DRESimples=(()=>{
  // Conta nova ou renomeada pelo ERP (sufixo 51 em diante, sem regra própria) sob
  // uma mãe que mistura despesa com compra ou dívida: a linha é só um palpite.
  const MISTAS=['2.6','2.7','2.14','2.16'];
- function classificar(code){
+ /* Conta renomeada pelo robô (51 em diante): o número muda de sentido de um mês para o
+    outro (2.12.51 é "Agência" num mês e "Acabamento" no seguinte), então quem decide é o
+    nome. Revisão da auditoria de 12/10 (80 meses): chapas, PVC, ACM e acabamentos iam
+    para Marketing; "Despesas Publicitárias" (2.51) caía sem linha; "Distribuição Leonardo"
+    (2.14.51, retirada de sócio) ficava a conferir. */
+ const NOME_MARKETING=/ag[eê]ncia|v[ií]deo ?maker|patroc[ií]n|outdoor|instagram|facebook|google|an[uú]ncio|publicit|marketing|tr[aá]fego pago|influenc|propaganda|r[aá]dio|panflet/i;
+ // Material vence: "Papel outdoor" é papel, não anúncio.
+ const NOME_MATERIAL=/papel|lona|vinil|\d+ ?mm\b|pvc|acm|chapa|manta|acr[ií]lico|adesivo|tinta|acabamento|leitoso/i;
+ const ehMarketing=n=>NOME_MARKETING.test(n)&&!NOME_MATERIAL.test(n);
+ const NOME_SOCIOS=/distribui[cç][aã]o|retirada|s[oó]cio|pr[oó] ?-?labore/i;
+ function porNome(partes,nomeDe){
+  const i=partes.findIndex((s,j)=>j>0&&Number(s)>=51);if(i<0)return null;
+  const raiz=partes.slice(0,i).join('.'),cadeia=[];for(let j=i+1;j<=partes.length;j++)cadeia.push(String(nomeDe?.(partes.slice(0,j).join('.'))||''));
+  const proprio=cadeia[cadeia.length-1],todos=cadeia.join(' '),regra=partes.slice(0,i+1).join('.');
+  if(raiz==='2.12'){
+   if(!proprio||proprio===partes.join('.'))return {...R('variaveis','Conta renomeada pelo robô sem nome: confirme se é material ou marketing'),regra};
+   return ehMarketing(proprio)?{...R('marketing','','Marketing pelo nome (conta renomeada pelo robô)'),regra}:{...R('variaveis','','Material pelo nome (conta renomeada pelo robô)'),regra};
+  }
+  if(raiz==='2'&&cadeia.some(ehMarketing))return {...R('marketing','','Marketing pelo nome (conta renomeada pelo robô)'),regra};
+  if(raiz==='2.14'&&NOME_SOCIOS.test(todos))return {...R('socios','','Retirada de sócio (conta renomeada pelo robô)'),regra};
+  return null;
+ }
+ function classificar(code,nomeDe){
   const partes=String(code).split('.');
+  const n=porNome(partes,nomeDe);if(n)return n;
   for(let i=partes.length;i>0;i--){const k=partes.slice(0,i).join('.');if(!REGRAS[k])continue;
    const r={...REGRAS[k],regra:k};
    if(!r.conferir&&i<partes.length&&Number(partes[i])>=51&&MISTAS.includes(k))r.conferir='Conta nova ou renomeada no ERP: confirme se é despesa, compra ou dívida';
@@ -159,13 +182,13 @@ var DRESimples=(()=>{
   if(!reg||!Array.isArray(reg.cells))return null;
   const cells=reg.cells.filter(c=>/^\d+(\.\d+)*$/.test(c?.code||'')&&c.value!=null&&c.value!==''&&Number.isFinite(Number(c.value)));
   if(!cells.length)return null;
-  const valor=new Map(cells.map(c=>[c.code,cent(c.value)])),filhas=new Map();
+  const valor=new Map(cells.map(c=>[c.code,cent(c.value)])),filhas=new Map(),nomes=new Map(cells.map(c=>[c.code,c.name||''])),nomeDe=code=>nomes.get(code);
   // cada conta desconta só da ancestral mais próxima que existe no mês
   for(const c of cells){const p=c.code.split('.');for(let i=p.length-1;i>0;i--){const a=p.slice(0,i).join('.');if(valor.has(a)){filhas.set(a,(filhas.get(a)||0)+valor.get(c.code));break;}}}
   const soma=Object.fromEntries(BASICAS.map(id=>[id,0])),composicao=Object.fromEntries(BASICAS.map(id=>[id,[]])),conferir=[];
   for(const c of cells){
    const proprio=valor.get(c.code)-(filhas.get(c.code)||0);if(!proprio)continue;
-   const k=classificar(c.code),item={code:c.code,name:c.name||c.code,valor:proprio/100,residuo:filhas.has(c.code),conferir:k.conferir,nota:k.nota};
+   const k=classificar(c.code,nomeDe),item={code:c.code,name:c.name||c.code,valor:proprio/100,residuo:filhas.has(c.code),conferir:k.conferir,nota:k.nota};
    soma[k.linha]+=proprio;composicao[k.linha].push(item);if(k.conferir)conferir.push({...item,linha:k.linha});
   }
   const v=k=>soma[k]||0,r=n=>n/100;

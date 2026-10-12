@@ -56,6 +56,10 @@ function audMes(reg,ctx){
  const filhas=new Map();for(const k of mapa.keys()){const i=k.lastIndexOf('.');if(i>0){const pai=k.slice(0,i);if(!filhas.has(pai))filhas.set(pai,[]);filhas.get(pai).push(k);}}
  const erradas=[];let diretas=0;
  for(const [pai,fs] of filhas){if(!mapa.has(pai))continue;const v=audCent(mapa.get(pai).value),s=fs.reduce((t,k)=>t+(audCent(mapa.get(k).value)??0),0);if(v==null)continue;const d=v-s;
+  // Total maior que as contas: recebimento ou pagamento lançado no Mubisys sem plano de
+  // contas (revisão de 12/10: em 2020–2021 o plano ainda não existia). É cadastro, não
+  // número impossível; total MENOR que as contas continua falha.
+  if((pai==='1'||pai==='2')&&d>1){add('classificacao','atencao',`${pai==='1'?'recebimentos':'pagamentos'} sem conta no Mubisys: ${money(d/100)} (${(v?d/v*100:0).toLocaleString('pt-BR',{maximumFractionDigits:1})}% ${pai==='1'?'das entradas':'das saídas'}); lance o plano de contas no título`);continue;}
   if(pai==='1'||pai==='2'?Math.abs(d)>1:d<-1)erradas.push(`${pai}: ${money(v/100)} contra ${money(s/100)} nas filhas`);else if(d>1)diretas++;}
  if(erradas.length)add('estrutura','falha',`${erradas.length} conta(s)-mãe não fecham com as filhas: ${audLista(erradas)}`);
  if(diretas)add('estrutura','info',`${diretas} conta(s)-mãe com lançamento direto, além das subcontas`);
