@@ -59,13 +59,24 @@ function relatorioCFO(op={}){
   const ok=d.competencia?!!d.cols[i]?.comp&&!!d.cols[j]?.comp&&d.cols[i].comp.company.trim().toLowerCase()===d.cols[j].comp.company.trim().toLowerCase():F.comparavelComRessalva(d.cols[i]?.reg,d.cols[j]?.reg).pode;
   r.titulo=d.competencia?'DRE por competência · '+label:'Caixa gerencial · '+label;
   r.notas=d.competencia?['Fonte: '+(d.cols[i]?.comp?.fonte||'Não informada'),'Competência informada. Ausências impedem subtotais; preenchimento não equivale a fechamento.']:r.notas;
+  if(!d.competencia){
+   // Caixa: as linhas da DRE Simples, as mesmas da tela (Fase 11: sem as rubricas antigas).
+   const S=dreSimplesValores(d.cols.map(x=>x.label),i),dif=(a,b)=>Math.round((a-b)*100)/100;
+   table('Mês e comparação · DRE Simples',['Linha',label,state.comparar||'Sem comparação','Variação'],S.linhas.map(x=>{const a=S.valor(i,x.id),b=j>=0?S.valor(j,x.id):null;return [x.nome,cfoValor(a),cfoValor(b),ok&&a!=null&&b!=null?cfoValor(dif(a,b)):'Não comparável'];}),'Base de caixa: cada conta na linha da regra do plano; a DRE inteira fecha com entradas menos saídas do ERP.');
+   table('Acumulado até '+label,['Linha','Valor'],S.linhas.map(x=>[x.nome,cfoValor(S.acumulado?.[x.id]??null)]),'Mês sem dados no caminho deixa o acumulado sem valor. Meses parciais permanecem parciais.');return r;
+  }
   table('Mês e comparação',['Rubrica',label,state.comparar||'Sem comparação','Variação'],d.linhas.map(x=>[x.nome,cfoValor(at[x.id],x.tipo==='ratio'),cfoValor(prev[x.id],x.tipo==='ratio'),ok&&at[x.id]!=null&&prev[x.id]!=null?cfoValor(at[x.id]-prev[x.id],x.tipo==='ratio'):'Não comparável']),'Diferenças percentuais de margens são pontos percentuais.');
   table('Acumulado até '+label,['Rubrica','Valor'],d.linhas.map(x=>[x.nome,cfoValor(d.soma[x.id],x.tipo==='ratio')]),'Ausência ou escopo diferente interrompe o acumulado.');return r;
  }
  if(op.tipo==='anual'){
   const d=dadosDRE();r.titulo=d.competencia?'DRE mensal por competência':'Demonstrativo mensal de caixa';r.subtitulo=label.split('/')[1]+' · referência '+label;
   r.notas=d.competencia?['Competência mensal informada; cada trimestre identifica as fontes e empresas. Campos ausentes não viram zero.','EBITDA soma a depreciação/amortização já incluída. Preenchimento não equivale a fechamento contábil.']:r.notas;
-  const rows=d.competencia?DREModelo.linhas:linhasCaixa;
+  if(!d.competencia){
+   const S=dreSimplesValores(d.cols.map(x=>x.label),d.ate-1);
+   for(let start=0;start<12;start+=3){const cols=d.cols.slice(start,start+3);r.blocos.push({titulo:(start/3+1)+'º trimestre',pagina:start>0,colunas:['Linha',...cols.map(x=>x.label)],linhas:[['Cobertura',...cols.map(x=>F.qualidade(x.reg).rotulo)],['Empresas',...cols.map(x=>x.reg?.company||'Não informado')],['Fonte',...cols.map(x=>x.reg?.origem||'Não informada')],...S.linhas.map(x=>[x.nome,...cols.map((_,k)=>cfoValor(S.valor(start+k,x.id)))])]});}
+   table('Acumulado de janeiro até '+label,['Linha','Acumulado'],S.linhas.map(x=>[x.nome,cfoValor(S.acumulado?.[x.id]??null)]),'Sem valor quando falta mês. Meses parciais permanecem parciais.');return r;
+  }
+  const rows=DREModelo.linhas;
   for(let start=0;start<12;start+=3){const cols=d.cols.slice(start,start+3);r.blocos.push({titulo:(start/3+1)+'º trimestre',pagina:start>0,colunas:['Rubrica',...cols.map(x=>x.label)],linhas:[['Cobertura',...cols.map(x=>d.competencia?statusCompetencia(x.comp):F.qualidade(x.reg).rotulo)],['Empresas',...cols.map(x=>(d.competencia?x.comp:x.reg)?.company||'Não informado')],['Fonte',...cols.map(x=>d.competencia?x.comp?.fonte||'Não informada':x.reg?.origem||'Não informada')],...rows.map(x=>[x.nome,...d.valores.slice(start,start+3).map(v=>cfoValor(v[x.id],x.tipo==='ratio'))])]});}
   table('Acumulado de janeiro até '+label,['Rubrica','Acumulado'],rows.map(x=>[x.nome,cfoValor(d.soma[x.id],x.tipo==='ratio')]),'Sem valor quando falta mês ou há escopos diferentes. Meses parciais permanecem parciais.');return r;
  }
@@ -83,7 +94,8 @@ function relatorioCFO(op={}){
   const cols=F.serieAnual(state.records,label,'2'),rows=linhasCustos();r.titulo='Despesas por mês · seleção de custos';
   for(let i=0;i<12;i+=3)table('Despesas · '+(i/3+1)+'º trimestre',['Conta',...cols.slice(i,i+3).map(x=>x.label)],rows.map(c=>[c.name,...cols.slice(i,i+3).map(x=>cfoValor(F.valorConta(x.reg,c.code)))]),'Seleção: '+(custoUI.busca||contaConhecida(custoUI.grupo))+'. Cada valor preserva a classificação e cobertura do seu mês.');
  } else {
-  table('Regra gerencial, linha por linha',['Rubrica','Valor'],linhasCaixa.map(x=>[x.nome,cfoValor(reg&&a.entradas!=null&&a.saidas!=null?F.resumo(reg)[x.id]:null)]));
+  const ds=reg?DRESimples.apurar(reg):null;
+  table('DRE Simples, linha por linha',['Linha','Valor'],DRESimples.LINHAS.map(x=>[x.nome,cfoValor(ds?ds.linhas[x.id]:null)]),'As mesmas linhas da tela da DRE (base de caixa).');
   table('Conferências pendentes',['Ocorrência','Valor'],(reg?.pendencias||[]).map(x=>[x.texto||x.tipo,cfoValor(x.valor)]),'Ausência de pendência cadastrada não comprova conciliação.');
  }
  return r;

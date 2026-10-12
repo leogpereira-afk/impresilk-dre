@@ -453,9 +453,8 @@ function relatorioRegua(){
   (semValidacao?`<p class="hint marca-aviso">* A cobertura da coleta ainda não foi validada nestes meses. Os valores estão na tela e a referência é útil, mas confira antes de decidir.</p>`:''));
 }
 function relatoriosDRE(){
- const reg=state.records.find(r=>r.label===state.periodo)||null;
  return `<div class="section-heading"><div><p class="eyebrow">RELATÓRIOS</p><h2>Comparativos do ano</h2></div></div>`+
-  cascataRubricas(reg)+blocosDoCaixa()+relatorioRegua()+relatorioEstrutura()+relatorioPeso();
+  blocosDoCaixa()+relatorioRegua()+relatorioEstrutura()+relatorioPeso();
 }
 
 /* ── 1. FAIXA DE COBERTURA ───────────────────────────────────────────────
@@ -496,67 +495,8 @@ function faixaCobertura(){
  </section>`;
 }
 
-/* ── 2. CASCATA DO MÊS, NAS RUBRICAS DO PRÓPRIO DRE ──────────────────────
-   Nove degraus com os MESMOS nomes das linhas da tabela acima. Fecha por
-   construção: entradas − as sete saídas = variação (identidade garantida
-   por F.resumo, que define pagamentosOperacionais como o que sobra).
-   O cursor acumula em CENTAVOS para o último degrau bater no centavo.     */
-function cascataRubricas(reg){
- const tit='Entrou, saiu, sobrou — por onde passou',sub=`${esc(state.periodo)} · os mesmos degraus da coluna deste mês na tabela acima`;
- if(!reg||F.valorConta(reg,'1')==null||F.valorConta(reg,'2')==null)
-  return painelGrafico(tit,sub,`<p class="empty">${esc(state.periodo)} ainda não foi coletado — a cascata precisa do total de entradas e do total de saídas do mês.</p>`);
- const r=F.resumo(reg);
- // Pessoas e impostos saem do bolo "Pagamentos da operação": eram os dois
- // maiores compromissos fixos escondidos num degrau só de R$ 358 mil. Só saem
- // se a conta EXISTIR no mês — conta ausente não vira zero, fica dentro do
- // resto, senão a cascata deixaria de fechar.
- // A ordem segue como o dono conta a história: recebi, gastei com material,
- // com gente e com imposto, sobrou o resto da operação — e só depois saem
- // sócio, parcela e dívida.
- const abrir=[['2.12','Materiais','Materiais e Insumos'],['2.1','Pessoas','Despesas Funcionários'],['2.4','Impostos','Despesas Impostos']]
-   .map(([code,curto,padrao])=>({code,curto,padrao,v:F.valorConta(reg,code)}))
-   .filter(x=>x.v!=null);
- const resto=r.pagamentosOperacionais-abrir.reduce((n,x)=>n+x.v,0);
- const passos=[
-  {id:'entradas',nome:'(+) Recebimentos considerados',curto:'Recebeu',v:r.entradas,tipo:'in'},
-  ...abrir.map(x=>({id:x.code,nome:'(−) '+x.curto+' · '+(contaConhecida(x.code)||x.padrao),curto:x.curto,v:-x.v,tipo:'out'})),
-  {id:'pagamentosOperacionais',nome:abrir.length?'(−) Demais pagamentos da operação':'(−) Pagamentos da operação',curto:abrir.length?'Resto oper.':'Operação',v:-resto,tipo:'out'},
-  {id:'socios',nome:'(−) Sócios e arrendamento',curto:'Sócios',v:-r.socios,tipo:'out'},
-  {id:'parcelasAtivos',nome:'(−) Parcelas de ativos',curto:'Parcelas',v:-r.parcelasAtivos,tipo:'out'},
-  {id:'dividas',nome:'(−) Dívidas classificadas',curto:'Dívidas',v:-r.dividas,tipo:'out'},
-  {id:'transferencias',nome:'(−) Transferências entre empresas',curto:'Transfer.',v:-r.transferencias,tipo:'out'},
-  {id:'investimentos',nome:'(−) Investimentos classificados',curto:'Máquinas',v:-r.investimentos,tipo:'out'},
-  {id:'pendentes',nome:'(−) Saídas sem detalhamento',curto:'Sem detalhe',v:-r.pendentes,tipo:'out'},
- ];
- const W=1140,H=300,PL=58,PR=14,PT=18,PB=76;
- let cur=0;const barras=[];
- for(const p of passos){const de=cur;cur=Math.round(cur*100+Math.round(p.v*100))/100;barras.push({...p,de,ate:cur});}
- barras.push({id:'variacao',nome:'(=) Variação do caixa',curto:cur<0?'Faltou':'Sobrou',v:cur,tipo:'net'+(cur<0?' ruim':cur>0?' bom':''),de:0,ate:cur});
- const todos=barras.flatMap(b=>[b.de,b.ate]).concat(0);
- let alto=Math.max(...todos),baixo=Math.min(...todos);
- const folga=(alto-baixo)*.1||1;alto+=folga;baixo-=folga;
- const n=barras.length,larg=(W-PL-PR)/n*0.62,passoX=(W-PL-PR)/n;
- const x=i=>PL+i*passoX+(passoX-larg)/2, y=v=>PT+(alto-v)/(alto-baixo)*(H-PT-PB);
- const bruto=(alto-baixo)/4,ordem=10**Math.floor(Math.log10(Math.abs(bruto)||1));
- const pe=([1,2,2.5,5,10].find(k=>k*ordem>=bruto)||10)*ordem;
- const marcas=[];for(let v=Math.ceil(baixo/pe)*pe;v<=alto;v+=pe)marcas.push(v);
- return painelGrafico(tit,sub,`<div class="painel-escuro"><div class="chart-scroll" tabindex="0" role="region" aria-label="Cascata do mês">
-  <svg class="cascata-svg" viewBox="0 0 ${W} ${H}">
-   ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="casc-grade"/><text x="${PL-7}" y="${y(v)+3}" class="casc-eixo">${esc(compacto(v))}</text>`).join('')}
-   <line x1="${PL}" y1="${y(0)}" x2="${W-PR}" y2="${y(0)}" class="casc-zero"/>
-   ${barras.map((b,i)=>{
-     const topo=Math.max(b.de,b.ate),base=Math.min(b.de,b.ate);
-     const altura=Math.max(2,Math.abs(y(base)-y(topo)));
-     const lig=i>0&&i<barras.length-1?`<line x1="${(x(i-1)+larg).toFixed(1)}" y1="${y(barras[i-1].ate).toFixed(1)}" x2="${x(i).toFixed(1)}" y2="${y(b.de).toFixed(1)}" class="casc-lig"/>`:'';
-     return `${lig}<g class="casc-barra ${b.tipo}"><rect x="${x(i).toFixed(1)}" y="${y(topo).toFixed(1)}" width="${larg.toFixed(1)}" height="${altura.toFixed(1)}" rx="2"><title>${esc(b.nome+': '+money(b.v))}</title></rect>
-      <text x="${(x(i)+larg/2).toFixed(1)}" y="${(y(topo)-6).toFixed(1)}" class="casc-valor">${esc(Math.abs(b.v)<0.5?'0':compacto(b.v))}</text></g>`;
-   }).join('')}
-   ${barras.map((b,i)=>`<text x="${(x(i)+larg/2).toFixed(1)}" y="${H-PB+18}" class="casc-rot ${b.tipo}">${esc(b.curto)}</text>`).join('')}
-  </svg></div>
-  <div class="casc-rodape"><b class="${cur<0?'ruim':'bom'}">${esc(money(cur))}</b><span>é a VARIAÇÃO do caixa do mês — não é lucro e não é saldo em banco</span></div></div>
-  <details class="chart-data"><summary>Ver os valores do gráfico</summary><div class="table-scroll"><table><tbody>${barras.map(b=>`<tr><td>${esc(b.nome)}</td><td class="num">${esc(money(b.v))}</td></tr>`).join('')}</tbody></table></div></details>
-  ${r.emprestimos>0?`<p class="hint">Entraram <b>${esc(money(r.emprestimos))}</b> de empréstimo neste mês: dinheiro de banco também entra no primeiro degrau.</p>`:''}`);
-}
+/* ── 2. (cascata das rubricas antigas retirada na v119: a cascata da DRE Simples, na
+   mesma tela, já mostra o mês da venda ao resultado com as linhas novas) ── */
 
 /* ── 3. OS BLOCOS QUE MEXERAM O CAIXA ────────────────────────────────────
    Operação, investimento e financiamento de cada mês, saídos da DFC (dfc.js:
@@ -564,8 +504,7 @@ function cascataRubricas(reg){
    (gEmpilhadas). Antes tinha regra própria (F.resumo) e, no mesmo mês, dava
    blocos diferentes da DFC: parcelamento do DAS e compra de máquina caíam na
    operação. Mês sem dado ou parcial (*) fica hachurado, como na DFC: nunca
-   zero, nunca a cor de mês fechado. Hoje nenhuma tela chama relatoriosDRE; a função fica
-   correta para quem a usar.                                                  */
+   zero, nunca a cor de mês fechado. Aparece em "Evolução e relatórios" da DRE de caixa. */
 function blocosDoCaixa(){
  const ano=state.periodo.split('/')[1],meses=typeof dfcMes==='function'?PT_MON.map(m=>dfcMes(m+'/'+ano)):[];
  if(!meses.some(x=>x.d))return painelGrafico('O que mexeu o caixa em cada mês',ano,'<p class="empty">Não há meses apurados neste ano. Mês sem dado não é zero.</p>');

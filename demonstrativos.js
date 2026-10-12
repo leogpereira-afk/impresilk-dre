@@ -1,20 +1,13 @@
 /* Visões mensais, separadas por regime. Nenhuma gravação acontece ao navegar. */
 const dreUI={base:'caixa',detalhar:false,movimento:false};
+/* Movimento de caixa: só o que o ERP registra (entradas, saídas e a diferença). As
+   rubricas antigas (F.resumo: "pagamentos da operação", "parcelas de ativos"…)
+   classificavam diferente da DRE Simples — parcelamento do DAS e compra de máquina
+   caíam na operação — e a mesma tela mostrava dois números para a mesma coisa. Desde
+   a v119 as linhas vêm só da DRE Simples (tela, PDF e planilha). */
 const linhasCaixa=[
  ['entradas','(+) Recebimentos considerados','total','Recebimento'],
- ['operacionais','Recebimentos operacionais','detail','Caixa operacional'],
- ['emprestimos','Entradas de empréstimos','detail','Principal de empréstimo'],
- ['rendimentos','Rendimentos financeiros recebidos','detail','Receita financeira'],
- ['naoIdentificadas','Entradas a identificar','detail','Conciliação'],
- ['outrasEntradas','Outras entradas','detail','Recebimento'],
  ['saidas','(−) Pagamentos considerados','total','Pagamento'],
- ['pagamentosOperacionais','Pagamentos classificados na operação','detail','Caixa operacional'],
- ['socios','Sócios e arrendamento','detail','Pró-labore'],
- ['parcelasAtivos','Parcelas de ativos','detail','CAPEX'],
- ['investimentos','Investimentos classificados','detail','Investimento'],
- ['dividas','Dívidas classificadas','detail','Principal de empréstimo'],
- ['transferencias','Transferências entre empresas','detail','Transferência'],
- ['pendentes','Saídas sem detalhamento','detail','Conciliação'],
  ['variacao','(=) Variação do caixa no mês','result','Variação de caixa']
 ].map(([id,nome,tipo,termo])=>({id,nome,tipo,termo}));
 function mesesDRE(){const ano=Number(state.periodo.split('/')[1])||new Date().getFullYear();return PT_MON.map((m,i)=>{const label=m+'/'+ano,reg=state.records.find(r=>monthSortKey(r.label)===ano*12+i)||null,comp=DRECompetencia.obter(state.cfg,safeId(label));return {label,reg,comp};});}
@@ -25,6 +18,12 @@ function dadosDRE(){
  const escopos=new Set(periodos.filter(x=>competencia?x.comp:x.reg).map(x=>competencia?x.comp.company.trim().toLocaleLowerCase('pt-BR'):JSON.stringify([x.reg.company,x.reg.basis,x.reg.qualidade?.escopo,x.reg.qualidade?.regra])));
  let soma={};if(escopos.size<=1){if(competencia)soma=DREModelo.acumulado(periodos.map(x=>x.comp));else for(const row of linhasCaixa){const vs=valores.slice(0,ate).map(v=>v[row.id]);soma[row.id]=vs.some(v=>v==null)?null:vs.reduce((s,v)=>s+Math.round(v*100),0)/100;}}
  return {competencia,cols,ate,valores,soma,mesmoEscopo:escopos.size<=1,linhas:(competencia?DREModelo.linhas:linhasCaixa).filter(r=>dreUI.detalhar||r.tipo!=='detail')};
+}
+// DRE Simples de vários meses (PDF e planilha): o valor de cada linha em cada mês
+// (null sem dados) e o acumulado de janeiro até o mês `ate` (null se faltar mês).
+function dreSimplesValores(labels,ate){
+ const ms=labels.map(l=>dreMesCaixa(l));
+ return {ms,linhas:DRESimples.LINHAS,valor:(i,id)=>ms[i]?.a?.linhas?.[id]??null,acumulado:ate>=0?dreAnoCaixa(ms,ate).linhas:null};
 }
 function statusCompetencia(c){return !c?'Não preenchido':c.estado==='preenchido'?'Preenchido · a validar':'Preenchimento parcial';}
 
@@ -126,7 +125,7 @@ function renderDRE(){
  if(d.competencia&&!atual?.comp){
   return controls+disponibilidadeCompetencia(d)+`<section class="source-empty"><h2>Falta a apuração de ${esc(state.periodo)}</h2><p>Resultado não apurado. Preencha as rubricas com o balancete ou a apuração revisada. Caixa e custos informados nas O.S. não substituem a competência.</p><div class="actions"><button id="editarCompetencia" class="primary" ${state.permissoes.admin?'':'disabled'}>Preencher ${esc(state.periodo)}</button></div>${!state.permissoes.admin?'<p class="hint">Preenchimento disponível para administradores.</p>':''}</section><details class="dre-criteria"><summary>Consultar estrutura da DRE e meses preenchidos</summary>${typeof tabelaDRECompacta==='function'?tabelaDRECompacta(d):tabelaDRE(d)}</details>`+(d.cols.some(x=>x.comp)?chart:'');
  }
- return controls+(d.competencia?disponibilidadeCompetencia(d)+intro:`<details class="dre-criteria"><summary>Base e critérios de caixa</summary>${intro}</details>`)+cards+(d.competencia?dreSimplesCompetencia(d):simples.resto+contasRegistradasDRE(atual?.reg))+(d.competencia?(h=>h):(h=>`<details class="card dre-movimento"${dreUI.movimento?' open':''}><summary>Movimento de caixa · entradas e saídas</summary><div class="card-body">${h}</div></details>`))(painelGrafico(d.competencia?'Demonstração do resultado':'Movimento de caixa',`${typeof gestaoUI!=='undefined'&&gestaoUI.dre==='mes'?'Mês selecionado e comparação':'Janeiro a dezembro'} · acumulado até ${state.periodo}`,`<div class="actions"><label class="check-label"><input id="dreDetalhar" type="checkbox" ${dreUI.detalhar?'checked':''}>Abrir rubricas detalhadas</label>${typeof gestaoUI==='undefined'||gestaoUI.dre==='ano'?`<button id="dreMesAtual">Ir à coluna de ${esc(state.periodo)}</button>`:''}</div>${typeof tabelaDRECompacta==='function'?tabelaDRECompacta(d):tabelaDRE(d)}<p class="hint">${dadosNota}</p><p class="hint">O acumulado fica sem valor quando falta algum mês ou os escopos diferem. Meses parciais continuam parciais no acumulado. ${d.mesmoEscopo?'':'Há empresas ou critérios diferentes neste ano.'}</p>`))+card('Evolução e relatórios',chart+(d.competencia?'':relatoriosDRE()),false)+(atual?.comp?.notas?card('Notas de '+state.periodo,`<p class="preserve-lines">${esc(atual.comp.notas)}</p>`,false):'');
+ return controls+(d.competencia?disponibilidadeCompetencia(d)+intro:`<details class="dre-criteria"><summary>Base e critérios de caixa</summary>${intro}</details>`)+cards+(d.competencia?dreSimplesCompetencia(d):simples.resto+contasRegistradasDRE(atual?.reg))+(d.competencia?(h=>h):(h=>`<details class="card dre-movimento"${dreUI.movimento?' open':''}><summary>Movimento de caixa · entradas e saídas</summary><div class="card-body">${h}</div></details>`))(painelGrafico(d.competencia?'Demonstração do resultado':'Movimento de caixa',`${typeof gestaoUI!=='undefined'&&gestaoUI.dre==='mes'?'Mês selecionado e comparação':'Janeiro a dezembro'} · acumulado até ${state.periodo}`,`<div class="actions">${d.competencia?`<label class="check-label"><input id="dreDetalhar" type="checkbox" ${dreUI.detalhar?'checked':''}>Abrir rubricas detalhadas</label>`:''}${typeof gestaoUI==='undefined'||gestaoUI.dre==='ano'?`<button id="dreMesAtual">Ir à coluna de ${esc(state.periodo)}</button>`:''}</div>${typeof tabelaDRECompacta==='function'?tabelaDRECompacta(d):tabelaDRE(d)}<p class="hint">${dadosNota}</p><p class="hint">O acumulado fica sem valor quando falta algum mês ou os escopos diferem. Meses parciais continuam parciais no acumulado. ${d.mesmoEscopo?'':'Há empresas ou critérios diferentes neste ano.'}</p>`))+card('Evolução e relatórios',chart+(d.competencia?'':relatoriosDRE()),false)+(atual?.comp?.notas?card('Notas de '+state.periodo,`<p class="preserve-lines">${esc(atual.comp.notas)}</p>`,false):'');
 }
 function wireDRE(){
  if($$('dreContasCSV'))$$('dreContasCSV').onclick=()=>{const reg=regAtual(),rows=[['Contas registradas',state.periodo,reg?.company||''],['Natureza','Código','Conta','Valor R$','Percentual do total'],...['1','2'].flatMap(code=>{const c=F.composicao(reg,code);return c.itens.map(x=>[code==='1'?'Entrada':'Saída',x.code,x.name,x.value==null?'Não apurado':x.value.toFixed(2).replace('.',','),x.value!=null&&c.total?(x.value/c.total*100).toFixed(2).replace('.',','):'Não apurado']);})];download('contas-dre-'+safeId(state.periodo)+'.csv','\ufeff'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');};

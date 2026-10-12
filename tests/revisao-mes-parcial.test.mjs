@@ -61,9 +61,10 @@ test('cor da variação: declarada por linha, nunca adivinhada pelo nome', () =>
   var dcx={competencia:false,ate:2,cols:[{reg:erp('Jul/2026','2026-07-31',cel({'1':1000,'2':500}))},{reg:erp('Ago/2026','2026-08-31',cel({'1':1000,'2':900}))}],valores:[v(100,100,100),v(400,400,400)]};
   var dk={competencia:true,ate:2,cols:[{comp:{company:'Teste'}},{comp:{company:'Teste'}}],valores:[{operacional:100,antesTributos:100,receitasFinanceiras:10,devolucoes:5,descontos:5,liquida:1000},{operacional:200,antesTributos:200,receitasFinanceiras:20,devolucoes:50,descontos:50,liquida:1000}]};
   var cor=(d,lista,id)=>{const h=celulaComparativo(d,lista.find(x=>x.id===id));return (h.match(/class="(delta-\\w+)"/)||[])[1]||'neutro';};`);
- assert.equal(c.run(`cor(dcx,linhasCaixa,'pendentes')`),'delta-ruim');
- assert.equal(c.run(`cor(dcx,linhasCaixa,'transferencias')`),'neutro');
- assert.equal(c.run(`cor(dcx,linhasCaixa,'investimentos')`),'neutro');
+ // Caixa (v119): só entradas, saídas e variação; as rubricas vêm da DRE Simples.
+ assert.equal(c.run('linhasCaixa.map(x=>x.id).join()'),'entradas,saidas,variacao');
+ assert.equal(c.run(`cor(dcx,linhasCaixa,'saidas')`),'delta-ruim','saída que sobe é ruim');
+ assert.equal(c.run(`cor(dcx,linhasCaixa,'entradas')`),'neutro','sem mudança, sem cor');
  for(const id of ['operacional','antesTributos','receitasFinanceiras'])
   assert.equal(c.run(`cor(dk,DREModelo.linhas,'${id}')`),'delta-bom',id+' subiu e não pode sair vermelho');
  for(const id of ['devolucoes','descontos'])
