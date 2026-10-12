@@ -8,10 +8,19 @@ pagamento (DRE_SEM_TRILHA=1, posto pelo workflow) para o app continuar leve.
 Só meses que já acabaram e anteriores ao mês passado: o mês atual e o anterior são do
 robô de cada dia. Um mês que falha não para a carga: ela segue e termina com erro,
 dizendo quantos falharam. O log do GitHub é público: só contagens e o rótulo do mês.
+
+Revisão (12/10): a primeira rodada (130 meses) estourou o limite de 340 min do GitHub
+sem dizer onde parou. Agora: a lista do servidor é lida uma vez; mês de planilha e mês
+já trazido do ERP são pulados sem consultar o Mubisys (rodar de novo continua de onde
+parou e não tira a trilha dos meses do robô de cada dia); a carga para sozinha antes
+do limite (DRE_HIST_LIMITE_MIN, padrão 300) e depois de 3 falhas seguidas; o quadro
+mês a mês vai para o resumo da execução no GitHub, só com estados e contagens.
 """
 import datetime
+import os
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -40,25 +49,79 @@ def meses(de, ate, hoje=None):
     return out
 
 
-def main(argv=None, processar=None, aviso=print):
+ESTADOS = {
+    "gravado": "gravado", "simulado": "simulado: seria gravado", "vazio": "sem lançamento no ERP",
+    "preservado": "veio da planilha: preservado", "ja-carregado": "já estava no DRE: pulado",
+    "falhou": "falhou", "sem-tempo": "não começou: limite de tempo", "interrompido": "não começou: falhas seguidas",
+}
+FALHAS_SEGUIDAS = 3
+
+
+def resumo_github(linhas, fim):
+    """Quadro no resumo da execução (público): só mês, estado e contagem de O.S."""
+    destino = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not destino:
+        return
+    corpo = ["### Carga histórica do DRE", "", "| Mês | Resultado | O.S. não lidas |", "|---|---|---|"]
+    corpo += [f"| {r} | {ESTADOS.get(e, e)} | {n if n else ''} |" for r, e, n in linhas]
+    with open(destino, "a", encoding="utf-8") as f:
+        f.write("\n".join(corpo + ["", fim, ""]))
+
+
+def main(argv=None, processar=None, aviso=print, listar=None, relogio=time.monotonic):
     argv = sys.argv[1:] if argv is None else argv
     processar = processar or previa.processar
+    listar = listar or previa.listar_meses
     if len(argv) != 2:
         raise SystemExit("Uso: erp_historico.py AAAA-MM AAAA-MM")
     alvos = meses(argv[0], argv[1])
-    contagem = {}
+    limite = float(os.environ.get("DRE_HIST_LIMITE_MIN") or 300) * 60
+    inicio = relogio()
+    try:
+        servidor = listar()
+    except Exception as e:
+        raise SystemExit(f"Não li os meses já gravados ({type(e).__name__}); nada foi consultado no Mubisys.")
+    no_dre = {r.get("label"): r for r in servidor if isinstance(r, dict)}
+    contagem, linhas, seguidas, parar = {}, [], 0, None
     for ini in alvos:
         rotulo = f"{previa.PT[ini.month - 1]}/{ini.year}"
-        try:
-            estado = (processar(ini) or {}).get("estado") or "sem-estado"
-        except Exception as e:  # o motivo pode citar dado: vai só o tipo do erro
-            estado = "falhou"
-            aviso(f"{rotulo}: falhou ({type(e).__name__}); a carga segue para o próximo mês.")
+        os_faltando = 0
+        atual = no_dre.get(rotulo)
+        if parar:
+            estado = parar
+        elif atual is not None:
+            # Planilha nunca é trocada; mês do ERP já trazido não é recoletado.
+            estado = "preservado" if atual.get("origem") != "erp" else "ja-carregado"
+        elif relogio() - inicio > limite:
+            estado = parar = "sem-tempo"
+        else:
+            try:
+                r = processar(ini, servidor) or {}
+                estado = r.get("estado") or "sem-estado"
+                os_faltando = int(r.get("osFaltando") or 0)
+                seguidas = 0
+            except Exception as e:  # o motivo pode citar dado: vai só o tipo do erro
+                estado = "falhou"
+                seguidas += 1
+                aviso(f"{rotulo}: falhou ({type(e).__name__}); a carga segue para o próximo mês.")
+                if seguidas >= FALHAS_SEGUIDAS:
+                    parar = "interrompido"
+                    aviso(f"{FALHAS_SEGUIDAS} falhas seguidas: a carga para aqui (servidor ou Mubisys fora do ar?).")
+        if os_faltando:
+            aviso(f"{rotulo}: {os_faltando} O.S. citada(s) não lida(s); a receita delas ficou em \"sem O.S. completa\".")
         contagem[estado] = contagem.get(estado, 0) + 1
+        linhas.append((rotulo, estado, os_faltando))
     resumo = ", ".join(f"{k}: {v}" for k, v in sorted(contagem.items()))
-    aviso(f"Carga histórica de {len(alvos)} mês(es): {resumo}.")
+    falta = next((ini for ini, (_, e, _n) in zip(alvos, linhas) if e in ("sem-tempo", "interrompido")), None)
+    fim = f"Carga histórica de {len(alvos)} mês(es): {resumo}."
+    if falta:
+        fim += (f" Rode de novo de {falta:%Y-%m} a {alvos[-1]:%Y-%m}" if os.environ.get("DRE_PUBLISH") == "1"
+                else f" Simulação não grava: rode de novo de {falta:%Y-%m} a {alvos[-1]:%Y-%m}") + \
+            " (os meses já no DRE são pulados)."
+    aviso(fim)
+    resumo_github(linhas, fim)
     if contagem.get("falhou"):
-        raise SystemExit(f"{contagem['falhou']} mês(es) falharam; rode de novo só esses meses.")
+        raise SystemExit(f"{contagem['falhou']} mês(es) falharam; rode de novo o mesmo intervalo (os gravados são pulados).")
     return contagem
 
 

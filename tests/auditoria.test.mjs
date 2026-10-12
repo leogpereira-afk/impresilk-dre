@@ -19,7 +19,8 @@ test('meses sãos: nenhuma falha nem atenção além do saldo inicial que falta;
  const r=app(BOM,{simples:aliquotas,op:{'2026-01':{saldoInicial:1000}}}).json('auditarTudo()');
  assert.deepEqual([r.meses.length,r.de,r.ate,r.total.falha,r.total.atencao],[3,'Jan/2026','Mar/2026',0,0]);assert.equal(r.limpos,3);
  const cad=app(BOM).json('auditarTudo()');assert.equal(cad.limpos,0,'sem saldo inicial em nenhum mês');
- const sem=app(BOM,{simples:aliquotas}).json('auditarTudo()');assert.equal(so(sem,'atencao').filter(x=>x.grupo==='dfc').length,3,'sem saldo inicial: dito em cada mês fechado');
+ const sem=app(BOM,{simples:aliquotas}).json('auditarTudo()'),d=so(sem,'atencao').filter(x=>x.grupo==='dfc');
+ assert.deepEqual(d.map(x=>[x.mes,x.texto]),[['Jan/2026','Jan/2026 a Mar/2026 sem saldo inicial no Fluxo de caixa (3 meses): nenhum saldo bancário informado antes: informe em Parâmetros o saldo do início de um mês']],'uma causa, um achado, com a faixa');assert.equal(sem.limpos,0,'os meses do trecho continuam com problema');
 });
 test('estrutura: mãe menor que as filhas, total que não fecha, código repetido e valor que não é número são falhas',()=>{
  const ruim=mes(1).map(c=>c.code==='2.4'?{...c,value:900}:c.code==='1'?{...c,value:12000}:c);ruim.push(cel('2.12.1','Impressão',1),cel('2.5','Fixas','abc'));
@@ -39,7 +40,7 @@ test('DRE × caixa, contas a conferir e pendências do robô',()=>{
 test('coleta: mês fechado pela metade é atenção; mês em andamento e sem trilha são informação',()=>{
  const r=app([reg('Jan/2026','2026-01-20',mes(1)),reg('Fev/2026','2026-02-28',mes(1),{eventos:[],origem:'planilha'}),reg('Abr/2026','2026-04-12',mes(0.4))],{simples:aliquotas}).json('auditarTudo()');
  assert.ok(so(r,'atencao').some(x=>x.mes==='Jan/2026'&&/coletado só até 20\/01/.test(x.texto)));
- assert.ok(so(r,'info').some(x=>x.mes==='Abr/2026'&&x.texto==='mês em andamento'));assert.ok(so(r,'info').some(x=>x.mes==='Fev/2026'&&/mês de planilha: sem a trilha/.test(x.texto)));
+ assert.ok(so(r,'info').some(x=>x.mes==='Abr/2026'&&x.texto==='mês em andamento'));assert.ok(so(r,'info').some(x=>x.mes==='Vários meses'&&x.texto==='1 mês(es) de planilha, sem a trilha por pagamento: Fev/2026'));
 });
 test('sequência: meses faltando em faixa, empresa trocada; cadastros somados no ano, sem repetir mês a mês',()=>{
  const r=app([reg('Out/2025','2025-10-31',mes(1)),reg('Jan/2026','2026-01-31',mes(1)),reg('Fev/2026','2026-02-28',mes(1),{company:'Impresilk'})]).json('auditarTudo()');
@@ -55,4 +56,30 @@ test('tela: cartões, dois gráficos, filtro, tabela e planilha sem fórmula exe
  c.run("download=(n,t)=>{globalThis.__dl=[n,t]}");const rows=c.json('audCSV()');assert.equal(c.run('__dl[0]'),'auditoria-dre.csv');assert.equal(rows[6].join('|'),'Mês|Verificação|Nível|O que foi achado');
  c.run("audUI.resultado.achados.push({mes:'Jan/2026',grupo:'estrutura',nivel:'falha',texto:'=HYPERLINK(1)'})");c.run('audCSV()');assert.doesNotMatch(c.run('__dl[1]'),/;"=HYPERLINK/,'célula com fórmula vira texto');
  assert.match(c.run('renderConferencia(state.records[0],F.qualidade(state.records[0]))'),/Auditoria completa/);
+});
+
+test('revisão 12/10: saldo que parou no meio, trilha e API somadas, planilha ↔ ERP, período repetido e O.S. não lidas',()=>{
+ const regs=[reg('Jan/2026','2026-01-31',mes(1)),reg('Fev/2026','2026-02-20',mes(1)),reg('Mar/2026','2026-03-31',mes(1),{eventos:[],qualidade:{ate:'2026-03-31',estado:'aguardando-conferencia',regra:'caixa-v2',escopo:'compõe DRE',apiContratoValidado:false,trilha:'resumida'},previaERP:{diagOS:{osFaltando:['101','102']}}}),reg('Abr/2026','2026-04-12',mes(0.4))];
+ const r=app(regs,{simples:aliquotas,op:{'2026-01':{saldoInicial:1000}}}).json('auditarTudo()');
+ const d=so(r,'atencao').filter(x=>x.grupo==='dfc');
+ assert.deepEqual(d.map(x=>x.texto),['Mar/2026 sem saldo inicial no Fluxo de caixa: o saldo vinha de Jan/2026 e parou: Fev/2026 tem dados só até 20/02'],'a causa de onde parou, uma vez');
+ assert.ok(so(r,'atencao').some(x=>x.mes==='Mar/2026'&&/^2 O\.S\. citada\(s\) não lida\(s\)/.test(x.texto)));
+ assert.ok(so(r,'info').some(x=>x.mes==='Vários meses'&&/^1 mês\(es\) do ERP sem a trilha por pagamento .*: Mar\/2026$/.test(x.texto)));
+ assert.ok(so(r,'info').some(x=>x.mes==='Vários meses'&&/limites da API do Mubisys ainda não validados em 1 mês\(es\): Mar\/2026/.test(x.texto)));
+ // Planilha ao lado de mês do ERP: origem diferente não é "regra diferente".
+ const misto=app([reg('Jan/2026','2026-01-31',mes(1),{origem:'planilha',qualidade:{ate:'2026-01-31',estado:'cobertura-nao-validada'}}),reg('Fev/2026','2026-02-28',mes(1))],{simples:aliquotas}).json('auditarTudo()');
+ assert.equal(misto.achados.filter(x=>x.grupo==='sequencia').length,0);
+ // Período repetido: conferido uma vez, dito como falha.
+ const dup=app([reg('Jan/2026','2026-01-31',mes(1),{atualizadoEm:'2026-02-01'}),{...reg('Jan/2026','2026-01-31',mes(1)),id:'Jan_2026_b',atualizadoEm:'2026-02-05'}],{simples:aliquotas}).json('auditarTudo()');
+ assert.equal(dup.meses.length,1);assert.equal(so(dup,'falha').filter(x=>x.texto==='período com mais de um registro').length,1);
+});
+test('revisão 12/10: gráficos em contagem e vermelho; aviso de dados mudados; posições com erro não contam como lidas',()=>{
+ const c=app(BOM,{simples:aliquotas});
+ const barras=c.run(`gBarrasOrdenadas([{rotulo:'Estrutura',valor:3}],{cor:'saida',formato:v=>v+' achado(s)',curto:v=>String(v),coluna:'Achados'})`);
+ assert.doesNotMatch(barras,/R\$/);assert.match(barras,/3 achado\(s\)/);
+ const heat=c.run(`gHeatmap([{rotulo:'A',valores:[0,2,5,null]}],['Jan','Fev','Mar','Abr'],{escala:'risco',normalizar:'global',formato:v=>v+''})`);
+ assert.doesNotMatch(heat,/g-cor-seq-/,'problema não é azul');assert.match(heat,/background:var\(--g-faixa-1\)/,'zero fica neutro');assert.match(heat,/g-cor-risco-1/);assert.match(heat,/g-cor-risco-4/);
+ c.run(`giroUI.dados={historico:{meses:[],erro:'leitura'}};audUI.resultado=auditarTudo()`);assert.equal(c.json('audUI.resultado.posicoes'),false);
+ assert.doesNotMatch(c.run('renderAuditoria()'),/Os dados mudaram/);
+ c.run(`state.records.push(${JSON.stringify(reg('Abr/2026','2026-04-12',mes(0.4)))})`);assert.match(c.run('renderAuditoria()'),/Os dados mudaram depois desta auditoria/);
 });

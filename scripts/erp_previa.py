@@ -298,6 +298,8 @@ def sem_trilha(registro):
     já foi conferida contra os totais antes daqui; contas, totais e qualidade ficam.
     A tela trata o mês como "sem trilha detalhada", como os meses de planilha."""
     registro.pop("eventos", None)
+    if isinstance(registro.get("trilhaClassificacao"), dict):
+        registro["trilhaClassificacao"]["movimentosVinculados"] = 0
     registro.setdefault("qualidade", {})["trilha"] = "resumida"
     return registro
 
@@ -324,7 +326,9 @@ def main(on_month=None):
         if on_month:
             on_month(resultado)
 
-def processar(ini):
+def processar(ini, meses_servidor=None):
+    """Um mês do ERP. meses_servidor: a lista já lida do servidor (a carga histórica lê
+    uma vez só); sem ela, lê aqui. Devolve o estado e quantas O.S. citadas não foram lidas."""
     fim = (ini + datetime.timedelta(days=32)).replace(day=1) - datetime.timedelta(days=1)
     fim_coleta = fim_consulta(ini, fim)
     label = f"{PT[ini.month - 1]}/{ini.year}"
@@ -410,7 +414,8 @@ def processar(ini):
         },
     }
 
-    meses_servidor = listar_meses()
+    if meses_servidor is None:
+        meses_servidor = listar_meses()
     for reg in sorted(meses_servidor, key=lambda r:r.get("atualizadoEm", "")):
         for campo, mapa in (reg.get("mapeamento") or {}).items():
             cfg_atual.setdefault(campo, {}).update(mapa)
@@ -448,37 +453,35 @@ def processar(ini):
     if os.environ.get("DRE_SEM_TRILHA") == "1":
         sem_trilha(registro)
 
-    estado = 'simulado'
-    if "--dry" in sys.argv or os.environ.get("DRE_PUBLISH") != "1":
-        print("(--dry: não gravou nada no servidor)")
-    elif not (receber or pagar):
-
+    # O estado sai igual com ou sem gravar: a simulação diz o que a gravação faria.
+    antigo = next((r for r in meses_servidor if r.get("id") == registro["id"]), None)
+    if not (receber or pagar):
         print(f"NÃO gravei {label}: nenhum lançamento no período ainda.")
         estado = 'vazio'
+    elif antigo and antigo.get("origem") != "erp" and "--forcar" not in sys.argv:
+        print(f"NÃO gravei {label}: já existe e veio da planilha "
+              f"(atualizado em {antigo.get('atualizadoEm')}). "
+              f"Use --forcar para substituir.")
+        estado = 'preservado'
+    elif "--dry" in sys.argv or os.environ.get("DRE_PUBLISH") != "1":
+        print("(--dry: não gravou nada no servidor)")
+        estado = 'simulado'
     else:
-
-        antigo = next((r for r in meses_servidor if r.get("id") == registro["id"]), None)
-        if antigo and antigo.get("origem") != "erp" and "--forcar" not in sys.argv:
-            print(f"NÃO gravei {label}: já existe e veio da planilha "
-                  f"(atualizado em {antigo.get('atualizadoEm')}). "
-                  f"Use --forcar para substituir.")
-            estado = 'preservado'
+        registro["atualizadoEm"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        r = call("dre-sync", {"action": "upsert", "registro": registro, "baseAtualizadoEm":(antigo or {}).get("atualizadoEm"), "operacaoId":execucao_id+":"+registro["id"]}, 90)
+        if r.get("conflito"):
+            raise RuntimeError("Conflito: versão concorrente preservada.")
+        elif r.get("ok") is not True:
+            raise RuntimeError("Gravação não confirmada pelo servidor.")
         else:
-            registro["atualizadoEm"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            r = call("dre-sync", {"action": "upsert", "registro": registro, "baseAtualizadoEm":(antigo or {}).get("atualizadoEm"), "operacaoId":execucao_id+":"+registro["id"]}, 90)
-            if r.get("conflito"):
-                raise RuntimeError("Conflito: versão concorrente preservada.")
-            elif r.get("ok") is not True:
-                raise RuntimeError("Gravação não confirmada pelo servidor.")
-            else:
-                print(f"mês {label} gravado do ERP ({len(registro['cells'])} contas)")
-                estado = 'gravado'
+            print(f"mês {label} gravado do ERP ({len(registro['cells'])} contas)")
+            estado = 'gravado'
 
     d = previa["diag"]
     print(f"Conferência: {d['titulosReceita']} títulos de receita; {d['titulosDespesa']} de despesa; "
           f"{d['contas']} contas; {diag_os['rateados']}/{diag_os['titulos']} títulos rateados; "
           f"{len(registro['pendencias'])} pendências. Valores comerciais omitidos do log.")
-    return {'label': label, 'estado': estado}
+    return {'label': label, 'estado': estado, 'osFaltando': len(diag_os.get('osFaltando') or [])}
 
 if __name__ == "__main__":
     main()

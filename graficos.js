@@ -724,9 +724,10 @@ function gCemPorCento(faixas,op={}){
 
 /* Barras horizontais ordenadas por valor (ex.: despesas, dez maiores
    vencidos). itens=[{rotulo, valor}]; op.limite (padrão 6) agrupa o
-   excedente em "Outros"; op.cor = 'saida' | 'entrada' | 'marca'. */
+   excedente em "Outros"; op.cor = 'saida' | 'entrada' | 'marca'. Para contagens:
+   op.formato (dica, leitura e tabela), op.curto (ponta da barra), op.coluna. */
 function gBarrasOrdenadas(itens,op={}){
- const {num,e,p,moeda,curto}=GX,limite=op.limite||6,cor=op.cor||'marca';
+ const {num,e,p}=GX,moeda=op.formato||GX.moeda,curto=op.curto||op.formato||GX.curto,limite=op.limite||6,cor=op.cor||'marca';
  const com=(itens||[]).filter(i=>num(i.valor)).map(i=>({...i,valor:Number(i.valor)})).sort((a,b)=>b.valor-a.valor),sem=(itens||[]).filter(i=>!num(i.valor));
  if(!com.length&&!sem.length)return GX.aviso('barras','Não apurado: nenhum item.');
  let mostrar=com;if(com.length>limite){const resto=com.slice(limite-1);mostrar=[...com.slice(0,limite-1),{rotulo:`Outros (${resto.length})`,valor:resto.reduce((s,i)=>s+i.valor,0),outros:true}];}
@@ -734,7 +735,7 @@ function gBarrasOrdenadas(itens,op={}){
  const linhas=mostrar.map(i=>{const a=z+Math.min(0,i.valor)/amp*GX.W,w=Math.abs(i.valor)/amp*GX.W;return `<div class="g-linha-h"><span class="g-nome" title="${e(i.rotulo)}">${e(i.rotulo)}</span><div class="g-trilho">${GX.svg(22,`<rect class="g-marca-dado g-cor-${i.outros?'outros':cor}" x="${a.toFixed(2)}" y="3" width="${Math.max(1.5,w).toFixed(2)}" height="16" data-dica="${e(`${i.rotulo}\n${moeda(i.valor)}`)}"/>`)}<span class="g-valor-ponta" style="left:${p(a+w,GX.W)}">${e(curto(i.valor))}</span></div></div>`;}).join('')
   +sem.map(i=>`<div class="g-linha-h"><span class="g-nome">${e(i.rotulo)}</span><div class="g-trilho"><span class="g-sem-dado" style="left:0;width:30%"></span><span class="g-valor-ponta" style="left:30%">Não apurado</span></div></div>`).join('');
  const leitura=`${op.titulo||'Maiores valores'}: `+mostrar.slice(0,3).map(i=>`${i.rotulo} ${moeda(i.valor)}`).join('; ')+(sem.length?`. ${sem.length} sem dado.`:'.');
- const tab=GX.tabela(['Item','Valor'],[...mostrar.map(i=>[i.rotulo,moeda(i.valor)]),...sem.map(i=>[i.rotulo,'Não apurado'])],[1]);
+ const tab=GX.tabela(['Item',op.coluna||'Valor'],[...mostrar.map(i=>[i.rotulo,moeda(i.valor)]),...sem.map(i=>[i.rotulo,'Não apurado'])],[1]);
  return GX.figura('barras',leitura,`<div class="g-linhas">${linhas}</div>`,sem.length?GX.legenda([{rotulo:'sem dado',semDado:true}]):'',tab);
 }
 
@@ -788,17 +789,20 @@ function gBullet(d,op={}){
 
 /* Heatmap mês × grupo de conta, para enxergar sazonalidade. linhas =
    [{rotulo, valores:[...]}], colunas = rótulos dos meses. A intensidade é
-   relativa a cada linha (op.normalizar='global' compara entre linhas). */
+   relativa a cada linha (op.normalizar='global' compara entre linhas).
+   op.escala='risco': contagem de problemas — zero fica neutro e o resto vai do
+   vermelho claro ao escuro (azul é "bom" no app todo). */
 function gHeatmap(linhas,colunas,op={}){
- const {num,e}=GX,fmt=op.formato||GX.moeda,global=op.normalizar==='global';
+ const {num,e}=GX,fmt=op.formato||GX.moeda,global=op.normalizar==='global',risco=op.escala==='risco';
  if(!linhas?.length||!colunas?.length)return GX.aviso('heat','Não apurado: sem linhas ou meses.');
- const todos=linhas.flatMap(l=>l.valores.filter(num).map(Number));
- const passo=(v,l)=>{const vs=global?todos:l.valores.filter(num).map(Number),mn=Math.min(...vs),mx=Math.max(...vs);return mx===mn?3:1+Math.min(4,Math.floor((v-mn)/(mx-mn)*5));};
+ const conta=v=>num(v)&&(!risco||Number(v)>0),todos=linhas.flatMap(l=>l.valores.filter(conta).map(Number)),n=risco?4:5;
+ const passo=(v,l)=>{const vs=global?todos:l.valores.filter(conta).map(Number),mn=Math.min(...vs),mx=Math.max(...vs);return mx===mn?(risco?2:3):1+Math.min(n-1,Math.floor((v-mn)/(mx-mn)*n));};
+ const classe=(v,l)=>risco&&v<=0?'g-celula" style="background:var(--g-faixa-1)':`g-celula g-cor-${risco?'risco':'seq'}-${passo(v,l)}`;
  let semDado=false;
  const cab=`<span></span>${colunas.map((c,i)=>`<span class="g-cab${colunas.length>6&&i%2?' g-cab-impar':''}">${e(c)}</span>`).join('')}`;
- const corpo=linhas.map(l=>`<span class="g-nome" title="${e(l.rotulo)}">${e(l.rotulo)}</span>`+colunas.map((c,i)=>{const v=l.valores[i];if(!num(v)){semDado=true;return `<span class="g-celula g-sem-dado-cel" data-dica="${e(`${l.rotulo} · ${c}\nsem dado`)}"></span>`;}return `<span class="g-celula g-cor-seq-${passo(Number(v),l)}" data-dica="${e(`${l.rotulo} · ${c}\n${fmt(Number(v))}`)}"></span>`;}).join('')).join('');
+ const corpo=linhas.map(l=>`<span class="g-nome" title="${e(l.rotulo)}">${e(l.rotulo)}</span>`+colunas.map((c,i)=>{const v=l.valores[i];if(!num(v)){semDado=true;return `<span class="g-celula g-sem-dado-cel" data-dica="${e(`${l.rotulo} · ${c}\nsem dado`)}"></span>`;}return `<span class="${classe(Number(v),l)}" data-dica="${e(`${l.rotulo} · ${c}\n${fmt(Number(v))}`)}"></span>`;}).join('')).join('');
  const leitura=`${op.titulo||'Mapa de calor'}: ${linhas.length} linhas por ${colunas.length} meses; cor mais escura é valor maior ${global?'no quadro todo':'dentro da própria linha'}.`+(semDado?' Há células sem dado.':'');
- const leg=`<div class="g-legenda"><span class="g-leg">menor <span class="g-escala" aria-hidden="true">${[1,2,3,4,5].map(k=>`<i class="g-cor-seq-${k}"></i>`).join('')}</span> maior ${global?'(quadro todo)':'(em cada linha)'}</span>${semDado?'<span class="g-leg"><i class="g-chave g-chave-sem-dado" aria-hidden="true"></i>sem dado</span>':''}</div>`;
+ const leg=`<div class="g-legenda">${risco?'<span class="g-leg"><i class="g-chave" style="background:var(--g-faixa-1)" aria-hidden="true"></i>nenhum</span>':''}<span class="g-leg">menor <span class="g-escala" aria-hidden="true">${(risco?[1,2,3,4]:[1,2,3,4,5]).map(k=>`<i class="g-cor-${risco?'risco':'seq'}-${k}"></i>`).join('')}</span> maior ${global?'(quadro todo)':'(em cada linha)'}</span>${semDado?'<span class="g-leg"><i class="g-chave g-chave-sem-dado" aria-hidden="true"></i>sem dado</span>':''}</div>`;
  const tab=GX.tabela(['Linha',...colunas],linhas.map(l=>[l.rotulo,...colunas.map((c,i)=>num(l.valores[i])?fmt(Number(l.valores[i])):'Não apurado')]),colunas.map((_,i)=>i+1));
  return GX.figura('heat',leitura,`<div class="g-heat-grade" style="grid-template-columns:minmax(80px,22%) repeat(${colunas.length},minmax(0,1fr))">${cab}${corpo}</div>`,leg,tab);
 }
