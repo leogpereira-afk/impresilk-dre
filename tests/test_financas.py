@@ -249,3 +249,34 @@ class ReleituraRetroativaTest(unittest.TestCase):
              patch.object(previa, 'processar') as proc:
             previa.main()
         self.assertEqual([c.args[0].isoformat() for c in proc.call_args_list], ['2026-08-01', '2026-09-01'])
+
+class Revisao1210Test(unittest.TestCase):
+    """Carga histórica de 12/10: fim de mês sem pagamento (404) e título pago em parcelas."""
+    def test_tres_404_seguidos_sao_janela_vazia(self):
+        with patch.object(previa,'call',side_effect=previa.Mubisys404()),patch.object(previa.time,'sleep'),patch('builtins.print'):
+            self.assertEqual(previa.coletar('contas-pagar',datetime.date(2024,6,29),datetime.date(2024,6,30)),[])
+    def test_404_que_pisca_nao_vira_vazio(self):
+        respostas=[previa.Mubisys404(),{'ok':True,'itens':[{'id':7,'valor_pagamento':10,'data_pagamento':'2024-06-29'}]}]
+        with patch.object(previa,'call',side_effect=respostas),patch.object(previa.time,'sleep'),patch('builtins.print'):
+            self.assertEqual([t['id'] for t in previa.coletar('contas-pagar',datetime.date(2024,6,29),datetime.date(2024,6,30))],[7])
+    def test_502_do_404_vira_Mubisys404_e_outro_502_continua_estouro(self):
+        import urllib.error,io
+        def erro(corpo):return urllib.error.HTTPError('u',502,'x',{},io.BytesIO(corpo.encode()))
+        with patch.object(previa,'TOKEN','t'),patch.object(previa.urllib.request,'urlopen',side_effect=erro('{"erro":"Mubisys HTTP 404","detalhe":null}')):
+            with self.assertRaises(previa.Mubisys404):previa.call('dre-financas',{})
+        with patch.object(previa,'TOKEN','t'),patch.object(previa.urllib.request,'urlopen',side_effect=erro('{"erro":"Mubisys HTTP 500"}')):
+            with self.assertRaises(previa.JanelaGrande):previa.call('dre-financas',{})
+    def test_titulo_pago_em_parcelas_junta_os_pagamentos(self):
+        a={'id':1,'compoe_dre':'Sim','plano_contas':'2.3','valor_titulo':300,'pagamentos':[{'id':11,'data_pagamento':'2021-04-05','valor':100}]}
+        b={**a,'pagamentos':[{'id':12,'data_pagamento':'2021-04-20','valor':200}]}
+        with patch.object(previa,'call',side_effect=[{'ok':True,'itens':[a]},{'ok':True,'itens':[b]}]),patch.object(previa.time,'sleep'):
+            r=previa.coletar('contas-pagar',datetime.date(2021,4,1),datetime.date(2021,4,14))
+        self.assertEqual(len(r),1);self.assertEqual(sorted(p['id'] for p in r[0]['pagamentos']),[11,12])
+        self.assertEqual(previa.valor_na_janela(r[0],'2021-04-01','2021-04-30'),300)
+    def test_parcelas_sem_id_contam_uma_vez_e_conflito_continua_alterado(self):
+        a={'id':1,'compoe_dre':'Sim','plano_contas':'2.3','valor_pagamento':100,'data_pagamento':'2021-04-05'}
+        b={**a,'valor_pagamento':200,'data_pagamento':'2021-04-20'}
+        u=previa.unir_titulo(a,b);self.assertEqual(previa.valor_na_janela(u,'2021-04-01','2021-04-30'),300)
+        self.assertEqual(previa.valor_na_janela(previa.unir_titulo(u,a),'2021-04-01','2021-04-30'),300,'a mesma parcela vista de novo não soma duas vezes')
+        with self.assertRaises(RuntimeError):previa.unir_titulo(a,{**b,'plano_contas':'2.4'})
+        with self.assertRaises(RuntimeError):previa.unir_titulo({**a,'pagamentos':[{'id':11,'data_pagamento':'2021-04-05','valor':100}]},{**a,'pagamentos':[{'id':11,'data_pagamento':'2021-04-05','valor':90}]})

@@ -38,6 +38,10 @@ def call(fn, payload, timeout=90, tentativas=4):
         except urllib.error.HTTPError as e:
             corpo = e.read().decode()[:200]
             ultimo = f"HTTP {e.code}: falha no serviço {fn}"
+            # O dre-financas repassa o 404 do Mubisys ("nenhum registro", mas que também
+            # pisca) como 502: não é estouro de tempo; quem decide é coletar (três 404).
+            if e.code == 502 and "Mubisys HTTP 404" in corpo:
+                raise Mubisys404()
             if e.code in (401, 403):
                 raise RuntimeError("Autenticação da rotina recusada; configure o segredo do servidor no GitHub.")
         except Exception as e:
@@ -50,6 +54,45 @@ def call(fn, payload, timeout=90, tentativas=4):
 
 class JanelaGrande(Exception):
     """JanelaGrande: processa dados recebidos da origem autenticada."""
+
+class Mubisys404(Exception):
+    """O Mubisys respondeu 404 (nenhum registro, ou o 404 que pisca em rota válida)."""
+
+# Mesmo título em duas janelas (pago em parcelas em semanas diferentes): os pagamentos
+# de cada janela se juntam. Conta, "compõe DRE" ou um mesmo pagamento com outro valor
+# continuam sendo "título alterado".
+def _pagamentos(t):
+    ps = t.get("pagamentos")
+    if isinstance(ps, list) and ps:
+        return ps
+    if t.get("valor_pagamento") not in (None, "") and t.get("data_pagamento"):
+        return [{"data_pagamento": t["data_pagamento"], "valor": t["valor_pagamento"]}]
+    return None
+
+def unir_titulo(a, b):
+    alterado = RuntimeError("Título alterado durante a coleta; repita para obter uma versão consistente.")
+    if [a.get(k) for k in ("compoe_dre", "plano_contas")] != [b.get(k) for k in ("compoe_dre", "plano_contas")]:
+        raise alterado
+    pa, pb = _pagamentos(a), _pagamentos(b)
+    if pa is None or pb is None:
+        raise alterado
+    por_id, sem_id = {}, {}
+    for lado in (pa, pb):
+        contagem = {}
+        for p in lado:
+            if p.get("id") is not None:
+                k = str(p["id"])
+                if k in por_id and por_id[k] != p:
+                    raise alterado
+                por_id[k] = p
+            else:
+                k = json.dumps([p.get("data_pagamento"), p.get("valor")])
+                contagem.setdefault(k, []).append(p)
+        # Sem id: o mesmo pagamento visto nas duas janelas conta uma vez (o maior número de repetições).
+        for k, xs in contagem.items():
+            if len(xs) > len(sem_id.get(k, [])):
+                sem_id[k] = xs
+    return {**a, "pagamentos": list(por_id.values()) + [p for xs in sem_id.values() for p in xs]}
 
 def eh_estouro(msg):
     m = str(msg or "").lower()
@@ -153,7 +196,7 @@ def coletar(recurso, ini, fim):
     vistos = {}
 
     def buscar(a, b, nivel=0):
-        r = None
+        r, vazios = None, 0
         for tentativa in range(3):
             try:
                 r = call("dre-financas", {
@@ -163,6 +206,9 @@ def coletar(recurso, ini, fim):
                 })
             except JanelaGrande:
                 r = {"ok": True, "parcial": True, "diagnostico": {"motivo": "tempo-ou-rede"}}
+            except Mubisys404:
+                vazios += 1
+                r = {"ok": True, "parcial": True, "diagnostico": {"motivo": "http", "http": 404}}
             diag = r.get("diagnostico") or {}
             completa = r.get("ok") is True and not r.get("parcial") and isinstance(r.get("itens"), list)
             if completa:
@@ -170,6 +216,11 @@ def coletar(recurso, ini, fim):
             if tentativa < 2:
                 print(f"  janela {a} → {b} incompleta; repetindo consulta", flush=True)
                 time.sleep(5 * (tentativa + 1))
+        # Regra da casa: só é vazio quando três 404 seguidos concordam.
+        if vazios == 3:
+            print(f"  janela {a} → {b}: três 404 seguidos do Mubisys, sem pagamentos", flush=True)
+            time.sleep(1.2)
+            return
         diag = (r or {}).get("diagnostico") or {}
         expansiva = diag.get("motivo") in ("tempo-ou-rede", "orcamento-esgotado") or (
             diag.get("motivo") == "http" and diag.get("http") in (502, 504))
@@ -189,7 +240,7 @@ def coletar(recurso, ini, fim):
             key = (str(t.get("empresa_id") or t.get("empresa") or ""), str(t["id"]))
             def financeiro(x): return [x.get(k) for k in ("compoe_dre","plano_contas","valor_pagamento","data_pagamento","pagamentos")]
             if key in vistos and financeiro(vistos[key]) != financeiro(t):
-                raise RuntimeError("Título alterado durante a coleta; repita para obter uma versão consistente.")
+                t = unir_titulo(vistos[key], t)
             vistos[key] = t
         time.sleep(1.2)
 
