@@ -91,6 +91,19 @@ class Historico(unittest.TestCase):
         self.assertIsInstance(r, SystemExit)
         self.assertIn("interrompido: 3", log)
 
+    def test_falhas_separadas_por_meses_ja_gravados_nao_param_a_carga(self):
+        # Revisão 12/10: abr/2021, jun/2022 e abr/2023 falham sozinhos; com os meses do meio
+        # já gravados, a carga parava em "3 falhas seguidas" sem chegar ao fim.
+        servidor = [{"label": l, "origem": "erp"} for l in ("Fev/2015", "Abr/2015", "Jun/2015")]
+        def proc(ini):
+            if ini.month in (1, 3, 5):
+                raise RuntimeError("Trilha de pagamentos não fecha; nada foi gravado.")
+            return {"estado": "gravado"}
+        r, chamados, log, quadro = self.rodar(["2015-01", "2015-07"], proc, servidor)
+        self.assertEqual(chamados, ["2015-01", "2015-03", "2015-05", "2015-07"], "chega ao fim")
+        self.assertEqual(log.count("Trilha de pagamentos não fecha"), 3, "o motivo fixo aparece")
+        self.assertNotIn("falhas seguidas", log)
+
     def test_os_nao_lidas_vao_para_o_log_e_o_quadro_so_como_contagem(self):
         r, chamados, log, quadro = self.rodar(["2015-01", "2015-01"], lambda ini: {"estado": "gravado", "osFaltando": 4})
         self.assertIn("Jan/2015: 4 O.S. citada(s) não lida(s)", log)

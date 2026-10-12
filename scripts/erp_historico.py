@@ -110,8 +110,12 @@ def main(argv=None, processar=None, aviso=print, listar=None, relogio=time.monot
         if parar:
             estado = parar
         elif atual is not None:
-            # Planilha nunca é trocada; mês do ERP já trazido não é recoletado.
+            # Planilha nunca é trocada; mês do ERP já trazido não é recoletado. Mês pulado
+            # zera a conta de falhas seguidas: só falhas em meses vizinhos consultados
+            # indicam servidor ou Mubisys fora do ar (meses com falha própria, espalhados
+            # entre meses já gravados, não podem parar a carga).
             estado = "preservado" if atual.get("origem") != "erp" else "ja-carregado"
+            seguidas = 0
         elif relogio() - inicio > limite:
             estado = parar = "sem-tempo"
         else:
