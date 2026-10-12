@@ -246,6 +246,54 @@ export async function lerHistorico(sb) {
 
 export const HORIZONTE_DIAS = 60;
 const somaDias = (d, n) => new Date(Date.parse(d + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+
+/* ── 13 SEMANAS (Fase 11.3) ───────────────────────────────────────────────────
+   Pura: a carteira do Painel semana a semana, a partir de hoje (dia de São Paulo),
+   para o planejamento de caixa da tela Caixa. A receber pela régua da Fase 5 (antes
+   do corte de dívida antiga fica fora); a pagar = títulos; as projeções do Mubisys
+   (despesa fixa, cartão, folha) vêm à parte, em "previstas". Vencido até ontem não
+   entra nas semanas: vai em "vencidos", e a tela decide (a pagar vencido entra na
+   1ª semana; a receber vencido, não, por prudência). A carga do Painel traz a pagar
+   até 60 dias e a receber até 90 depois dela: semana que passa disso é marcada
+   incompleta, nunca completada com zero. */
+export const SEMANAS = 13;
+export function semanasCarteira({ receber, pagar, receberEm = null, pagarEm = null, corte = null, agora = new Date(), semanas = SEMANAS }) {
+  const hoje = diaSP(agora.toISOString()), corteUsado = dataOk(corte) ? corte : CORTE_PADRAO;
+  const lim = (em, dias) => { const d = diaSP(em); return d ? somaDias(d, dias) : null; };
+  const limRec = lim(receberEm, 90), limPag = lim(pagarEm, HORIZONTE_DIAS);
+  const S = Array.from({ length: semanas }, (_, i) => ({ semana: i + 1, de: somaDias(hoje, 7 * i), ate: somaDias(hoje, 7 * i + 6), receber: 0, pagar: 0, previstas: 0 }));
+  const fim = S[S.length - 1].ate, venc = { receber: 0, pagar: 0, previstas: 0 }, fora = { receber: 0, pagar: 0, previstas: 0 };
+  let antigas = 0, semData = 0, lidos = 0;
+  const por = (lista, campo, filtro = () => true) => {
+    if (!Array.isArray(lista)) return false;
+    for (const x of lista) {
+      if (!x || typeof x !== 'object' || !filtro(x)) continue;
+      const c = cent(x.valor); if (c == null || c <= 0) continue;
+      const d = diaSP(x.vencimento); if (!d) { semData++; continue; }
+      if (campo === 'receber' && d < corteUsado) { antigas++; continue; }
+      lidos++;
+      if (d < hoje) venc[campo] += c; else if (d > fim) fora[campo] += c; else S[Math.floor(diasEntre(hoje, d) / 7)][campo] += c;
+    }
+    return true;
+  };
+  const temRec = por(receber, 'receber'), temPag = por(pagar, 'pagar', x => (texto(x.tipo) || 'pagar') !== 'provisao');
+  por(pagar, 'previstas', x => texto(x.tipo) === 'provisao');
+  if (!temRec && !temPag) return { disponivel: false, avisos: ['A carteira do Painel (a receber e a pagar) ainda não foi carregada.'] };
+  const avisos = [];
+  if (!temRec) avisos.push('Sem a carga do a receber: as entradas ficam de fora.');
+  if (!temPag) avisos.push('Sem a carga do a pagar: as saídas ficam de fora.');
+  if (antigas) avisos.push(`${antigas} título(s) a receber vencidos antes do corte de dívida antiga ficam fora, como em Recebíveis.`);
+  if (semData) avisos.push(`${semData} título(s) sem vencimento válido ficam fora.`);
+  return {
+    disponivel: true, inicio: hoje, ate: fim, corte: corteUsado,
+    horizonte: { receberAte: limRec, pagarAte: limPag },
+    semanas: S.map(x => ({ ...x, receber: reais(x.receber), pagar: reais(x.pagar), previstas: reais(x.previstas),
+      completa: { receber: temRec && !!limRec && x.ate <= limRec, pagar: temPag && !!limPag && x.ate <= limPag } })),
+    vencidos: { receber: reais(venc.receber), pagar: reais(venc.pagar), previstas: reais(venc.previstas) },
+    depois: { receber: reais(fora.receber), pagar: reais(fora.pagar), previstas: reais(fora.previstas) },
+    titulos: lidos, avisos,
+  };
+}
 // Posição de hoje: a receber (régua da Fase 5) e a pagar classificado, no mesmo horizonte; o estoque entra na tela.
 export async function consultarGiro(sb, _body = {}, agora = new Date()) {
   const [rec, pag, cfg] = await Promise.all([
@@ -284,6 +332,7 @@ export async function consultarGiro(sb, _body = {}, agora = new Date()) {
     receber, pagar: p,
     ncg: { semEstoque: ncgSemEstoque, receber: r.disponivel ? r.totais.aberto : null, pagarOperacional: p.disponivel ? p.totais.operacional : null },
     avisos: [...avisos, ...(erroHistorico ? ['Histórico: ' + erroHistorico] : []), ...(historico?.invalidos?.length ? [`Histórico: ${historico.invalidos.length} mês(es) gravado(s) com formato inválido ficaram de fora.`] : [])],
+    semanas: semanasCarteira({ receber: Array.isArray(listaRec) ? listaRec : null, pagar: Array.isArray(pag?.data?.valor) ? pag.data.valor : null, receberEm: rec?.data?.atualizado_em ?? null, pagarEm: pag?.data?.atualizado_em ?? null, corte, agora }),
     historico: historico ? { meses: historico.meses, invalidos: historico.invalidos.length, corteAtual: corte ?? null } : { meses: [], erro: 'leitura', corteAtual: corte ?? null },
   };
 }
