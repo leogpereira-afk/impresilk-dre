@@ -49,3 +49,10 @@ test('fechar: com ⚠️ exige justificativa; grava quem, quando e a foto; "Fech
 test('sem acesso de administrador: a lista aparece, o botão não',()=>{
  const h=app({admin:false}).run('renderFechamento()');assert.doesNotMatch(h,/data-fech-fechar/);assert.match(h,/Só um administrador/);
 });
+// C14 e I21: status em verde e âmbar, nunca nas cores do dinheiro; um termo só para pendências.
+test('status da lista: conferido em verde, atenção em âmbar, e "pendência(s) a conferir"',()=>{
+ const h=app().run('renderFechamento()');assert.match(h,/<li class="st-ok"><b>✅ Contas e pendências conferidas<\/b>/);assert.doesNotMatch(h.slice(h.indexOf('fech-lista')),/<li class="tom-/);
+ const p=app({regs:[reg('Set/2026','2026-09-20',{pendencias:[{tipo:'sem-classe'},{tipo:'duplicado'}]}),reg('Out/2026','2026-10-12')],hist:[]});
+ const t=p.json(`fechConferir('Set/2026')`).find(x=>x.id==='classificacao');assert.equal(t.titulo,'Contas e pendências conferidas');assert.match(t.texto,/2 pendência\(s\) a conferir na Fila de conferência/);
+ const hp=p.run('renderFechamento()');assert.match(hp,/<li class="st-atencao"><b>⚠️ Contas e pendências conferidas<\/b>/);assert.match(hp,/<li class="st-ok">/);
+});

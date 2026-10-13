@@ -26,7 +26,7 @@ function fechConferir(label){
  const a=typeof DRESimples!=='undefined'?DRESimples.apurar(reg):null;
  add('caixa','DRE fecha com o caixa do ERP',a&&Math.abs(a.diferenca)<.01,!a?'Sem contas válidas para apurar a DRE.':Math.abs(a.diferenca)<.01?`Entradas menos saídas = ${money(a.caixa)}, igual à soma das linhas.`:`As linhas ficam ${money(Math.abs(a.diferenca))} ${a.diferenca>0?'acima':'abaixo'} do caixa do ERP: confira no Plano de contas.`);
  const conf=a?.conferir?.length||0,pend=(reg.pendencias||[]).length,osf=(reg.previaERP?.diagOS?.osFaltando||[]).length;
- add('classificacao','Sem contas a conferir nem pendências',!conf&&!pend&&!osf,!conf&&!pend&&!osf?'Nada a conferir.':[conf?`${conf} conta(s) a conferir na DRE`:'',pend?`${pend} pendência(s) do robô`:'',osf?`${osf} O.S. não lida(s) na coleta`:''].filter(Boolean).join('; ')+'.');
+ add('classificacao','Contas e pendências conferidas',!conf&&!pend&&!osf,!conf&&!pend&&!osf?'Nada a conferir.':[conf?`${conf} conta(s) a conferir na DRE`:'',pend?`${pend} pendência(s) a conferir na Fila de conferência`:'',osf?`${osf} O.S. não lida(s) na coleta`:''].filter(Boolean).join('; ')+'.');
  const prox=typeof dfcMesDesloca==='function'?dfcMesDesloca(label,1):null,inf=prox&&typeof dfcSaldoInformado==='function'?dfcSaldoInformado(prox):null,s=prox&&typeof dfcSaldos==='function'?dfcSaldos().get(monthSortKey(prox)):null;
  add('saldo','Saldo bancário do fim do mês informado e batendo',inf!=null&&s?.divergencia==null,inf==null?`Informe em Parâmetros o saldo bancário do início de ${prox} (o saldo real do fim de ${label}).`:s?.divergencia!=null?`O saldo informado de ${prox} difere ${money(Math.abs(s.divergencia))} do calculado pelo Fluxo de caixa: confira lançamentos fora do ERP, tarifas ou contas não coletadas.`:s?.calculado!=null?`Informado (${money(inf)}) e igual ao calculado pelo Fluxo de caixa.`:`Informado (${money(inf)}); sem saldo calculado para comparar (falta o saldo de um mês anterior).`);
  const prov=typeof PARAM_EMPRESAS!=='undefined'&&typeof paramAliquota==='function'?PARAM_EMPRESAS.filter(e=>paramAliquota(e.id,label).origem!=='informada').map(e=>e.nome):['Impresilk','Universo'];
@@ -45,7 +45,7 @@ function fechConferir(label){
 function renderFechamento(){
  const label=state.periodo,reg=fechRegistro(label),fechado=reg?.estado==='fechado',itens=fechConferir(label),pend=itens.filter(x=>!x.ok),admin=!!state.permissoes?.admin;
  if(typeof giroUI!=='undefined'&&!giroUI.dados&&!giroUI.busy&&typeof carregarGiro==='function')carregarGiro();
- const lista=`<ul class="fech-lista" style="list-style:none;padding:0;margin:0 0 12px;display:grid;gap:8px">${itens.map(x=>`<li class="${x.ok?'tom-entra':'tom-sai'}"><b>${x.ok?'✅':'⚠️'} ${esc(x.titulo)}</b><br><small>${esc(x.texto)}</small></li>`).join('')}</ul>`;
+ const lista=`<ul class="fech-lista" style="list-style:none;padding:0;margin:0 0 12px;display:grid;gap:8px">${itens.map(x=>`<li class="${x.ok?'st-ok':'st-atencao'}"><b>${x.ok?'✅':'⚠️'} ${esc(x.titulo)}</b><br><small>${esc(x.texto)}</small></li>`).join('')}</ul>`;
  const status=fechado?`<p class="note"><b>Fechado</b> por ${esc(reg.por||'—')} em ${esc(dataBR(reg.em||reg.atualizadoEm))}${reg.pendentes?.length?` · com ${reg.pendentes.length} item(ns) justificado(s): ${esc(reg.justificativa||'')}`:''}.</p>`:reg?.estado==='reaberto'?`<p class="param-avisos">Reaberto por ${esc(reg.por||'—')} em ${esc(dataBR(reg.em||reg.atualizadoEm))}: ${esc(reg.motivo||'')}</p>`:'';
  let acoes='';
  if(!admin)acoes='<p class="hint">Só um administrador marca o mês como fechado.</p>';

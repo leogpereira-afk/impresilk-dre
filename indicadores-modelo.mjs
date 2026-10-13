@@ -11,7 +11,7 @@ export const DICIONARIO = {
  compras:{nome:'Notas recebidas',base:'Compras',formula:'Soma das notas recebidas não canceladas pela emissão.',fonte:'Painel / conferência fiscal',limite:'Compra não comprova consumo, pagamento nem custo vendido.'},
  custos:{nome:'Custo informado nas O.S.',base:'Custo informado',formula:'Soma dos custos presentes nas O.S. não canceladas do recorte importado.',fonte:'Painel / detalhes de O.S.',limite:'O custo informado não comprova realização. Não mistura compras, pagamentos ou rateios.'},
  margem:{nome:'Margem parcial das O.S.',base:'Custo informado',formula:'(Soma das vendas − soma dos custos) ÷ soma das vendas × 100, somente nas O.S. com os dois valores e receita positiva.',fonte:'Painel / detalhes de O.S.',limite:'Ponderada pela venda; não é ranking de lucro realizado. Sem custo, a margem é indeterminada.'},
- competencia:{nome:'Resultado por competência',base:'Competência',formula:'Reutiliza as rubricas e as fórmulas da DRE mensal, sem nova incidência de tributos ou D&A.',fonte:'DRE / demonstrativo preenchido',limite:'Rubrica ausente permanece ausente. Preenchimento não comprova conciliação contábil.'},
+ competencia:{nome:'Resultado por competência',base:'Competência',formula:'Reutiliza as rubricas e as fórmulas da DRE, sem nova incidência de tributos ou D&A.',fonte:'DRE / demonstrativo preenchido',limite:'Rubrica ausente permanece ausente. Preenchimento não comprova conciliação contábil.'},
  rentabilidade:{nome:'Retorno sobre capital',base:'Patrimonial',formula:'Resultado compatível dividido pela base de capital validada do mesmo período.',fonte:'Balanços e fluxos de investimentos',limite:'Sem base patrimonial validada, permanece indisponível. Não usa receita como retorno.'}
 };
 export const numero = v => v == null || v === '' || typeof v==='boolean' || !Number.isFinite(Number(v)) ? null : Number(v);
@@ -94,7 +94,7 @@ export function compararCaixa(records,p,natureza){
 function baseCaixa(records,p,fonte){
  const a=caixa(records,p,'entrada'),b=caixa(records,p,'saida');
  if(fonte==='recebimentos')return a;if(fonte==='pagamentos')return b;
- return {disponivel:a.disponivel&&b.disponivel,faltam:a.faltam,semTrilhaCortado:a.semTrilhaCortado,fontes:a.fontes,qualidade:a.qualidade==='Apurado'&&b.qualidade==='Apurado'?'Apurado':'Parcial',rows:[...a.rows.map(x=>({...x,grupo:'Recebimentos'})),...b.rows.map(x=>({...x,grupo:'Pagamentos',valor:x.valor==null?null:-x.valor}))]};
+ return {disponivel:a.disponivel&&b.disponivel,faltam:a.faltam,semTrilha:a.semTrilha,semTrilhaCortado:a.semTrilhaCortado,fontes:a.fontes,avisos:[...(a.avisos||[]),...(b.avisos||[])],qualidade:a.qualidade==='Apurado'&&b.qualidade==='Apurado'?'Apurado':'Parcial',rows:[...a.rows.map(x=>({...x,grupo:'Recebimentos'})),...b.rows.map(x=>({...x,grupo:'Pagamentos',valor:x.valor==null?null:-x.valor}))]};
 }
 const dataBR=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'')?d.split('-').reverse().join('/'):'data não registrada';
 // Fonte coletada só até antes do fim do mês (ou do fim do intervalo): o mês está pela metade.
@@ -104,18 +104,20 @@ export function compararAno(records,p,fonte,filtros={}){
  const pa=periodoAnterior(p),tot=per=>{let base;try{base=baseCaixa(records,per,fonte);}catch{return {motivo:'intervalo inválido'};}
   if(base.semTrilhaCortado)return {motivo:`${base.semTrilhaCortado} mês(es) sem trilha cortado(s) pelo intervalo; escolha meses inteiros`};
   if(!base.disponivel)return {motivo:'sem fonte'};if(base.faltam)return {motivo:`${base.faltam} mês(es) sem fonte`};
-  const cortado=(base.fontes||[]).find(f=>mesCortado(f,per.ate));if(cortado)return {motivo:`${cortado.periodo} tem lançamentos só até ${dataBR(cortado.corte)}; o comparativo espera o mês fechar`};
+  const cortado=(base.fontes||[]).find(f=>mesCortado(f,per.ate));if(cortado)return {motivo:`${cortado.periodo} tem lançamentos só até ${dataBR(cortado.corte)}; o comparativo espera o mês terminar`};
   const chaves=new Set((base.fontes||[]).map(f=>f.chave));if(chaves.size>1)return {motivo:'empresas ou critérios diferentes dentro do intervalo'};
   const s=resumir(base.rows,{...filtros,pagina:0,tamanho:Math.max(1,base.rows.length)});if(!s.somaCompleta)return {motivo:'valores ausentes'};
   if(comFiltro&&s.total===0)return {motivo:'nenhum registro no filtro'};
   const tipo=base.rows.every(r=>r.agregado)?'dre':base.rows.some(r=>r.agregado)?'misto':'trilha';
-  return {valor:s.valor,parcial:base.qualidade!=='Apurado',chave:[...chaves][0],tipo};};
+  // Meses completos sem trilha entram pelo total do mês: é ressalva de detalhe, não de cobertura.
+  const soSemTrilha=!!base.semTrilha&&(base.fontes||[]).every(f=>f.completo)&&(base.avisos||[]).every(t=>/sem trilha por pagamento/.test(t));
+  return {valor:s.valor,parcial:base.qualidade!=='Apurado'&&!soSemTrilha,semTrilha:soSemTrilha,chave:[...chaves][0],tipo};};
  const x=tot(p),y=tot(pa);
  if(x.valor==null||y.valor==null)return {disponivel:false,periodo:pa,motivo:x.valor==null?`O intervalo escolhido não compara (${x.motivo}).`:`O mesmo período de ${pa.de.slice(0,4)} não compara (${y.motivo}).`};
  if(x.chave!==y.chave)return {disponivel:false,periodo:pa,motivo:'Empresas ou critérios diferentes entre os anos. Os valores continuam visíveis.'};
  // A trilha do Mubisys usa os nomes das contas do ERP; os meses antigos, as contas da DRE: filtro não casa entre os dois.
  if(comFiltro&&(x.tipo!==y.tipo||x.tipo==='misto'))return {disponivel:false,periodo:pa,motivo:'Com busca ou grupo, só compara bases do mesmo tipo: os meses com trilha usam as contas do Mubisys e os meses antigos, as contas da DRE.'};
- return {disponivel:true,periodo:pa,atual:x.valor,anterior:y.valor,delta:(cent(x.valor)-cent(y.valor))/100,percentual:y.valor!==0?(cent(x.valor)-cent(y.valor))/Math.abs(cent(y.valor))*100:null,parcial:x.parcial||y.parcial};
+ return {disponivel:true,periodo:pa,atual:x.valor,anterior:y.valor,delta:(cent(x.valor)-cent(y.valor))/100,percentual:y.valor>0&&x.valor>=0?(cent(x.valor)-cent(y.valor))/cent(y.valor)*100:null,parcial:x.parcial||y.parcial,semTrilha:!x.parcial&&!y.parcial&&(x.semTrilha||y.semTrilha)};
 }
 
 // Exibir não é comparar: o ano civil preserva cada fonte, inclusive mudanças de base.
@@ -130,9 +132,12 @@ export function historicoCaixa(records,periodo,fonte,filtros={}){
   if(!r)return ponto;
   const mesmaBase=!!ref?.company&&!!ref?.basis&&r.company===ref.company&&r.basis===ref.basis&&r.qualidade?.escopo===ref.qualidade?.escopo&&r.qualidade?.regra===ref.qualidade?.regra;
   const a=caixa(records,{de,ate},'entrada'),b=caixa(records,{de,ate},'saida');
-  const base=fonte==='variacao'?{disponivel:a.disponivel&&b.disponivel,rows:[...a.rows.map(x=>({...x,grupo:'Recebimentos'})),...b.rows.map(x=>({...x,grupo:'Pagamentos',valor:x.valor==null?null:-x.valor}))],qualidade:a.qualidade==='Apurado'&&b.qualidade==='Apurado'?'Apurado':'Parcial'}:fonte==='recebimentos'?a:b;
-  const s=resumir(base.rows,filtros),parcial=base.qualidade!=='Apurado'||!s.somaCompleta;
-  return {...ponto,valor:base.disponivel&&s.comValor>0?s.valor:null,parcial,empresa:r.company,mesmaBase,fechado:!!r.qualidade?.ate&&r.qualidade.ate>=ate,chave:[r.company,r.basis,r.qualidade?.escopo,r.qualidade?.regra].join('|'),nota:[r.company||'Empresa não informada',r.basis||'Base não informada',!mesmaBase?'Base diferente do mês selecionado; sem variação percentual':'',parcial?'Leitura parcial; cobertura a conferir':'Mês completo'].filter(Boolean).join(' · ')};
+  const base=fonte==='variacao'?{disponivel:a.disponivel&&b.disponivel,semTrilha:a.semTrilha,fontes:a.fontes,rows:[...a.rows.map(x=>({...x,grupo:'Recebimentos'})),...b.rows.map(x=>({...x,grupo:'Pagamentos',valor:x.valor==null?null:-x.valor}))],qualidade:a.qualidade==='Apurado'&&b.qualidade==='Apurado'?'Apurado':'Parcial'}:fonte==='recebimentos'?a:b;
+  const s=resumir(base.rows,filtros),parcial=base.qualidade!=='Apurado'||!s.somaCompleta,fechado=!!r.qualidade?.ate&&r.qualidade.ate>=ate;
+  // Mês sem trilha, fechado e com a fonte completa é o total do mês, não leitura a conferir.
+  const semTrilha=!!base.semTrilha&&fechado,ressalva=parcial&&!(semTrilha&&s.somaCompleta&&(base.fontes||[]).every(f=>f.completo));
+  // Marcas: "*" mês em andamento ou incompleto; "°" cobertura a conferir.
+  return {...ponto,valor:base.disponivel&&s.comValor>0?s.valor:null,parcial,marca:!fechado||!s.somaCompleta?'*':ressalva?'°':'',semTrilha,empresa:r.company,mesmaBase,fechado,chave:[r.company,r.basis,r.qualidade?.escopo,r.qualidade?.regra].join('|'),nota:[r.company||'Empresa não informada',r.basis||'Base não informada',!mesmaBase?'Base diferente do mês selecionado; sem variação percentual':'',semTrilha?'Total do mês completo; sem trilha por pagamento':ressalva?'Leitura parcial; cobertura a conferir':'Mês completo'].filter(Boolean).join(' · ')};
  });
 }
 

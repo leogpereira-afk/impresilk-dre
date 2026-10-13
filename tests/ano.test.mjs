@@ -55,7 +55,7 @@ test('DFC no ano: cartões com o acumulado de janeiro ao último mês, saldo do 
  const c=app();c.run("selecionarAno('2026')");const h=c.run('renderDFC()'),k=cartoes(h);
  // FCO de cada mês = geração (só operação): 3.000 + 3.000 + 6.000 + 1.500 = 13.500; saldo 10.000 + 13.500
  assert.deepEqual(k.map(x=>[x.rotulo,x.valor]),[['Caixa da operação (FCO) · 2026','R$ 13.500,00'],['Investimentos (FCI) · 2026','R$ 0,00'],['Financiamentos (FCF) · 2026','R$ 0,00'],['Saldo final · Abr/2026','R$ 23.500,00']]);
- assert.match(k[0].nota,/de janeiro a Abr de 2026 · inclui Abr\/2026 \(mês em andamento\)$/);assert.equal(k[0].tom,'','com mês em andamento, sem cor');
+ assert.match(k[0].nota,/de janeiro a Abr de 2026 · inclui Abr\/2026 \(mês em andamento\)$/);assert.equal(k[0].tom,'tom-entra','com mês em andamento, a cor segue o sinal (v133, C3): só setas e Δ ficam neutros');
  assert.match(h,/Ano 2026 inteiro, de janeiro a Abr\. As contas de cada bloco são mostradas por mês/);assert.doesNotMatch(h,/De onde vem cada bloco/);
  const m=app();m.run("selecionarPeriodo('Mar/2026')");assert.equal(cartoes(m.run('renderDFC()'))[0].rotulo,'Caixa da operação (FCO) · Mar/2026','no mês, tudo como antes');
 });
@@ -98,4 +98,47 @@ test('os Indicadores ligar ou desligar o Ano grava a rota na hora',()=>{
  const c=app({view:'indicadores'});c.run("rotaLida=true;rotaAtual='';__hist=[];history={replaceState:(a,b,h)=>__hist.push(h),pushState:(a,b,h)=>__hist.push(h)};location={hash:''};state.periodo='Abr/2026';state.anoTodo=true");
  c.run("atualizarChipsPeriodo({de:'2026-01-01',ate:'2026-03-31'})");assert.equal(c.run('state.anoTodo'),false);assert.doesNotMatch(c.run('__hist.at(-1)'),/ano=1/);
  c.run("atualizarChipsPeriodo({de:'2026-01-01',ate:'2026-04-30'})");assert.match(c.run('__hist.at(-1)'),/ano=1/);
+});
+// v133 (N5): ligar o Ano não troca o mês das outras telas; elas voltam ao mês de onde se ligou.
+test('Ano ligado em Ago: Dashboard e competência voltam ao mês escolhido; tela do Ano vai ao fim do ano',()=>{
+ const c=app({view:'dre',periodo:'Fev/2026'});c.run("selecionarAno('2026')");assert.equal(c.run('state.periodo'),'Abr/2026');
+ c.run("state.view='inicio'");assert.equal(c.run('alinharAno()'),'Fev/2026','o Dashboard volta ao mês de antes do Ano');
+ c.run("state.view='dfc'");assert.equal(c.run('alinharAno()'),'Abr/2026','a DFC no Ano vai ao último mês com dados');
+ c.run("state.view='dre';dreUI.base='competencia'");assert.equal(c.run('alinharAno()'),'Fev/2026','competência não cai no mês sem apuração');
+ c.run("dreUI.base='caixa';selecionarAno('2026')");c.run("state.view='cfo'");assert.equal(c.run('alinharAno()'),'Fev/2026','ligar de novo não perde o mês guardado');
+ c.run("selecionarPeriodo('Mar/2026');state.view='inicio'");assert.deepEqual(c.json('[alinharAno(),state.mesBase,state.anoTodo]'),['Mar/2026','',false],'clicar num mês esquece o mês guardado');
+});
+test('v133 (N5): o mês guardado ao ligar o Ano não vale em outro ano (Voltar entre anos)',()=>{
+ const c=app({view:'dre',periodo:'Fev/2026'});c.run("selecionarAno('2026')");assert.equal(c.run('state.mesBase'),'Fev/2026');
+ // o Voltar restaura a DRE de 2025 com o Ano; o mês guardado continua sendo de 2026
+ c.run("state.periodo='Dez/2025';state.anoTodo=true;state.view='inicio'");assert.equal(c.run('alinharAno()'),'Dez/2025','o Dashboard fica no ano da rota');
+ c.run("state.view='dre';dreUI.base='competencia'");assert.equal(c.run('alinharAno()'),'Dez/2025','a competência também');
+ c.run("dreUI.base='caixa';state.periodo='Abr/2026';state.view='inicio'");assert.equal(c.run('alinharAno()'),'Fev/2026','no mesmo ano o mês guardado continua valendo');
+});
+// v133 (I2, I21, C3, C10): o Dashboard e o Caixa mostram o saldo da DFC, o termo único das
+// pendências com caminho para a Conferência, a cor no mês em andamento e o acumulado colorido.
+test('saldo do fim do mês igual ao da DFC; sem saldo, Não apurado com caminho para Parâmetros',()=>{
+ const c=app({periodo:'Jan/2026',view:'inicio'});
+ assert.equal(c.run('saldoFimDoMes(regAtual())'),c.run('money(13000)'),'10.000 informado + 3.000 de geração');
+ c.run("state.periodo='Abr/2026'");assert.match(c.run('saldoFimDoMes(regAtual())'),/^R\$\s23\.500,00 <span title="Mês em andamento: [^"]*">\*<\/span>$/,'mês em andamento com *');
+ const h=c.run('renderInicio(regAtual(),F.qualidade(regAtual()))');
+ assert.match(h,/<span class="label">Pendências a conferir<\/span><b><button type="button" class="text-button" data-go="conferencia"[^>]*>0<\/button>/);
+ assert.match(h,/data-go="dfc">Saldo no fim do mês \(Fluxo de caixa\)<\/button><\/span><b>R\$\s23\.500,00 /);assert.doesNotMatch(h,/Saldo bancário disponível|Pendências de classificação/);
+ const k=c.run('renderCaixa(regAtual())');assert.match(k,/Saldo no fim do mês \(Fluxo de caixa\)<\/button>: <b>R\$\s23\.500,00 /);
+ assert.match(k,/Recebimentos de vendas: <b class="tom-entra">/,'mês em andamento com a cor do sentido (C3)');assert.doesNotMatch(k,/sem cor/);
+ const s=app({op:{},periodo:'Mar/2026',view:'inicio'});assert.match(s.run('saldoFimDoMes(regAtual())'),/^Não apurado · <button type="button" class="text-button" data-go="parametros">informe em Parâmetros<\/button>$/);
+});
+test('acumulado da planilha de caixa com a cor dos meses (C10)',()=>{
+ const c=app({periodo:'Abr/2026',view:'caixa'});const t=c.run('historicoTabela()').match(/<tr class="total">.*?<\/tr>/)[0];
+ assert.deepEqual([...t.matchAll(/<td class="num ([^"]*)">/g)].map(m=>m[1]),['tom-entra','tom-sai','tom-entra']);
+});
+
+// v133 (C9, D22): no planejamento de 13 semanas, saída vermelha, entrada azul, saldo pelo sinal e data dd/mm/aaaa.
+test('planejamento: compromissos, semanas e cartões com a cor do sentido; data no formato do app',()=>{
+ const c=app({view:'caixa'});const els={planMovimentos:{innerHTML:''},planResultado:{innerHTML:''}};c.__els=els;
+ c.run("document.getElementById=id=>__els[id]||null;plano={saldo:'-1000',reserva:0,inicio:'2026-09-28',cenario:1,movimentos:[{id:'a',descricao:'Folha',data:'2026-09-28',tipo:'saida',valor:500},{id:'b',descricao:'Cliente',data:'2026-09-30',tipo:'entrada',valor:800}]};mostrarPlano()");
+ const m=els.planMovimentos.innerHTML,r=els.planResultado.innerHTML;
+ assert.match(m,/<td>Folha<\/td><td>28\/09\/2026<\/td><td>Saída<\/td><td class="num tom-sai">/);assert.match(m,/<td>Cliente<\/td><td>30\/09\/2026<\/td><td>Entrada<\/td><td class="num tom-entra">/);
+ assert.match(r,/<span class="label">Menor saldo projetado<\/span><strong class="tom-sai">/,'saldo projetado negativo em vermelho');
+ const sem=[...r.matchAll(/<tr><td>1<\/td>((?:<td class="num [^"]*">[^<]*<\/td>){3})/g)][0][1];assert.deepEqual([...sem.matchAll(/class="num ([^"]*)"/g)].map(x=>x[1]),['tom-entra','tom-sai','tom-sai']);
 });

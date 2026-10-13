@@ -311,3 +311,9 @@ test('a tela de Parâmetros usa o cadastro, mostra a qualidade do mês e o backu
  const html=ler('index.html');assert.ok(html.indexOf('gestao.js?v=')<html.indexOf('parametros.js?v=')&&html.indexOf('app.js?v=')<html.indexOf('parametros.js?v='));
  assert.match(ler('sw.js'),/`\.\/parametros\.js\?v=\$\{V\}`/);assert.match(ler('scripts/build_site.py'),/'parametros\.js'/);
 });
+test('coluna Editar sem span .sr-only dentro da tabela rolável: no celular ele escapava e alargava a página (D3)',()=>{
+ const h=tela(context()),t=h.slice(h.indexOf('tabela-tributos'));
+ assert.match(t,/<th scope="col" aria-label="Editar"><\/th><\/tr><\/thead>/,'o admin vê a coluna, com nome para leitor de tela');
+ assert.doesNotMatch(t.slice(0,t.indexOf('</table>')),/class="sr-only"/);
+ const leitor=tela(context({admin:false}));assert.doesNotMatch(leitor,/aria-label="Editar"/,'quem só lê não tem a coluna');
+});

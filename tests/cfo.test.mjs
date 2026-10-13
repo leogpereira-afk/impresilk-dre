@@ -21,3 +21,27 @@ test('PDF de origem contém todos os movimentos, não apenas os 80 da tela',()=>
 test('PDF detalhado respeita o filtro da tela',()=>{stateFixture();const r=vm.runInContext("state.consulta='2.5.3';state.tipo='2';relatorioCFO({tipo:'contas',periodo:state.periodo})",c);assert.equal(r.blocos.at(-1).linhas.length,1);assert.equal(r.blocos.at(-1).linhas[0][0],'2.5.3');});
 
 test('composição com valor inválido não produz percentuais de concentração',()=>{const a=C.analise(rec({'1':100,'2':80,'2.1':null,'2.5':40}));assert.equal(a.incompleta,true);assert.equal(a.concentracao,null);assert.ok(a.ranking.every(x=>x.peso==null));});
+// C1, C11, C25, I19, I21 e N15: valores com a cor do sentido (o link não pinta o número),
+// nomes iguais aos do menu e o card 4 apontando a margem por O.S. que já existe.
+test('Análise CFO: saídas em vermelho, estorno em azul, variação pela direção e nomes do menu',()=>{
+ c.fixture=rec({'1':1000,'2':900,'2.5':800,'2.5.3':800,'2.1':150,'2.12':-50});c.anterior=rec({'1':900,'2':700,'2.5':500,'2.1':200,'2.12':0},{label:'Jul/2026'});
+ vm.runInContext("state.periodo='Ago/2026';state.records=[fixture,anterior];state.D={accounts:[]};state.comparar='Jul/2026';state.view='cfo';",c);
+ c.fixture.pendencias=[{tipo:'sem-classe'},{tipo:'duplicado'}];
+ const h=vm.runInContext('renderCFO(regAtual())',c);
+ assert.match(h,/<td class="num tom-sai"><button class="cfo-link" data-cfo-account="2\.5"/,'grupo de saída em vermelho, mesmo dentro do link');
+ assert.match(h,/Demais grupos \(1\)<small>[^<]*<\/small><\/th><td class="num tom-entra">-R\$\s50,00/,'estorno numa conta de saída, somado na cauda, em azul');
+ assert.match(h,/Diferença de <b class="tom-entra">/,'entradas menos saídas positiva em azul');
+ assert.match(h,/Variação <span class="delta-ruim">▲ R\$\s300,00<\/span>/,'despesa que sobe é ruim');assert.match(h,/Variação <span class="delta-bom">▼ R\$\s50,00<\/span>/,'despesa que cai é boa, sem sinal de menos');
+ assert.match(h,/Jul\/2026: <span class="tom-sai">R\$\s500,00<\/span> → Ago\/2026: <span class="tom-sai">R\$\s800,00<\/span>/);
+ assert.match(h,/2 pendências a conferir<\/b>/);assert.doesNotMatch(h,/Detalhamento|para revisar|DRE mensal/);
+ assert.match(h,/Indicadores › Margem\.<\/p><div class="actions"><button data-go="indicadores" data-ind-area="Margem">/,'I19: o card 4 leva a Indicadores › Margem');
+});
+test('diálogo da conta: valor principal, composição e histórico com a cor do sentido',()=>{
+ c.fixture=rec({'1':1000,'2':800,'2.5':800,'2.5.3':900,'2.5.4':-100});vm.runInContext("state.periodo='Ago/2026';state.records=[fixture];state.D={accounts:[]};state.comparar='';",c);
+ const el={};c.document.getElementById=id=>el[id]||(el[id]={id,open:true,innerHTML:'',textContent:'',querySelectorAll:()=>[],showModal(){}});
+ vm.runInContext("abrirAnaliseConta('2.5','Ago/2026')",c);const h=el.detailContent.innerHTML;
+ assert.match(h,/<strong class="tom-sai">R\$\s800,00<\/strong>/);assert.match(h,/<b class="tom-sai"><button class="cfo-link" data-cfo-account="2\.5\.3"/);assert.match(h,/<b class="tom-entra"><button class="cfo-link" data-cfo-account="2\.5\.4"/);
+ assert.match(h,/<td class="num tom-sai"><button class="cfo-link" data-cfo-account="2\.5" data-cfo-period="Ago\/2026">R\$\s800,00/);
+ vm.runInContext("abrirAnaliseConta('variacao','Ago/2026')",c);assert.match(el.detailContent.innerHTML,/<strong class="tom-entra">R\$\s200,00<\/strong>/,'rubrica do caixa usa o tom da rubrica');
+ c.document.getElementById=()=>null;
+});

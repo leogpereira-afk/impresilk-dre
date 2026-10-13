@@ -10,7 +10,7 @@
    Texto nunca usa a cor da série: valores e rótulos usam --g-texto/--g-texto-2. */
 :root{
  --g-entrada:#2f62d0;--g-saida:#c7424c;--g-resultado:#5b6a86;--g-atencao:#b7790f;--g-risco:#c7424c;
- --g-marca:#284ac7;--g-serie-2:#a4aec0;--g-serie-3:#4b5872;--g-outros:#cdd3dd;--g-avencer:#a4aec0;
+ --g-marca:#284ac7;--g-serie-2:#7d889c;--g-serie-3:#4b5872;--g-outros:#cdd3dd;--g-avencer:#7d889c;
  --g-risco-1:#e88a85;--g-risco-2:#da5f5a;--g-risco-3:#c13e39;--g-risco-4:#6e1d1a;
  --g-seq-1:#cde2fb;--g-seq-2:#86b6ef;--g-seq-3:#3987e5;--g-seq-4:#1c5cab;--g-seq-5:#0d366b;
  --g-faixa-1:#e9edf3;--g-faixa-2:#d7dde7;--g-faixa-3:#c3cbd8;
@@ -22,8 +22,8 @@ body{
  --g-hachura:repeating-linear-gradient(135deg,color-mix(in srgb,var(--g-texto-2) 38%,transparent) 0 1.5px,transparent 1.5px 6px);
 }
 body.dark{
- --g-entrada:#3987e5;--g-saida:#e66767;--g-resultado:#b3bdd0;--g-atencao:#e0a93a;--g-risco:#e66767;
- --g-marca:#3987e5;--g-serie-2:#4f5a72;--g-serie-3:#a9b4c8;--g-outros:#3a4459;--g-avencer:#5b6680;
+ --g-entrada:#8fb0ff;--g-saida:#ff8f8c;--g-resultado:#b3bdd0;--g-atencao:#e0a93a;--g-risco:#e66767;
+ --g-marca:#8fb0ff;--g-serie-2:#6b7791;--g-serie-3:#a9b4c8;--g-outros:#66728c;--g-avencer:#5b6680;
  --g-risco-1:#b84a47;--g-risco-2:#d5605c;--g-risco-3:#f4a29e;--g-risco-4:#fcc8c5;
  --g-seq-1:#1c5cab;--g-seq-2:#2a78d6;--g-seq-3:#5598e7;--g-seq-4:#86b6ef;--g-seq-5:#cde2fb;
  --g-faixa-1:#222c41;--g-faixa-2:#2b3650;--g-faixa-3:#36425e;
@@ -105,8 +105,8 @@ body.dark{
 
 /* formas horizontais (barras ordenadas, 100%, bullet, ciclo, heatmap) */
 .g-linhas{display:grid;gap:6px}
-.g-linha-h{display:grid;grid-template-columns:minmax(90px,30%) 1fr;align-items:center;gap:10px}
-.g-linha-h .g-nome{font-size:12px;color:var(--g-texto);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-linha-h{display:grid;grid-template-columns:minmax(110px,36%) 1fr;align-items:center;gap:10px}
+.g-linha-h .g-nome{font-size:12px;color:var(--g-texto);overflow:hidden;white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.25}
 .g-trilho{position:relative;height:22px}
 .g-trilho .g-svg{height:22px}
 /* espaço fixo no fim do trilho: o valor da ponta nunca é cortado, nem no celular */

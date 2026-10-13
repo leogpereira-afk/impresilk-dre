@@ -30,20 +30,28 @@ async function api(action, payload = {}, timeoutMs = 15000) {
 // Versão genérica: chama qualquer função do projeto (os, financas…) com o
 // mesmo x-token e timeout. Usada pela integração Mubisys (função 'financas').
 async function apiFn(fn, action, payload = {}, timeoutMs = 30000) {
+  // Sem internet nem chama o servidor; o erro de rede do navegador (em inglês) vira frase.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Sem internet agora.');
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(API_BASE + '/' + (API_FN[fn] || fn), {
-      method: 'POST',
-      headers: Object.assign(
-        { 'content-type': 'application/json' },
-        // O crachá é lido na hora da chamada, não guardado numa constante: ele
-        // muda quando a pessoa entra, sai ou troca de senha.
-        (typeof AUTH !== 'undefined' && AUTH.cracha()) ? { authorization: 'Bearer ' + AUTH.cracha() } : {}
-      ),
-      body: JSON.stringify({ action, ...payload }),
-      signal: ctrl.signal,
-    });
+    let r;
+    try {
+      r = await fetch(API_BASE + '/' + (API_FN[fn] || fn), {
+        method: 'POST',
+        headers: Object.assign(
+          { 'content-type': 'application/json' },
+          // O crachá é lido na hora da chamada, não guardado numa constante: ele
+          // muda quando a pessoa entra, sai ou troca de senha.
+          (typeof AUTH !== 'undefined' && AUTH.cracha()) ? { authorization: 'Bearer ' + AUTH.cracha() } : {}
+        ),
+        body: JSON.stringify({ action, ...payload }),
+        signal: ctrl.signal,
+      });
+    } catch (e) {
+      if (e?.name === 'TypeError') throw new Error('Sem conexão com o servidor agora.');
+      throw e;
+    }
     // Com await, o prazo cobre também o download do corpo (um mês com a trilha pesa ~300 KB).
     return await r.json();
   } finally {

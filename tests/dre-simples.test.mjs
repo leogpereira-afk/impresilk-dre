@@ -119,21 +119,24 @@ test('tela de caixa: cards clicáveis com a cor certa, cascata com o DAS em verm
  assert.match(h,/<details class="card dre-movimento"><summary>Movimento de caixa · entradas e saídas<\/summary>/,'a matriz antiga fica recolhida');
  assert.equal((h.match(/class="dre-compact"/g)||[]).length,1,'as tabelas novas não se passam pela matriz antiga');
 });
-test('comparação: direção certa, detalhe zerado some e a ponte aparece sem cor (empréstimo não é "bom")',()=>{
+test('comparação: direção certa, detalhe zerado some e a ponte aparece sem cor (empréstimo não é "bom"); a variação do caixa subindo é boa (v133)',()=>{
  const h=comparacao(context().run('renderDRE()'));
- assert.match(linhaTabela(h,'(−) Despesas fixas'),/<span class="delta-bom">▼ -R\$\s200,00<\/span>/);
- assert.match(linhaTabela(h,'(=) Resultado do mês, antes dos sócios'),/<span class="delta-bom">▲ R\$\s200,00<\/span>/);
+ // v133 (C29): sem sinal de menos na variação; a seta e "a mais"/"a menos" dizem a direção
+ assert.match(linhaTabela(h,'(−) Despesas fixas'),/<span class="delta-bom">▼ R\$\s200,00 a menos<\/span>/);
+ assert.match(linhaTabela(h,'(=) Resultado do mês, antes dos sócios'),/<span class="delta-bom">▲ R\$\s200,00 a mais<\/span>/);
  assert.match(linhaTabela(h,'Pessoal'),/<td class="num tom-sai">R\$\s1\.500,00<\/td>/);assert.match(linhaTabela(h,'(=) Margem de contribuição'),/<td class="num tom-entra">R\$\s5\.250,00<\/td>/);
  assert.equal(linhaTabela(h,'Veículos'),'','linha zerada nos dois meses não aparece');
  const emp=REGISTROS.map(r=>r.label!=='Ago/2026'?r:{...r,cells:troca(AGO,{'1':10020,'1.4':0,'1.4.2':0})});
  const e=comparacao(context({registros:emp}).run('renderDRE()'));
- assert.match(linhaTabela(e,'(+) Empréstimos recebidos'),/<span class="">▲ R\$\s2\.000,00<\/span>/,'empréstimo aparece, sem cor');
- assert.match(linhaTabela(e,'(=) Variação do caixa no mês'),/<span class="">▲/,'a variação que veio de empréstimo não é pintada de bom');
+ assert.match(linhaTabela(e,'(+) Empréstimos recebidos'),/<span class="">▲ R\$\s2\.000,00 a mais<\/span>/,'empréstimo aparece, sem cor');
+ // v133 (C28, decisão do dono): variação do caixa subindo é boa em todo o app, igual ao Dashboard e aos Indicadores
+ assert.match(linhaTabela(e,'(=) Variação do caixa no mês'),/<span class="delta-bom">▲/,'a variação do caixa que sobe é pintada de bom, como no Dashboard');
 });
-test('mês em andamento é marcado nos quatro cards, sem cor de resultado, e não entra na tendência',()=>{
+test('mês em andamento é marcado nos quatro cards, com a cor do sinal (v133), e não entra na tendência',()=>{
  const out=context({periodo:'Out/2026'}).run('renderDRE()');
  assert.equal((out.match(/coletado até 08\/10 \(mês em andamento\)<\/small>/g)||[]).length,4);
- assert.match(out,/<span class="label">Resultado do mês<\/span><strong class="">/,'resultado parcial sem azul nem vermelho');
+ // v133 (C3, decisão do dono): o sentido é fato também no mês em andamento; só setas e comparação ficam neutras
+ assert.match(out,/<span class="label">Resultado do mês<\/span><strong class="tom-entra">/,'resultado parcial positivo em azul');
  assert.match(out,/Out\/2026 contra Set\/2026 · % sobre as vendas · sem comparação: Out\/2026 tem lançamentos só até/);
  assert.match(out,/data-dica="Out\nsem dado"/);assert.match(out,/<th scope="col" class="num selected-month">Out\/2026 \*<\/th>/);
 });
@@ -224,4 +227,37 @@ test('apuração diz quanto das saídas ficou sem plano de contas (2.99)',()=>{
  const c=context();const reg={label:'Mar/2020',cells:[{code:'1',name:'Receitas',value:1000},{code:'1.1',name:'CV',value:1000},{code:'2',name:'Despesas',value:800},{code:'2.13',name:'Bancárias',value:20},{code:'2.99',name:'Fatura de cartão (sem detalhamento)',value:780}]};
  const a=JSON.parse(c.run(`JSON.stringify(DRESimples.apurar(${JSON.stringify(reg)}))`));
  assert.equal(a.semConta,780);assert.equal(Math.round(a.pctSemConta),98);
+});
+
+test('v133: cards do Ano com mês parcial pela cor do sinal, árvore do ERP com cor por valor e Δ pela direção, subtotal do grupo colorido',()=>{
+ const c=context({periodo:'Out/2026'});
+ const ano=c.run("dreSimplesAno('Out/2026',[dreMesCaixa('Set/2026'),dreMesCaixa('Out/2026')],1,'').cards");
+ const tons=[...ano.matchAll(/<strong class="([^"]*)">/g)].map(m=>m[1]);assert.deepEqual(tons,['tom-entra','tom-entra','tom-entra','tom-entra'],'C3: o ano que inclui o mês em andamento também tem cor');
+ assert.match(ano,/inclui Out\/2026 \(parcial\)/);
+ const est=REGISTROS.map(r=>r.label!=='Set/2026'?r:{...r,cells:[...troca(SET,{'2':10520}),cel('2.19','Estorno de tarifa',-30),cel('2.7','Carros',0)]});
+ const h=context({registros:est,comparar:'Ago/2026'}).run('contasRegistradasDRE(regAtual())');
+ assert.match(h,/>Estorno de tarifa<\/button><\/th><td class="num tom-entra">/,'C13: estorno de saída é dinheiro voltando');
+ assert.match(h,/data-account="2\.7">Carros<\/button><\/th><td class="num ">/,'C13: zero fica neutro na árvore');
+ assert.match(h,/data-account="2\.5">Despesas Fixas \(grupo 2\.5 do Mubisys\)<\/button><\/th><td class="num tom-sai">R\$\s800,00<\/td><td class="num">[^<]*<\/td><td class="num delta-bom">▼ R\$\s200,00/,'C11: despesa que cai é boa, com ▼ e sem sinal de menos; I1: grupo com nome de linha da DRE leva a origem');
+ assert.match(h,/data-account="2\.14">Despesas Societárias<\/button><\/th><td class="num tom-sai">[^<]*<\/td><td class="num">[^<]*<\/td><td class="num ">/,'sócios: Δ neutro');
+ const tela=context().run('renderDRE()');
+ assert.match(tela,/<th scope="rowgroup" colspan="3">\(−\) Custos variáveis pagos · <span class="tom-sai">R\$\s4\.100,00<\/span><\/th>/,'C25: subtotal do grupo com a cor da linha');
+ assert.match(tela,/<th scope="rowgroup" colspan="3">Receita bruta de vendas · <span class="tom-entra">/);
+});
+test('v133: a conferir com "°" (o "*" fica só para mês em andamento) e linhas de tendência neutras',()=>{
+ const c=context({periodo:'Set/2026'});c.run("gestaoUI.dre='ano'");
+ const t=c.run('tabelaDRE(dadosDRE())');
+ assert.doesNotMatch(t,/marca-conferir[^>]*>\*</);
+ const regs=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set'].map((m,i)=>reg(m+'/2026','2026-'+String(i+1).padStart(2,'0')+'-'+['31','28','31','30','31','30','31','31','30'][i],SET));
+ const t2=context({registros:regs}).run('tabelaDRE(dadosDRE())');
+ assert.match(t2,/ · mês sem rótulo = Aguardando conferência/,'I14: ° fica só para cobertura a conferir');assert.doesNotMatch(t2,/marca-conferir/);assert.match(t2,/<small class="sr-only">Aguardando conferência<\/small>/);
+ const t3=context({registros:regs.map(r=>({...r,qualidade:{...r.qualidade,estado:'cobertura-nao-validada'}}))}).run('tabelaDRE(dadosDRE())');
+ assert.match(t3,/<b class="marca-conferir">°<\/b> = Cobertura a conferir/);assert.match(t3,/<b class="marca-conferir" title="Cobertura a conferir">°<\/b>/);
+ const h=context().run('renderDRE()');assert.match(h,/g-linha-area[\s\S]*?g-area-preenchida g-cor-resultado/,'C12: margem de contribuição pode ser negativa: série neutra');assert.doesNotMatch(h,/g-area-preenchida g-cor-marca/);
+});
+test('v133 (I1): grupo do Mubisys com o nome de uma linha da DRE Simples ganha a origem; os demais ficam como no ERP',()=>{
+ const c=context();
+ const nomes=c.json("F.composicao(state.records.find(r=>r.label==='Set/2026'),'2').itens.map(x=>x.name)");
+ assert.ok(nomes.includes('Despesas Fixas (grupo 2.5 do Mubisys)'));assert.ok(nomes.includes('Materiais e Insumos'));assert.ok(nomes.includes('Despesas Funcionários'));
+ assert.equal(c.json("F.composicao(state.records.find(r=>r.label==='Set/2026'),'2.5').itens.map(x=>x.name)").join(),'Aluguel lote','subconta não muda');
 });

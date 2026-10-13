@@ -42,7 +42,7 @@ test('telas novas seguem a ordem cards, gráficos e tabela fechada, sem número 
   const cards=(h.match(/class="metric metric-vazio"/g)||[]).length;assert.ok(cards>=1&&cards<=4,v+': de 1 a 4 cards, veio '+cards);
   assert.equal((h.match(/<strong>Não apurado<\/strong>/g)||[]).length,cards,v+': todo card sem dado diz Não apurado');
   assert.ok((h.match(/class="grafico-reservado" role="img" aria-label="Gráfico ainda sem dados: /g)||[]).length>=2,v+': ao menos dois gráficos com rótulo acessível');
-  assert.match(h,/<details class="card" ><summary>/,v+': tabela detalhada fica dentro de details fechado');
+  assert.match(h,/<details class="card" data-card="[^"]*"><summary>/,v+': tabela detalhada fica dentro de details fechado (e lembra se a pessoa abriu)');
   assert.match(h,/class="estado-vazio"[\s\S]*O que falta[\s\S]*De onde virá[\s\S]*Próximo passo/,v+': estado vazio explica falta, origem e próximo passo');
   assert.ok(h.indexOf('cards-controle')<h.indexOf('graficos-controle')&&h.indexOf('graficos-controle')<h.indexOf('<details class="card"'),v+': ordem cards, gráficos, tabela');
   assert.doesNotMatch(h,/R\$|\d+,\d{2}|>0<|>0,00/,v+': nenhum valor monetário ou zero inventado');
@@ -94,3 +94,51 @@ test('textos seguem os fatos do negócio: DAS mensal por empresa, parcelamento �
  assert.match(p,/não há pró-labore/);
  assert.match(pr,/DIFAL/);assert.match(b,/DAS e DIFAL/);assert.match(d,/parcelamento \(2\.4\.1\.1\) vai para financiamento/);
 });
+// v133 (N15 e I19): um nome por tela, igual ao menu, no título e na Ajuda, com botão para cada tela.
+test('título de cada tela é o nome do menu; a Ajuda leva a todas as telas com os mesmos nomes',()=>{
+ const c=context();const meta=c.run('METADATA_TELAS');
+ const menu=Object.fromEntries([...html.matchAll(/data-view="([a-z]+)"><span class="ic"[^>]*>[^<]*<\/span><span>([^<]+)<\/span>/g)].map(m=>[m[1],m[2]]));
+ assert.ok(Object.keys(menu).length>=14,'menu lido do index.html');
+ for(const [v,nome] of Object.entries(menu))assert.equal(meta[v][0],nome,v+': título igual ao menu');
+ assert.equal(meta.ajuda[0],(html.match(/id="helpBtn"[^>]*><span class="ic"[^>]*>[^<]*<\/span><span>([^<]+)/)||[])[1]);
+ assert.equal(meta.config[0],(html.match(/id="settingsBtn"[^>]*><span class="ic"[^>]*>[^<]*<\/span><span>([^<]+)/)||[])[1]);
+ const a=c.run('renderAjuda()');
+ for(const [v,nome] of Object.entries(menu))if(v!=='ajuda')assert.match(a,new RegExp(`data-go="${v}">${nome}</button>`),'Ajuda leva a '+nome);
+ assert.match(a,/data-go="custos">Despesas e categorias<\/button>/);
+ assert.doesNotMatch(a+JSON.stringify(meta),/Detalhamento|Visão geral|Centros de custos|DRE mensal|Glossário financeiro|Ajuda financeira/);
+});
+// v133 (N9): cartão aberto ou fechado pela pessoa continua assim ao trocar o mês e ao voltar à tela.
+test('cartões lembram a escolha por tela e título, sem o mês no título',()=>{
+ const ouvintes=[];const c={structuredClone,document:{addEventListener:(t,f)=>ouvintes.push([t,f])},localStorage:{getItem:()=>null,setItem(){}},navigator:{onLine:true},location:{hash:''},URLSearchParams};
+ vm.createContext(c);for(const f of ['financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','cfo-modelo.js','cfo.js','app.js','gestao.js','pdf-cfo.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c);
+ const run=s=>vm.runInContext(s,c);run("state.view='inicio'");
+ const toggle=(chave,open)=>ouvintes.filter(([t])=>t==='toggle').forEach(([,f])=>f({target:{dataset:{card:chave},open}}));
+ assert.match(run("card('Planilha do Dashboard · mês a mês','x',false)"),/^<details class="card" data-card="inicio:Planilha do Dashboard · mês a mês"><summary>/);
+ assert.equal(run("cardChave('DRE Simples mês a mês · 2026')"),run("cardChave('DRE Simples mês a mês · 2025')"),'o ano não muda a chave');
+ assert.equal(run("cardChave('Operação · Out/2026 · coletado até 08/10 (mês em andamento)')"),'inicio:Operação','mês e marca do parcial não mudam a chave');
+ toggle('inicio:Planilha do Dashboard · mês a mês',false);assert.doesNotMatch(run("cardAttrs('Planilha do Dashboard · mês a mês',false)"),/open/,'toggle igual ao padrão, ao desenhar, não vira escolha');
+ toggle('inicio:Planilha do Dashboard · mês a mês',true);assert.match(run("card('Planilha do Dashboard · mês a mês','x',false)"),/ open><summary>/,'aberto pela pessoa, continua aberto');
+ run("state.view='dre'");assert.doesNotMatch(run("cardAttrs('Planilha do Dashboard · mês a mês',false)"),/open/,'outra tela, outra chave');
+ run("state.view='inicio'");toggle('inicio:Conferência e próximos passos',false);assert.equal(run("cardAttrs('Conferência e próximos passos',true)"),'data-card="inicio:Conferência e próximos passos"','fechado pela pessoa, continua fechado');
+});
+// v133 (D32): mês, Comparar e cobertura somem onde não mudam nada.
+test('controles sem efeito ficam escondidos: mês, Comparar e cobertura',()=>{
+ const els={};const el=id=>els[id]||(els[id]={id,hidden:false,open:true,innerHTML:'',textContent:'',style:{},dataset:{},classList:{toggle(){}},setAttribute(){},focus(){},addEventListener(){}});
+ const c={structuredClone,document:{body:{dataset:{}},addEventListener(){},getElementById:el,querySelector:s=>s==='.period'?el('.period'):null,querySelectorAll:()=>[]},localStorage:{getItem:()=>null,setItem(){}},navigator:{onLine:true},location:{hash:''},URLSearchParams};
+ vm.createContext(c);for(const f of ['financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','cfo-modelo.js','cfo.js','app.js','gestao.js','pdf-cfo.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c);
+ const run=s=>vm.runInContext(s,c);run("state.periodo='Set/2026';state.cfg={};state.D={accounts:[]};paginasDoApp=()=>({});wireContent=()=>{};renderInicio=()=>''");
+ const vis=v=>{run(`state.view=${JSON.stringify(v)};render()`);return [!els['.period'].hidden,!els.periodCompare.hidden,!els.qualityBar.hidden];};
+ for(const v of ['config','ajuda'])assert.deepEqual(vis(v),[false,false,false],v);
+ for(const v of ['giro','recebiveis'])assert.deepEqual(vis(v),[false,false,false],v+': foto da carteira');
+ for(const v of ['caixa','conferencia'])assert.deepEqual(vis(v),[true,false,true],v+': o mês conta, Comparar não');
+ assert.deepEqual(vis('inicio'),[true,true,true],'Dashboard mantém os três');
+ els.periodCompare.open=true;vis('cfo');assert.equal(els.periodCompare.open,false,'trocar de tela fecha o Comparar');
+ // N1: trocar de tela leva ao topo e foca o título; Voltar do navegador e redesenho da mesma tela não
+ run("__rolou=0;window={scrollTo:()=>{__rolou++}}");let focos=0;els.pageTitle.focus=o=>{assert.equal(o?.preventScroll,true);focos++;};
+ vis('dre');assert.deepEqual([run('__rolou'),focos],[1,1]);vis('dre');assert.deepEqual([run('__rolou'),focos],[1,1],'mesma tela não rola');
+ run("voltandoHistorico=true");vis('inicio');run("voltandoHistorico=false");assert.deepEqual([run('__rolou'),focos],[1,1],'Voltar não força o topo');
+ // D33: com o Ano ligado, o chip diz o ano até o mês, não só o mês
+ run("state.anoTodo=true;state.periodo='Ago/2025';state.view='dfc';render()");assert.match(els.qualityBar.innerHTML,/<span>2025 até Dez\/2025 · <b>/);
+ run("state.view='inicio';render()");assert.match(els.qualityBar.innerHTML,/<span>Dez\/2025 · <b>/,'fora das telas do Ano, só o mês');
+});
+

@@ -184,3 +184,39 @@ test('falha ao gravar no aparelho: a sessão para de gravar, para a hora da cóp
  c.api=apiBase({indice:()=>({ok:true,itens:[{id:'Set_2026',atualizadoEm:'S1'}]}),buscar:()=>({ok:true,itens:[mes('Set_2026','S1',200)]})});
  vm.runInContext('setQueue([])',c);await vm.runInContext('pullCloud()',c);await vm.runInContext('pullCloud()',c);assert.equal(tentativas,1);assert.equal(vm.runInContext('state.cacheOk',c),false);
 });
+
+// v133 (M3): sem internet, nenhuma chamada ao servidor e nenhum texto em inglês.
+test('api sem internet não chama o servidor; erro de rede vira frase em português',async()=>{
+ const cfg=fs.readFileSync(new URL('../config.js',import.meta.url),'utf8');let chamadas=0;
+ const ctx={navigator:{onLine:false},fetch:async()=>{chamadas++;throw new TypeError('Failed to fetch');},AbortController,setTimeout,clearTimeout};vm.createContext(ctx);vm.runInContext(cfg,ctx);
+ await assert.rejects(vm.runInContext("api('indice')",ctx),/^Error: Sem internet agora\.$/);assert.equal(chamadas,0,'offline não chama fetch');
+ ctx.navigator.onLine=true;await assert.rejects(vm.runInContext("apiFn('financas','importarMes')",ctx),e=>e.message==='Sem conexão com o servidor agora.');assert.equal(chamadas,1);
+ ctx.fetch=async()=>({json:async()=>({ok:true})});assert.deepEqual(await vm.runInContext("api('indice')",ctx),{ok:true});
+});
+test('sem internet a coleta não vira cartão de falha: o chip diz que não foi consultada',()=>{
+ const c=client();const bar={className:'',innerHTML:'',dataset:{},querySelector:()=>null,contains:()=>false},botao={};
+ c.document.getElementById=id=>({coletaBar:bar,syncBtn:botao})[id]||null;
+ const v={status:null,erro:'Sem internet agora.',pedindo:false,titulo:'Conferindo atualização automática…',descricao:'Consultando o estado da rotina.',podeSolicitar:false};
+ c.navigator.onLine=false;c.__v=v;vm.runInContext('mostrarColeta(__v)',c);
+ assert.equal(bar.className,'coleta-slot');assert.match(bar.innerHTML,/Sem internet · coleta não consultada/);assert.doesNotMatch(bar.innerHTML,/Failed|coleta-alerta/);
+ c.navigator.onLine=true;vm.runInContext('mostrarColeta(__v)',c);assert.equal(bar.className,'coleta-bar coleta-alerta','com internet, o erro continua sendo falha');
+});
+// v133 (N2): o diálogo ganha uma entrada no histórico; fechar pelo ✕ a tira, e a troca de tela logo depois não volta.
+test('diálogo e Voltar: uma entrada por abertura, back ao fechar, nenhum back quando a rota já trocou',async()=>{
+ const c=client();let ouvinteFechar=null;const hist={state:null,pushes:0,backs:0,pushState(s){this.state=s;this.pushes++;},back(){this.backs++;this.state=null;}};
+ const d={open:false,showModal(){this.open=true;},close(){this.open=false;ouvinteFechar?.();},addEventListener:(t,f)=>{if(t==='close')ouvinteFechar=f;}};
+ const els={detailTitle:{},detailContent:{},detailDialog:d};c.document.getElementById=id=>els[id]||null;c.history=hist;c.location={href:'https://x/#tela=inicio'};c.queueMicrotask=queueMicrotask;
+ vm.runInContext("dialog('Entradas','<p>a</p>');dialog('Entradas','<p>b</p>')",c);assert.equal(hist.pushes,1,'trocar o conteúdo não cria outra entrada');assert.equal(hist.state.dialogo,1);
+ d.close();await Promise.resolve();assert.equal(hist.backs,1,'o ✕ tira a entrada do diálogo');
+ vm.runInContext("dialog('Termo','<p>c</p>')",c);assert.equal(hist.pushes,2);hist.state={};d.close();await Promise.resolve();assert.equal(hist.backs,1,'"Ver em": a rota nova já substituiu a entrada, sem back');
+ vm.runInContext("dialog('Termo','<p>d</p>')",c);vm.runInContext('fechandoPorVoltar=true',c);d.close();vm.runInContext('fechandoPorVoltar=false',c);await Promise.resolve();assert.equal(hist.backs,1,'fechado pelo Voltar: não volta de novo');
+});
+// v133 (N6): o Comparar fecha com Esc e com clique fora, como os chips da régua de status.
+test('Comparar fecha com Esc e com clique fora',()=>{
+ const ouvintes={};const comparar={open:true},chip={open:true};
+ const c={localStorage:{getItem:()=>null,setItem(){}},navigator:{onLine:true},document:{addEventListener:(t,f)=>{(ouvintes[t]||=[]).push(f);},querySelectorAll:sel=>[...(sel.includes('#periodCompare[open]')&&comparar.open?[comparar]:[]),...(sel.includes('.status-line details[open]')&&chip.open?[chip]:[])]}};
+ vm.createContext(c);vm.runInContext(source,c);
+ ouvintes.keydown.forEach(f=>f({key:'Escape'}));assert.deepEqual([comparar.open,chip.open],[false,false]);
+ comparar.open=true;ouvintes.click.forEach(f=>f({target:{closest:()=>null}}));assert.equal(comparar.open,false,'clique fora fecha');
+ comparar.open=true;ouvintes.click.forEach(f=>f({target:{closest:sel=>sel.includes('#periodCompare')?comparar:null}}));assert.equal(comparar.open,true,'clique dentro não fecha');
+});

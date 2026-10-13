@@ -54,6 +54,14 @@ var DREFinancas = (() => {
     const c=reg?.cells?.find(c=>c.code===code);
     return !c || c.value==null || c.value==='' || !Number.isFinite(Number(c.value)) ? null : reais(cents(c.value));
   }
+  // Grupo do Mubisys com o mesmo nome de uma linha da DRE Simples ("Despesas Fixas" 2.5 contra
+  // "(−) Despesas fixas") ganha a origem no nome: são números diferentes (v133, I1).
+  const normalNome=n=>String(n||'').replace(/^\([^)]*\)\s*/,'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+  function nomeDoGrupo(code,name){
+    if(!/^2\.\d+$/.test(code)||typeof DRESimples==='undefined'||!DRESimples.LINHAS)return name;
+    const n=normalNome(name);
+    return n&&DRESimples.LINHAS.some(l=>normalNome(l.nome)===n)?`${name} (grupo ${code} do Mubisys)`:name;
+  }
   // Partição da árvore: só o descendente mais próximo entra em cada nível.
   // Diferenças permanecem explícitas, inclusive negativas; não se distribuem valores.
   function composicao(reg,code='2'){
@@ -63,7 +71,7 @@ var DREFinancas = (() => {
       let p=c.code.slice(0,c.code.lastIndexOf('.'));
       while(p!==code && p.includes('.')){if(codes.has(p))return false;p=p.slice(0,p.lastIndexOf('.'));}
       return true;
-    }).map(c=>({code:c.code,name:c.name,value:valorConta(reg,c.code)}));
+    }).map(c=>({code:c.code,name:nomeDoGrupo(c.code,c.name),value:valorConta(reg,c.code)}));
     const total=valorConta(reg,code),incompleta=itens.some(c=>c.value==null);
     if(total!=null && !incompleta){
       const diff=cents(total)-itens.reduce((n,c)=>n+cents(c.value),0);
@@ -132,5 +140,5 @@ var DREFinancas = (() => {
       return !!per&&!!q.corte&&q.corte>=per.ate&&!['parcial','desatualizado','sem-dados'].includes(q.estado);
     });
   }
-  return {periodo,qualidade,resumo,comparacao,residuos,margemAcumulada,projecao,valorConta,composicao,serieAnual,compararConta,comparavelComRessalva,mesesDeReferencia};
+  return {nomeDoGrupo,periodo,qualidade,resumo,comparacao,residuos,margemAcumulada,projecao,valorConta,composicao,serieAnual,compararConta,comparavelComRessalva,mesesDeReferencia};
 })();

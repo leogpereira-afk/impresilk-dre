@@ -170,7 +170,7 @@ test('a seção no Dashboard: painéis, tabelas e a leitura, sem NaN, sem traves
 });
 test('sem meses fechados: aviso, não gráfico vazio; cache refeito quando a base muda',()=>{
  const c=context('Out/2026',[reg(2026,10,mesClassificado(2026,10),'2026-10-08')]);
- assert.match(c.run('renderComparativos()'),/Ainda não há meses fechados/);
+ assert.match(c.run('renderComparativos()'),/Ainda não há meses completos/);
  const d=context();const a=d.run('renderComparativos()');d.run("state.periodo='Dez/2023'");const b=d.run('renderComparativos()');
  assert.notEqual(a,b);assert.match(b,/Ano de referência: <b>2023<\/b>/);
 });
@@ -202,4 +202,29 @@ test('servidor: campanhas do Painel só com nome, período e números das O.S.; 
  const viaIndicadores=await consultarIndicadores(sb,{fonte:'campanhas'});assert.equal(viaIndicadores.fonte,'campanhas','não passa pela validação de período');
  const ruim={from:()=>({select:()=>({eq:()=>Promise.resolve({data:null,error:{message:'x'}})})})};
  await assert.rejects(()=>consultarCampanhas(ruim),/Não foi possível ler as campanhas do Painel/);
+});
+
+// ── v133 ──
+test('leitura com o ano atual como recorde: "até então o ano mais enxuto" e "até então o melhor ano", sem superlativo falso',()=>{
+ // 2026 com pessoal de 5% e sem parcela de dívida: o ano mais enxuto e o de melhor resultado
+ const recorde=r=>{if(!r.label.endsWith('/2026'))return r;const cells=r.cells.map(c=>({...c}));const k=code=>cells.find(c=>c.code===code);
+  const p=k('2.1'),antes=p.value;for(const code of ['2.1','2.1.4'])k(code).value=Math.round(k(code).value/4*100)/100;k('2').value=Math.round((k('2').value-(antes-k('2.1').value))*100)/100;return {...r,cells};};
+ const t=cmpPontos(context('Out/2026',base().map(recorde)));
+ assert.match(t,/despesas fixas caíram<\/b>: [^.]*, até então o ano mais enxuto, e /);
+ assert.match(t,/resultado antes dos sócios subiu<\/b>: [^.]*, até então o melhor ano, e /);
+ // na base padrão 2026 não bate os anteriores: o superlativo fica com o ano antigo
+ const u=cmpPontos(context());
+ assert.match(u,/, o ano mais enxuto, e /);assert.match(u,/, o melhor ano, e /);assert.doesNotMatch(u,/até então/);
+});
+function cmpPontos(c){return c.json('cmpLeitura(cmpModelo())').pontos.join('\n');}
+test('crescimento com seta e tom de bom ou ruim pela direção da linha; dívidas e sócios neutros; empréstimo azul e dívida vermelha no gráfico',()=>{
+ const h=context().run('renderComparativos()'),cr=h.slice(h.indexOf('Crescimento de cada linha'));
+ const linha=n=>cr.slice(cr.indexOf(`>${n}</th>`),cr.indexOf('</tr>',cr.indexOf(`>${n}</th>`)));
+ assert.match(linha('Vendas'),/class="num delta-bom"[^>]*>▲ \d/,'vendas subiram: bom');
+ assert.match(linha('Pessoal'),/class="num delta-ruim"[^>]*>▲ \d/,'pessoal subiu: ruim, sem a cor fixa do destaque');
+ assert.doesNotMatch(linha('Pessoal'),/delta-ruim" style="[^"]*color/);
+ assert.doesNotMatch(linha('Retiradas e arrendamento (sócios)')+linha('Dívidas pagas'),/delta-/,'financiamento e sócios sem bom ou ruim');
+ assert.doesNotMatch(cr,/>[+−]\d/,'a seta substitui o sinal');
+ const div=h.slice(h.indexOf('Empréstimos recebidos e dívidas pagas'));assert.match(div,/cmp-grupos[\s\S]*g-cor-entrada[\s\S]*g-cor-saida/);assert.doesNotMatch(div.slice(0,div.indexOf('</figure>')),/g-cor-serie-/);
+ assert.match(h,/sem mês completo|Ano de referência/);assert.doesNotMatch(h,/meses fechados|mês fechado/);
 });

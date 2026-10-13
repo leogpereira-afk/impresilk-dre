@@ -23,7 +23,7 @@ test('régua: mês pela metade não recebe veredito e diz até que dia foi colet
  c.run(`state.records=[...fechados,erp('Set/2026','2026-09-05',cel({'1':80000,'2':70000}),{estado:'parcial'})];state.periodo='Set/2026';`);
  const t=texto(c.run('relatorioRegua()'));
  assert.match(t,/Set\/2026 tem lançamentos só até 05\/09\/2026/);
- assert.equal((t.match(/sem veredito até o mês fechar/g)||[]).length,2);
+ assert.equal((t.match(/sem veredito até o mês terminar/g)||[]).length,2);assert.doesNotMatch(t,/mês fechar/,'I4: mês fechado só no sentido da Conferência');
  assert.doesNotMatch(t,/▼|▲/, 'mês parcial não pode ganhar seta de acima/abaixo da média');
 });
 
@@ -41,8 +41,9 @@ test('ritmo do ano: veredito é do último mês fechado, não do mês em andamen
  const html=c.run('graficoRitmoAno()');
  const sit=[...html.matchAll(/ritmo-situacao (\w+)">([^<]*)</g)].map(m=>m[2]);
  // \s: o Intl põe espaço NÃO separável entre "R$" e o número
- assert.match(sit[0],/^No ritmo · esperado R\$\s800\.000,00 até Ago\/2026$/);
- assert.match(sit[1],/^No ritmo · esperado R\$\s720\.000,00 até Ago\/2026$/);
+ // v133 (I12): o veredito cita o mês completo e o valor em que se baseia
+ assert.match(sit[0],/^No ritmo em Ago\/2026: R\$\s800\.000,00 de R\$\s800\.000,00 esperados$/);
+ assert.match(sit[1],/^No ritmo em Ago\/2026: R\$\s720\.000,00 de R\$\s720\.000,00 esperados$/);
  assert.match(html,/lançamentos até 05\/09\/2026/);
  assert.match(html,/ritmo-ponto parcial/);
 });

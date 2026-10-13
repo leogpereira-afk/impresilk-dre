@@ -10,7 +10,7 @@ function ctx(){
 test('"Como este painel calcula": termos da casa, cada um com a tela onde aparece',()=>{
  const c=ctx(),painel=c.json("GlossarioFinanceiro.termos.filter(t=>t.grupo==='painel')");
  assert.ok(painel.length>=20,`${painel.length} termos`);assert.equal(c.json('Object.keys(GlossarioFinanceiro.grupos)[0]'),'painel');
- for(const n of ['DRE de caixa (DRE Simples)','Material político','Saídas sem detalhamento (2.99)','Mês fechado, em andamento e pela metade','Trilha por pagamento','Retiradas e arrendamento (sócios)'])assert.ok(painel.some(t=>t.nome===n),n);
+ for(const n of ['DRE de caixa (DRE Simples)','Material político','Saídas sem detalhamento (2.99)','Mês completo, em andamento e pela metade','Trilha por pagamento','Retiradas e arrendamento (sócios)'])assert.ok(painel.some(t=>t.nome===n),n);
  const telas=c.json('Object.keys(METADATA_TELAS)'),todos=c.json('GlossarioFinanceiro.termos');
  for(const t of todos.filter(t=>t.tela))assert.ok(telas.includes(t.tela),`${t.nome} aponta para ${t.tela}`);
  assert.ok(painel.every(t=>t.tela),'todo termo do painel tem tela');

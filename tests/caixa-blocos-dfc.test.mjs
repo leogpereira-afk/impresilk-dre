@@ -78,22 +78,23 @@ test('cada conta sensível cai no mesmo bloco na tela Caixa e na DFC',()=>{
  }
 });
 
-test('cores: entrada azul e saída vermelha; financiamento sem cor; mês em andamento sem cor e marcado',()=>{
+// Decisão de 13/10 (C3 e C8): a cor segue o sentido também no financiamento e no mês em andamento.
+test('cores: entrada azul e saída vermelha, também no financiamento e no mês em andamento, que segue marcado',()=>{
  const c=context(),h=c.run('renderCaixa(regAtual())');
  assert.equal(linhaTela(h,'vendas').tom,'tom-entra');assert.equal(linhaTela(h,'das').tom,'tom-sai');
  assert.equal(linhaTela(h,'fco').tom,'tom-entra');assert.equal(linhaTela(h,'fci').tom,'tom-sai');
- for(const id of FCF(c))assert.equal(linhaTela(h,id).tom,'',`${id} é financiamento: sem cor`);
- assert.equal(linhaTela(h,'emprestimos').texto,c.run('money(2000)'),'empréstimo recebido aparece, só sem cor');
+ for(const id of FCF(c))assert.equal(linhaTela(h,id).tom,id==='emprestimos'?'tom-entra':'tom-sai',`${id} é financiamento: cor pelo sentido`);
+ assert.equal(linhaTela(h,'emprestimos').texto,c.run('money(2000)'),'empréstimo recebido aparece, em azul');
  // Out/2026 coletado até 08/10: mês em andamento
  c.run("state.periodo='Out/2026'");
  for(const tela of ["renderCaixa(regAtual())","renderResultado(regAtual())"]){
   const o=c.run(tela),blocos=o.slice(o.indexOf('data-dfc-linha'),o.lastIndexOf('data-dfc-linha')+200);
   // a mesma marca da DFC; vira "incompleto" quando o calendário passa de 31/10
   assert.match(o,/coletado (só )?até 08\/10 \(mês (em andamento|incompleto)\)/);
-  assert.doesNotMatch(blocos,/tom-entra|tom-sai/,`${tela}: mês em andamento sem cor`);
-  assert.equal(linhaTela(o,'fco').texto,c.run('money(2200)'),'os valores aparecem; só a cor espera o mês fechar');
+  assert.match(blocos,/tom-entra/,`${tela}: mês em andamento com cor`);assert.match(blocos,/tom-sai/,`${tela}: mês em andamento com cor`);
+  assert.equal(linhaTela(o,'fco').texto,c.run('money(2200)'),'os valores aparecem com a cor do sentido');assert.equal(linhaTela(o,'fco').tom,'tom-entra');assert.equal(linhaTela(o,'socios').tom,'tom-sai','retiradas em vermelho no mês em andamento');
  }
- assert.doesNotMatch(c.run('renderCaixa(regAtual())').match(/Recebimentos de vendas: <b class="([^"]*)"/)[1],/tom-/);
+ assert.match(c.run('renderCaixa(regAtual())').match(/Recebimentos de vendas: <b class="([^"]*)"/)[1],/tom-entra/,'v133: recebimento do mês em andamento também em azul');
 });
 
 test('mês sem dado nunca vira zero',()=>{

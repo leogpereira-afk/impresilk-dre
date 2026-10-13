@@ -209,6 +209,10 @@ test('tela do histórico: necessidade de giro por mês, ciclo do último fechame
  assert.match(h,/<tr class="giro-parcial"><th scope="row">Dez\/2025 \*<\/th><td class="num">R\$\s5\.000,00<\/td><td class="num">R\$\s2\.100,00<\/td><td class="num">R\$\s1\.200,00<\/td><td class="num">R\$\s4\.100,00<\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">18<\/td><td class="num">18<\/td><td class="num">34<\/td><td class="num">25<\/td><\/tr>/);
  assert.match(h,/<tr class="giro-parcial"><th scope="row">Nov\/2025 \*<\/th><td class="num">R\$\s5\.000,00<\/td><td class="num">R\$\s2\.100,00<\/td><td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><td class="num">R\$\s2\.900,00 <small>sem estoque<\/small><\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">—<\/td><td class="num">—<\/td>/,'sem estoque: estoque e ciclo não apurados, nunca zero');
  assert.match(h,/<summary>Prazos e saldos por mês · 2 fechamentos<\/summary>/);assert.doesNotMatch(h,/O histórico usou o corte/);
+ // C12: a necessidade de giro pode ser negativa, então a linha sai na cor de resultado, não no azul da marca
+ assert.match(h.slice(h.indexOf('A necessidade de giro está crescendo?'),h.indexOf('Quantos dias o dinheiro fica preso?')),/g-cor-resultado/);assert.doesNotMatch(h.slice(h.indexOf('A necessidade de giro está crescendo?'),h.indexOf('Quantos dias o dinheiro fica preso?')),/g-cor-marca/);
+ // I31: a remontagem usa os títulos como estavam no Mubisys na data dela
+ assert.match(h,/com os títulos como estavam no Mubisys nessa data:/);assert.doesNotMatch(h,/Mubisys de hoje/);
  const sem=tela({dados:await consultarGiro(banco({posicoes:[posicao('2025-12',{mes:'Dez/2025'})]}),{},AGORA)}).run('renderGiro()');assert.match(sem,/Não apurado: falta o prazo de estoque/);
  const outro=await consultarGiro(banco({posicoes:[posicao('2025-11',{corte:'2024-01-01'})]}),{},AGORA);assert.match(tela({dados:outro}).run('renderGiro()'),/O histórico usou o corte de dívida antiga 01\/01\/2024; o Painel hoje usa 01\/01\/2025\./);
 });

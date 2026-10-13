@@ -86,3 +86,9 @@ test('revisão 12/10: gráficos em contagem e vermelho; aviso de dados mudados; 
  assert.doesNotMatch(c.run('renderAuditoria()'),/Os dados mudaram/);
  c.run(`state.records.push(${JSON.stringify(reg('Abr/2026','2026-04-12',mes(0.4)))})`);assert.match(c.run('renderAuditoria()'),/Os dados mudaram depois desta auditoria/);
 });
+// C14: "Meses sem problema" é status (verde), não dinheiro; falha continua em vermelho.
+test('cartões da auditoria: meses sem problema em verde de status, falhas em vermelho',()=>{
+ const c=app(BOM,{simples:aliquotas,op:{'2026-01':{saldoInicial:1000}}});c.run('audUI.resultado=auditarTudo();audUI.resultado.limpos=audUI.resultado.meses.length');
+ const h=c.run('renderAuditoria()');assert.match(h,/<span class="label">Meses sem problema<\/span><strong class="st-ok">3<\/strong>/);assert.doesNotMatch(h,/Meses sem problema<\/span><strong class="tom-/);
+ c.run('audUI.resultado.limpos=1');assert.match(c.run('renderAuditoria()'),/<span class="label">Meses sem problema<\/span><strong class="">1<\/strong>/);
+});

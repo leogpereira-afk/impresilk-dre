@@ -1,5 +1,6 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';
 import * as M from '../indicadores-modelo.mjs';
+import fs from 'node:fs';import vm from 'node:vm';
 import {consultarIndicadores} from '../supabase/functions/dre-sync/indicadores.mjs';
 const p={de:'2026-09-01',ate:'2026-09-30'};
 const event=(id,valor,extra={})=>({empresa:'Impresilk',tituloId:'T',pagamentoId:id,indiceNaColeta:0,data:'2026-09-02',natureza:'entrada',nomeConta:'Vendas',valor,...extra});
@@ -74,7 +75,7 @@ test('revisão 12.3: mês pela metade, mês sem trilha cortado, base diferente, 
  const a=mesConta('Out/2025','2025-10-31',[C('1','Receitas',1000),C('1.1','CV',1000),C('2','Despesas',400),C('2.1','Pessoal',400)]);
  const b=mesConta('Out/2026','2026-10-08',[C('1','Receitas',300),C('1.1','CV',300),C('2','Despesas',100),C('2.1','Pessoal',100)]);
  const out={de:'2026-10-01',ate:'2026-10-31'},r=M.compararAno([a,b],out,'recebimentos');
- assert.equal(r.disponivel,false,'outubro coletado até 08/10 não vira queda');assert.match(r.motivo,/Out\/2026 tem lançamentos só até 08\/10\/2026; o comparativo espera o mês fechar/);
+ assert.equal(r.disponivel,false,'outubro coletado até 08/10 não vira queda');assert.match(r.motivo,/Out\/2026 tem lançamentos só até 08\/10\/2026; o comparativo espera o mês terminar/);
  assert.equal(M.mesCortado({periodo:'Out/2026',corte:'2026-10-08'},'2026-10-08'),false,'intervalo até o dia do corte não está cortado');
  // julho sem trilha cortado pelo intervalo de um lado
  const j25=mesConta('Jul/2025','2025-07-31',[C('1','Receitas',100),C('1.1','CV',100)]),j26={...mesConta('Jul/2026','2026-07-31',[C('1','Receitas',100),C('1.1','CV',100)]),eventos:[event('x',100,{data:'2026-07-20'})]};
@@ -90,4 +91,44 @@ test('revisão 12.3: mês pela metade, mês sem trilha cortado, base diferente, 
  const v=M.compararAno([s26],{de:'2026-09-01',ate:'2026-09-30'},'variacao');assert.match(v.motivo,/não compara/);
  // CSV: número negativo continua número; texto que começa com sinal continua protegido
  assert.equal(M.csvCelula('-40000,00'),'"-40000,00"');assert.equal(M.csvCelula('-1.234,50'),'"-1.234,50"');assert.equal(M.csvCelula('-cmd'),'"\'-cmd"');assert.equal(M.csvCelula('=HYPERLINK(1)'),'"\'=HYPERLINK(1)"');
+});
+
+// ── v133 (I6, I5): percentual só com base positiva; mês sem trilha não é "leitura parcial" ──
+test('compararAno: base anterior negativa ou zero e atual negativo ficam sem percentual; base positiva continua igual',()=>{
+ const p={de:'2026-09-01',ate:'2026-09-30'};
+ const mes=(label,ate,ent,sai)=>mesConta(label,ate,[C('1','Receitas',ent),C('1.1','CV',ent),C('2','Despesas',sai),C('2.1','Pessoal',sai)]);
+ // variação do caixa: -200 em 2025 e +300 em 2026; antes dava +250% sobre a base negativa
+ let r=M.compararAno([mes('Set/2025','2025-09-30',800,1000),mes('Set/2026','2026-09-30',1300,1000)],p,'variacao');
+ assert.deepEqual([r.disponivel,r.atual,r.anterior,r.delta,r.percentual],[true,300,-200,500,null],'base negativa: sem percentual, o R$ continua');
+ r=M.compararAno([mes('Set/2025','2025-09-30',1000,1000),mes('Set/2026','2026-09-30',1300,1000)],p,'variacao');
+ assert.deepEqual([r.anterior,r.delta,r.percentual],[0,300,null],'base zero: sem percentual');
+ r=M.compararAno([mes('Set/2025','2025-09-30',1100,1000),mes('Set/2026','2026-09-30',900,1000)],p,'variacao');
+ assert.deepEqual([r.atual,r.anterior,r.delta,r.percentual],[-100,100,-200,null],'atual negativo sobre base positiva: sem percentual');
+ r=M.compararAno([mes('Set/2025','2025-09-30',600,1000),mes('Set/2026','2026-09-30',500,1000)],p,'variacao');
+ assert.equal(r.percentual,null,'dois negativos não viram +X%');
+ r=M.compararAno([mes('Set/2025','2025-09-30',1000,400),mes('Set/2026','2026-09-30',1200,500)],p,'recebimentos');
+ assert.equal(r.percentual,20,'base positiva inalterada');
+});
+test('histórico: mês fechado sem trilha é total do mês completo, sem marca; mês cortado leva "*"',()=>{
+ const set=mesConta('Set/2025','2025-09-30',[C('1','Receitas',1000),C('1.1','CV',1000),C('2','Despesas',400),C('2.1','Pessoal',400)]);
+ const out=mesConta('Out/2025','2025-10-10',[C('1','Receitas',300),C('1.1','CV',300),C('2','Despesas',100),C('2.1','Pessoal',100)]);
+ for(const fonte of ['recebimentos','pagamentos','variacao']){
+  const h=M.historicoCaixa([set,out],{de:'2025-10-01',ate:'2025-10-31'},fonte);
+  assert.match(h[8].nota,/Total do mês completo; sem trilha por pagamento/,fonte);assert.doesNotMatch(h[8].nota,/Leitura parcial/,fonte);assert.equal(h[8].marca,'',fonte);
+  assert.equal(h[9].fechado,false);assert.equal(h[9].marca,'*','mês pela metade é incompleto');assert.doesNotMatch(h[9].nota,/Total do mês completo/);
+ }
+ const t=reg([event('a',100)],{company:'Impresilk + Universo',basis:'Caixa',qualidade:{ate:'2026-09-30',apiContratoValidado:false}});
+ const h=M.historicoCaixa([t],{de:'2026-09-01',ate:'2026-09-30'},'recebimentos');
+ assert.equal(h[8].marca,'°','fechado com cobertura a conferir usa outro sinal');assert.match(h[8].nota,/cobertura a conferir/);
+});
+test('v133 (I19): DREIndicadores.area escolhe a área e a fonte e recomeça os filtros; o botão do CFO leva a Margem',()=>{
+ const c=vm.createContext({M,window:{},document:{addEventListener(){}}});
+ vm.runInContext(fs.readFileSync(new URL('../indicadores.js',import.meta.url),'utf8').replace(/^import \* as M from [^\n]*\n/,''),c);
+ const ui=()=>JSON.parse(vm.runInContext('JSON.stringify({area:ui.area,fonte:ui.fonte,dimensao:ui.dimensao,query:ui.query,grupo:ui.grupo})',c));
+ vm.runInContext("ui.query='lona';ui.grupo='Vendas'",c);
+ c.window.DREIndicadores.area('Margem');assert.deepEqual(ui(),{area:'Margem',fonte:'margem',dimensao:'cliente',query:'',grupo:''},'Margem abre na margem por O.S., por cliente');
+ c.window.DREIndicadores.area('Resultado','competencia');assert.deepEqual([ui().area,ui().fonte,ui().dimensao],['Resultado','competencia','grupo']);
+ c.window.DREIndicadores.area('Receita','margem');assert.equal(ui().fonte,'recebimentos','fonte de outra área cai na primeira da área');
+ c.window.DREIndicadores.area('Inexistente');assert.equal(ui().area,'Receita','área desconhecida não muda nada');
+ assert.match(fs.readFileSync(new URL('../app.js',import.meta.url),'utf8'),/\[data-go\]'\)\.forEach\(b=>b\.onclick=\(\)=>\{if\(b\.dataset\.indArea\)window\.DREIndicadores\?\.area\?\.\(b\.dataset\.indArea,b\.dataset\.indFonte\);state\.view=b\.dataset\.go;render\(\);\}\)/,'o [data-go] passa a área antes de abrir a tela');
 });

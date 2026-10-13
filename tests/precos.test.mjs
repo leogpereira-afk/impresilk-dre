@@ -38,14 +38,15 @@ test('tela: quatro cards, base dita, dois gráficos e o simulador, tabela do ano
  assert.match(h,/Para a meta de resultado do mês de R\$\s2\.000,00 em Set\/2026 \(Parâmetros; depois de juros e tarifas\), as vendas precisam chegar a R\$\s8\.666,67 por mês\./,'(2.333,33 + 2.000) ÷ 50%');
  assert.match(h,/alíquota observada de 8%/);
  assert.equal((h.match(/<figure class="g-fig g-(empilhadas|cascata)/g)||[]).length,2);assert.match(h,/data-precos-sim/);
- assert.match(h,/<tr class="selected-month"><th scope="row">Set\/2026<\/th><td class="num">R\$\s10\.000,00<\/td><td class="num">R\$\s1\.000,00<\/td><td class="num">R\$\s4\.000,00<\/td><td class="num">R\$\s5\.000,00<\/td><td class="num">50%<\/td><td class="num">R\$\s2\.000,00<\/td><td class="num">R\$\s4\.666,67<\/td><td class="num tom-entra">R\$\s5\.333,33<\/td><\/tr>/);
+ assert.match(h,/<tr class="selected-month"><th scope="row">Set\/2026<\/th><td class="num tom-entra">R\$\s10\.000,00<\/td><td class="num tom-sai">R\$\s1\.000,00<\/td><td class="num tom-sai">R\$\s4\.000,00<\/td><td class="num tom-entra">R\$\s5\.000,00<\/td><td class="num">50%<\/td><td class="num tom-sai">R\$\s2\.000,00<\/td><td class="num">R\$\s4\.666,67<\/td><td class="num tom-entra">R\$\s5\.333,33<\/td><\/tr>/,'C6: cada coluna de dinheiro com o tom do sentido');
+ assert.doesNotMatch(h.match(/<tr><th scope="row">Out\/2026 \*<\/th>.*?<\/tr>/)[0],/tom-(entra|sai)/,'C6: mês em andamento sem tom');
  assert.match(h,/<tr><th scope="row">Out\/2026 \*<\/th>[\s\S]*?<td class="num "><span class="muted"/,'mês em andamento sem distância nem cor');
  assert.match(h,/<tr><th scope="row">Jan\/2026<\/th><td class="num"><span class="muted"/,'mês sem dados: —');
  assert.match(tela().run('paginasDoApp().precos()'),/Ponto de equilíbrio/);
 });
 test('mês escolhido em andamento: distância não apurada; sem meses fechados: estado vazio',()=>{
- const k=cartoes(tela({periodo:'Out/2026'}).run('renderPrecos()'));assert.deepEqual([k[2].valor,k[2].tom],['Não apurado','']);assert.match(k[2].nota,/Out\/2026 ainda não fechou/);
- const h=tela({periodo:'Mai/2026'}).run('renderPrecos()');assert.match(h,/<h2>Sem meses fechados até Mai\/2026<\/h2>/);assert.deepEqual(cartoes(h).map(x=>x.valor),['Não apurado','Não apurado','Não apurado','Não apurado']);
+ const k=cartoes(tela({periodo:'Out/2026'}).run('renderPrecos()'));assert.deepEqual([k[2].valor,k[2].tom],['Não apurado','']);assert.match(k[2].nota,/Out\/2026 ainda está em andamento/);
+ const h=tela({periodo:'Mai/2026'}).run('renderPrecos()');assert.match(h,/<h2>Sem meses completos até Mai\/2026<\/h2>/);assert.deepEqual(cartoes(h).map(x=>x.valor),['Não apurado','Não apurado','Não apurado','Não apurado']);
 });
 test('simulador: markup divisor, impostos à escolha, fixas de hoje por padrão e "não fecha" acima de 100%',()=>{
  const c=tela({simples:{'2026-09':{impresilk:{aliquota:9.5}}}});
@@ -80,7 +81,7 @@ test('distância: sem equilíbrio, mês não coletado e mês incompleto têm tex
 test('média com mês pulado diz quais meses usou e o que ficou de fora; plural certo',()=>{
  const incompleto=REG.map(r=>r.label==='Ago/2026'?{...r,qualidade:{...r.qualidade,ate:'2026-08-20'}}:r),h=tela({registros:incompleto}).run('renderPrecos()');
  assert.match(h,/média de Jun\/2026, Jul\/2026 e Set\/2026 \(Ago\/2026 incompleto ficou de fora\)/);assert.doesNotMatch(h,/média de Jun\/2026 a Set\/2026/);
- const dois=tela({periodo:'Jul/2026'}).run('renderPrecos()');assert.match(dois,/\(só 2 meses fechados\)/);assert.doesNotMatch(dois,/mêses/);
+ const dois=tela({periodo:'Jul/2026'}).run('renderPrecos()');assert.match(dois,/\(só 2 meses completos\)/);assert.doesNotMatch(dois,/meses fechados|mês fechado/,'I4: Fechado só na Conferência');assert.doesNotMatch(dois,/mêses/);
  const c=tela(),j=c.json("precoBase('Jul/2026')");assert.deepEqual([j.vendas,j.fixas,j.mc,j.pe],[7500,1500,3750,3000]);
 });
 test('meta: juros e tarifas entram na conta; meta negativa não vira venda negativa',()=>{
@@ -100,7 +101,7 @@ test('cascata e tabela: Simples, ISS e devoluções, resultado sem juros; percen
  assert.equal(b.devolucoes,100);assert.equal(b.pct.dev,0.86,'100 ÷ 11.666,67, com duas casas');
  const cas=h.slice(h.indexOf('g-cascata'),h.indexOf('</figure>',h.indexOf('g-cascata')));
  assert.match(cas,/Simples pago<\/th><td[^>]*>-R\$\s933,33/);assert.match(cas,/ISS e devoluções<\/th><td[^>]*>-R\$\s333,33/);assert.match(cas,/Resultado operacional<\/th><td[^>]*>R\$\s3\.400,00/,'margem 5.733,33 − fixas 2.333,33; a tarifa não entra');
- assert.match(h,/<th scope="row">Set\/2026<\/th><td class="num">R\$\s10\.000,00<\/td><td class="num">R\$\s1\.300,00<\/td>/,'DAS + DARF + ISS + devolução');
+ assert.match(h,/<th scope="row">Set\/2026<\/th><td class="num tom-entra">R\$\s10\.000,00<\/td><td class="num tom-sai">R\$\s1\.300,00<\/td>/,'DAS + DARF + ISS + devolução');
  assert.match(h,/g-selecionado[^>]*>Set</);
 });
 test('simulador: bordas e o que foi digitado continua depois de redesenhar',()=>{
@@ -123,7 +124,7 @@ test('planilha (Fase 11.5): base, números, mês a mês do ano e o simulador; fo
  assert.deepEqual(linha('Ponto de equilíbrio (vendas por mês)').slice(0,2),['Ponto de equilíbrio (vendas por mês)','4666,67']);
  assert.deepEqual(linha('Margem de contribuição (média)'),['Margem de contribuição (média)','5833,33','50,00% das vendas']);
  assert.equal(linha('Distância do equilíbrio em Out/2026')[1],'Não apurado','mês em andamento');
- assert.deepEqual(linha('Set/2026').slice(-1),['fechado']);assert.deepEqual(linha('Out/2026').slice(-1),['em andamento ou incompleto']);assert.deepEqual(linha('Dez/2026').slice(1,2),['Não apurado']);
+ assert.deepEqual(linha('Set/2026').slice(-1),['completo']);assert.deepEqual(linha('Out/2026').slice(-1),['em andamento ou incompleto']);assert.deepEqual(linha('Dez/2026').slice(1,2),['Não apurado']);
  assert.equal(rows.some(r=>r[0]==='Simulador de preço'),false,'simulador vazio não entra');
  c.run(`precosUI.custo='100';precosUI.lucro='10'`);const r2=c.json('precosCSV()');assert.ok(r2.some(r=>r[0]==='Preço'&&/^\d+,\d{2}$/.test(r[1])));
  assert.equal(tela({periodo:'Mai/2026'}).json('precosCSV()'),null,'sem meses fechados: sem planilha');
@@ -137,7 +138,7 @@ test('avaliação: margem 50% boa, fixas 20% e equilíbrio 40% das vendas excele
  assert.deepEqual(aval(h),['boa','excelente','excelente','excelente'],'margem, equilíbrio, distância, fixas');
  assert.match(h,/sobra de 45% a 55% de cada venda: produção controlada/);assert.match(ler('glossario.js'),/Níveis de margem na comunicação visual/);assert.match(h,/40% das vendas médias/);assert.match(h,/Margem de segurança: 53,3% das vendas do mês/);
  assert.match(h,/aria-label="Margem de contribuição 50%: boa\. Faixas: excelente a partir de 55%, boa de 45% a 55%, ruim abaixo de 45%\./);
- assert.match(h,/Mesmo período de 2025: sem os mesmos meses fechados/,'sem 2025 na base: diz, não inventa');
+ assert.match(h,/Mesmo período de 2025: sem os mesmos meses completos/,'sem 2025 na base: diz, não inventa');
  const c=tela();assert.deepEqual(['mc','pe','seguranca','fixas'].map(k=>c.json(`precoAvaliar('${k}',${{mc:44.9,pe:70.1,seguranca:29.9,fixas:35.1}[k]})`).nivel),['ruim','ruim','ruim','ruim']);
  assert.deepEqual(['mc','pe','seguranca','fixas'].map(k=>c.json(`precoAvaliar('${k}',${{mc:55,pe:50,seguranca:50,fixas:25}[k]})`).nivel),['excelente','excelente','excelente','excelente'],'borda é do lado melhor');
  assert.equal(c.json('precoAvaliar("mc",null)'),null);
@@ -158,7 +159,9 @@ test('chip Ano: média dos meses fechados do ano, distância pelas vendas média
  const c=tela({registros:ANOS,periodo:'Set/2026'});c.run('state.anoTodo=true');
  const b=c.json("precoBaseTela('Set/2026')");assert.deepEqual(b.meses,['Jun/2026','Jul/2026','Ago/2026','Set/2026']);
  const h=c.run('renderPrecos()'),k=cartoes(h);
- assert.equal(k[3].rotulo,'Despesas fixas por mês (média do ano)');assert.match(k[0].nota,/média de Jun\/2026 a Set\/2026 \(Jan\/2026 a Mai\/2026 sem dados ficaram de fora\) \(4 meses fechados de 2026\)/);
+ assert.equal(k[3].rotulo,'Despesas fixas por mês (média do ano)');assert.match(k[0].nota,/média de Jun\/2026 a Set\/2026 \(Jan\/2026 a Mai\/2026 sem dados ficaram de fora\) \(4 meses completos de 2026\)/);
+ // D33: no Ano, o mês em andamento não fica destacado na tabela nem no gráfico
+ const tab=h.slice(h.indexOf('precos-tabela'));assert.doesNotMatch(tab,/class="selected-month"/,'D33: nenhuma linha destacada no Ano');assert.equal(c.run("state.anoTodo=false;renderPrecos()").slice(c.run("renderPrecos()").indexOf('precos-tabela')).match(/class="selected-month"/g)?.length,1,'no mês, a linha do mês continua destacada');
  assert.match(k[2].nota,/^Vendas por mês \(R\$\s10\.000,00, média/);assert.match(h,/Mesmos meses de 2025/);
  assert.match(tela({registros:ANOS,periodo:'Set/2026'}).run("state.anoTodo=true;precosCSV=precosCSV;__b=null;download=(n,c)=>{__b=c};precosCSV();__b"),/Jun\/2026, Jul\/2026, Ago\/2026, Set\/2026/);
 });

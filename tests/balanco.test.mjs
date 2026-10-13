@@ -29,7 +29,7 @@ function tela({periodo='Set/2026',registros=REG,op=OP,balanco=BAL,hist=HIST(),da
  if(d)c.run('giroUI.dados=__d;giroUI.em=Date.now()');return c;
 }
 const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],tom:m[2],valor:m[3].replace(/\s/g,' '),nota:m[4].replace(/\s/g,' ')}));
-const linha=(h,nome)=>{const t=h.slice(h.indexOf('bal-tabela" style='));const m=new RegExp(`<tr class="dre-l-detalhe"><th scope="row">${nome.replace(/[()*]/g,'\\$&')}( \\*)?( †)?</th><td class="num">((?:(?!</td>).)*)</td><td>([^<]*)</td></tr>`).exec(t);return m?{valor:m[3].replace(/<[^>]*>/g,'').replace(/\s/g,' '),origem:m[4],marca:!!m[1],herdado:!!m[2]}:null;};
+const linha=(h,nome)=>{const t=h.slice(h.indexOf('bal-tabela" style='));const m=new RegExp(`<tr class="dre-l-detalhe"><th scope="row">${nome.replace(/[()*]/g,'\\$&')}( ≈)?( †)?</th><td class="num">((?:(?!</td>).)*)</td><td>([^<]*)</td></tr>`).exec(t);return m?{valor:m[3].replace(/<[^>]*>/g,'').replace(/\s/g,' '),origem:m[4],marca:!!m[1],herdado:!!m[2]}:null;};
 
 test('servidor: cada classe do a pagar sem o corte de 60 dias, total do a pagar e o que fica fora, à parte',()=>{
  const m=resumirHistorico([pos('2026-09')]).meses[0];
@@ -64,7 +64,7 @@ test('sem contar duas vezes: o saldo devedor informado substitui as parcelas do 
  const sem=tela({balanco:{'2026-08':{imobilizado:100000}}}),b=sem.json("balApurar('Set/2026',giroUI.dados.historico.meses,dfcSaldos())");
  assert.deepEqual([b.linhas.emprestimos.valor,b.linhas.emprestimos.aproximado,b.parcial],[7500,true,true]);assert.deepEqual(b.aproximados,['emprestimos']);assert.deepEqual(b.semCadastro,['parcelamento']);
  assert.match(b.linhas.emprestimos.nota,/com vencimento até 10\/10\/2028 \(2 anos depois da remontagem\), com os juros a vencer: informe o saldo devedor em Parâmetros/);
- const h=sem.run('renderBalanco()');assert.equal(linha(h,'Empréstimos e financiamentos').marca,true,'aproximado leva *');
+ const h=sem.run('renderBalanco()');assert.equal(linha(h,'Empréstimos e financiamentos').marca,true,'aproximado leva ≈');
  assert.match(cartoes(h)[2].nota,/ · parcial: sem parcelamento do DAS; empréstimos aproximado · último informado: imobilizado de Ago\/2026$/);
  // sem parcelas no Mubisys e sem cadastro: não informado (nunca zero)
  const zero=pos('2026-09');zero.pagar.porCentro=zero.pagar.porCentro.filter(x=>!/Empr/.test(x.rotulo));zero.pagar.alemPorCentro=zero.pagar.alemPorCentro.filter(x=>!/Empr/.test(x.rotulo));
@@ -161,7 +161,12 @@ test('ano mês a mês e planilha: mesmas regras, sem fórmula executável; rota 
  assert.deepEqual(rows.find(r=>r[0]==='Patrimônio líquido').slice(7,10),['Não apurado','118700,00','103700,00']);
  assert.equal(rows.find(r=>r[0]==='Caixa e bancos')[8],'23000,00');
  const h=c.run('renderBalanco()');assert.match(h,/<summary>Balanço mês a mês · 2026<\/summary><div class="card-body"><div class="actions"><button type="button" data-bal-csv>/);assert.match(h,/<th scope="col" class="num ">Ago\/2026 \*<\/th>/);assert.match(h,/<th scope="col" class="num selected-month">Set\/2026 †<\/th>/);
- assert.match(h,/<td class="num selected-month">R\$\s100\.000,00 †<\/td>/,'célula herdada marcada');assert.match(h,/<td class="num ">R\$\s7\.500,00 \*<\/td>/,'célula aproximada marcada');assert.match(h,/class="tabela-controle dre-simples-meses bal-meses"/);
+ assert.match(h,/<td class="num selected-month">R\$\s100\.000,00 †<\/td>/,'célula herdada marcada');assert.match(h,/<td class="num ">R\$\s7\.500,00 ≈<\/td>/,'célula aproximada marcada');assert.match(h,/class="tabela-controle dre-simples-meses bal-meses"/);
+ // C10: PL mês a mês pelo sinal, como o cartão e o balanço por conta; mês parcial sem tom
+ const pl=h.match(/<tr class="dre-l-resultado"><th scope="row">Patrimônio líquido<\/th>.*?<\/tr>/)[0];
+ assert.match(pl,/<td class="num ">R\$\s118\.700,00<\/td>/,'PL do mês parcial sem tom');assert.match(pl,/<td class="num selected-month tom-entra">R\$\s103\.700,00<\/td>/,'PL positivo em azul');
+ // I14: * só para mês em andamento ou incompleto; aproximado com ≈
+ assert.match(h,/\* = mês em andamento ou incompleto · ≈ = aproximado · † = saldo de um mês anterior/);assert.doesNotMatch(h,/\* = aproximado/);
  assert.match(c.run('paginasDoApp().balanco()'),/Ativo total/);
  const x=tela({dados:null});x.run('renderBalanco()');x.run('renderBalanco()');await new Promise(r=>setTimeout(r,0));await new Promise(r=>setTimeout(r,0));assert.equal(x.__chamadas,1,'uma leitura por minuto');assert.ok(x.__renders>=1,'redesenha o balanço quando a leitura chega');
 });

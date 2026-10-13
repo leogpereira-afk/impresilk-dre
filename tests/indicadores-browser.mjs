@@ -13,6 +13,7 @@ let fail=false;
 await page.route('https://heveemylixartyijxewh.supabase.co/**',async route=>{
  let b={};try{b=route.request().postDataJSON()||{};}catch{}let r={ok:true};
  if(b.acao==='eu')r={ok:true};
+ if(b.action==='indice')r={erro:'Ação desconhecida: indice'};// servidor antigo: o app lê a lista inteira
  if(b.action==='permissions')r={ok:true,permissoes:{leitura:true,edicao:false,admin:false}};
  if(b.action==='list')r={ok:true,itens:[reg,{...reg,id:'Jan_2026',label:'Jan/2026',company:'Impresilk',eventos:[]},{...reg,id:'Dez_2025',label:'Dez/2025',company:'Impresilk',eventos:[]}],nextOffset:null};
  if(b.action==='getCfg')r={ok:true,cfg,atualizadoEm:null};

@@ -151,7 +151,7 @@ test('planilha e nomes do ERP escapados; fórmula não executa no CSV',()=>{
  const p2=P();p2.titulosVencidos[0].cliente='=HYPERLINK("x")';const c2=tela({payload:p2});c2.run('download=(n,t)=>{__csv={n,t}}');c2.run('recCSV()');assert.match(c2.run('__csv.t'),/"'=HYPERLINK\(""x""\)"/);
 });
 test('versão publicada e a tela está no menu certo',()=>{
- assert.match(ler('sw.js'),/dre-shell-v132/);assert.equal((ler('index.html').match(/\?v=(\d+)/g)||[]).every(v=>v==='?v=132'),true);
+ assert.match(ler('sw.js'),/dre-shell-v133/);assert.equal((ler('index.html').match(/\?v=(\d+)/g)||[]).every(v=>v==='?v=133'),true);
  assert.match(ler('app.js'),/recebiveis:\['Recebíveis e aging','Quem deve, há quanto tempo e quanto está em risco, na posição que o Painel atualiza a cada 20 minutos\.'\]/);
 });
 
@@ -192,6 +192,11 @@ test('tela: textos de prazo sem dado, concentração com demais, série por sema
  assert.equal(Math.round(6000/7550*1000)/10,79.5);assert.match(h2,/os cinco primeiros somam 79,5% do vencido\. Os demais 2 devedores somam R\$\s300,00\./);assert.match(h2,/g-cor-saida/,'dívida vencida não usa o azul de dinheiro que entra');
  const sem13=JSON.parse(c.run('JSON.stringify(recSemanas(recUI.dados.prazo.serie))'));assert.equal(sem13.length,13);assert.deepEqual(sem13.at(-1),{rotulo:'10/10',valor:119});assert.deepEqual(sem13.at(-2),{rotulo:'04/10',valor:113},'um ponto por semana: o domingo anterior');
  assert.match(h2,/Idade média da carteira: de \d+ dias em \d\d\/\d\d para 119 dias em 10\/10\./);
+});
+test('títulos vencidos no celular: Cliente, Valor e Dias primeiro (D10)',()=>{
+ const h=tela({payload:P()}).run('renderRecebiveis()'),t=h.slice(h.indexOf('rec-titulos'));
+ assert.deepEqual([...t.slice(0,t.indexOf('</thead>')).matchAll(/<th scope="col"[^>]*>([^<]*)<\/th>/g)].map(m=>m[1]),['Cliente','Valor','Dias','Vencimento','NF','O.S.']);
+ assert.match(t,/<tr><th scope="row">[^<]*<\/th><td class="num">R\$\s[\d.,]+<\/td><td class="num">\d+<\/td>/,'a linha segue a mesma ordem');
 });
 test('nomes, NF e O.S. do ERP escapados em card, gráfico e tabela',()=>{
  const p=P();p.clientes.itens[0].nome='<img src=x onerror=alert(1)>';p.titulosVencidos[0].nf='<svg onload=alert(2)>';p.titulosVencidos[0].os='<b>OS</b>';

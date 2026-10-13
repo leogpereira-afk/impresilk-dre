@@ -25,15 +25,15 @@ test('planilha em árvore: grupos de 1º nível abertos, filhos escondidos até 
  c.run("planoUI.matriz=new Set()");assert.match(c.run('tabelaPlano(contextoPlano())'),/data-plano-linha="2\.5\.3" data-ancestrais="2" hidden/,'2 recolhido esconde a Cemig');
  c.run("state.consulta='cemig'");assert.doesNotMatch(c.run('tabelaPlano(contextoPlano())'),/ hidden>/,'busca abre tudo');
 });
-test('colunas do ano: total, ano anterior só nos meses fechados nos dois anos e a diferença na cor do sentido',()=>{
+test('colunas do ano: total, ano anterior só nos meses completos nos dois anos (com o tom da conta) e a diferença em bom ou ruim',()=>{
  const c=ctx();comAnos(c);c.run("planoUI.matriz=new Set(['1','2'])");const h=c.run('tabelaPlano(contextoPlano())');
  assert.match(h,/Total 2026<\/th><th scope="col" class="num plano-ano">2025<small>Ago a Set<\/small><\/th><th scope="col" class="num plano-ano">Δ 2026 × 2025/);
- // Cemig: 100 + 150 = 250 em 2026; 200 em 2025 nos mesmos meses: +25% de saída = vermelho
- assert.match(h,/data-plano-linha="2\.5\.3"[\s\S]*?<td class="num plano-ano tom-sai">250,00<\/td><td class="num plano-ano">200,00<\/td><td class="num plano-ano tom-sai"[^>]*>\+25%<\/td>/);
+ // Cemig: 100 + 150 = 250 em 2026; 200 em 2025 nos mesmos meses: +25% de saída = ruim (vermelho); o ano anterior leva o tom da conta (v133)
+ assert.match(h,/data-plano-linha="2\.5\.3"[\s\S]*?<td class="num plano-ano tom-sai">250,00<\/td><td class="num plano-ano tom-sai"[^>]*>200,00<\/td><td class="num plano-ano delta-ruim"[^>]*>▲ 25%<\/td>/);
  // Entradas: 2.000 contra 1.600: +25% em azul
  const linha1=h.slice(h.indexOf('data-plano-linha="1"'),h.indexOf('</tr>',h.indexOf('data-plano-linha="1"')));
- assert.match(linha1,/<td class="num plano-ano tom-entra">2\.000,00<\/td><td class="num plano-ano">1\.600,00<\/td><td class="num plano-ano tom-entra"[^>]*>\+25%<\/td>/,'entradas subiram: azul');
- const sem=ctx();assert.match(sem.run('tabelaPlano(contextoPlano())'),/sem meses fechados em 2026 e 2025 para comparar/);
+ assert.match(linha1,/<td class="num plano-ano tom-entra">2\.000,00<\/td><td class="num plano-ano tom-entra"[^>]*>1\.600,00<\/td><td class="num plano-ano delta-bom"[^>]*>▲ 25%<\/td>/,'entradas subiram: azul, com seta (C11)');
+ const sem=ctx();assert.match(sem.run('tabelaPlano(contextoPlano())'),/sem meses completos em 2026 e 2025 para comparar/);
 });
 test('chip Ano no Plano de contas: o Dashboard compara o ano com o anterior nos mesmos meses',()=>{
  const c=ctx();comAnos(c);c.run("state.anoTodo=true;state.contaSelecionada='2.5.3'");const h=c.run('dashboardPlano(contextoPlano())');
@@ -44,7 +44,7 @@ const J=(c,s)=>JSON.parse(c.run(`JSON.stringify(${s})`));
 test('revisão 12.5: base diferente não compara; código 51+ com nomes diferentes não soma nem compara; conta nova não vira zero; centavos; planilha só na aba dela',()=>{
  // 2025 de outra empresa: nada a comparar
  const a=ctx();a.run(`state.records=[...state.records,...['Ago','Set'].map((m,i)=>({label:m+'/2025',company:'Impresilk',basis:'Caixa',origem:'erp',qualidade:{ate:i?'2025-09-30':'2025-08-31',estado:'aguardando-conferencia',regra:'caixa-v2',escopo:'compõe DRE'},cells:[{code:'1',name:'Entradas',value:800},{code:'2',name:'Saídas',value:400},{code:'2.5.3',name:'Cemig',value:100}]}))];dfcHoje=()=>'2026-10-12';`);
- assert.match(a.run('tabelaPlano(contextoPlano())'),/sem meses fechados em 2026 e 2025 para comparar/);
+ assert.match(a.run('tabelaPlano(contextoPlano())'),/sem meses completos em 2026 e 2025 para comparar/);
  // código 51+ reaproveitado: Agência em 2025, Acabamento e Lona em 2026
  const b=ctx();comAnos(b);b.run(`state.records.find(r=>r.label==='Ago/2026').cells.push({code:'2.12.51',name:'Acabamento',value:200});state.records.find(r=>r.label==='Set/2026').cells.push({code:'2.12.51',name:'Lona',value:900});state.records.find(r=>r.label==='Ago/2025').cells.push({code:'2.12.51',name:'Agência',value:300});`);
  const r51=J(b,"(()=>{const x=contextoPlano();return planoAno(x,'2.12.51',planoMesesComparaveis(x));})()");
@@ -80,5 +80,49 @@ test('entradas e saídas juntas no chip Ano: mesmos meses do ano anterior e o sa
  const c=ctx();comAnos(c);c.run("state.anoTodo=true;planoUI.juntas=true");const h=c.run('dashboardPlano(contextoPlano())');
  assert.match(h,/Ano 2026 contra 2025/);assert.match(h,/Entradas · Ago a Set<\/small><strong class="tom-entra">R\$\s2\.000,00<\/strong><small>2025: R\$\s1\.600,00 · \+25%/);
  assert.match(h,/Nos mesmos meses \(Ago a Set\), as saídas consumiram 50% das entradas, contra 50% em 2025\. O saldo melhorou R\$\s200,00\./);
- const sem=ctx();sem.run("state.anoTodo=true;planoUI.juntas=true");assert.match(sem.run('dashboardPlano(contextoPlano())'),/Sem meses fechados, da mesma base, em 2026 e 2025/);
+ const sem=ctx();sem.run("state.anoTodo=true;planoUI.juntas=true");assert.match(sem.run('dashboardPlano(contextoPlano())'),/Sem meses completos, da mesma base, em 2026 e 2025/);
+});
+
+// ── v133: cor das diferenças, celular, Ano e PDF ──
+test('v133: diferença do mês com seta e tom de bom ou ruim, cabeçalho curto "Δ <mês>" e série com sentido',()=>{
+ const c=ctx();c.run("state.contaSelecionada='2.5';state.comparar='Ago/2026';state.records.forEach((r,i)=>r.cells.push({code:'2.5',name:'Fixas',value:i?150:100},{code:'2.5.9',name:'Gás',value:i?50:0}))");
+ const h=c.run('dashboardPlano(contextoPlano())');
+ // despesa fixa subiu R$ 50: ruim (vermelho), com ▲ e sem sinal
+ assert.match(h,/Diferença entre os meses<\/small><strong class="delta-ruim">▲ R\$\s50,00<\/strong>/);
+ assert.match(h,/<th class="num">Δ Ago\/2026<\/th>/);assert.doesNotMatch(h,/Diferença para/);
+ assert.match(h,/<td class="num delta-ruim">▲ R\$\s50,00<\/td>/,'subconta Gás subiu: ruim');
+ c.run("state.contaSelecionada='1';state.records[1].cells.find(x=>x.code==='1').value=800");
+ assert.match(c.run('dashboardPlano(contextoPlano())'),/<strong class="delta-ruim">▼ R\$\s200,00<\/strong>/,'entrada caiu: ruim');
+ assert.match(c.run('comparativosConta(contextoPlano())'),/<td class="num delta-ruim">▼ R\$\s200,00<\/td>/,'Δ mês anterior com a mesma regra');
+ // dívida (2.13) e sócios (2.14) não são bom nem ruim por si
+ assert.equal(c.run("planoDeltaTom('2.14.2',100)"),'');assert.equal(c.run("planoDeltaTom('2.5.3',-10)"),'delta-bom');
+});
+test('v133: legenda fora da área que rola, "*" só para mês incompleto e "°" para cobertura a conferir',()=>{
+ const c=ctx();c.run("planoUI.aba='planilha';state.records[0].qualidade.estado='cobertura-nao-validada';state.records[1].qualidade.ate='2026-09-20'");
+ const h=c.run('tabelaPlano(contextoPlano())');
+ assert.doesNotMatch(h,/<caption>/);assert.match(h,/<p class="hint plano-legenda">[\s\S]*\* = mês em andamento ou incompleto · ° = cobertura a conferir/);
+ assert.match(h,/<th scope="col" class="num ">Ago °<\/th>/);assert.match(h,/<th scope="col" class="num selected-month">Set \*<\/th>/);
+ assert.match(h,/<span hidden data-plano-esquerda> · Jan a Ago à esquerda/,'aviso dos meses à esquerda, que só aparece com a planilha rolada');
+});
+test('v133: com o chip Ano, nenhuma coluna destacada nem aviso de meses à esquerda',()=>{
+ const c=ctx();c.run("state.anoTodo=true;planoUI.aba='planilha'");const h=c.run('tabelaPlano(contextoPlano())');
+ assert.doesNotMatch(h,/selected-month/);assert.doesNotMatch(h,/data-plano-esquerda/);
+ c.run("planoUI.juntas=true");assert.doesNotMatch(c.run('dashboardPlano(contextoPlano())'),/selected-month/);
+});
+test('v133: filtros num details com o resumo no summary; lateral fechada por padrão só na aba Planilha',()=>{
+ const c=ctx();let h=c.run('renderPlanoContas()');
+ assert.match(h,/<details class="plano-filtros" open><summary>Filtrar contas<\/summary><div class="plano-toolbar">/);
+ c.run("state.consulta='cemig';state.tipo='2'");h=c.run('renderPlanoContas()');assert.match(h,/<summary>Filtrar contas · “cemig” · Saídas<\/summary>/);
+ // no celular, sem filtro, recolhido
+ c.matchMedia=()=>({matches:true});c.run("state.consulta='';state.tipo='todos'");assert.match(c.run('renderPlanoContas()'),/<details class="plano-filtros"><summary>Filtrar contas<\/summary>/);
+ c.matchMedia=()=>({matches:false});c.run("planoUI.lateral=null;planoUI.aba='planilha'");assert.equal(c.run('planoLateralAberta()'),false);
+ c.run("planoUI.aba='dashboard'");assert.equal(c.run('planoLateralAberta()'),true,'sem gravar: no Dashboard continua aberta');assert.equal(c.run('planoUI.lateral'),null);
+});
+test('v133: PDF com a mesma cor do app (PDF_COR) nas tabelas de dinheiro',()=>{
+ const c=ctx();vm.runInContext(fs.readFileSync(new URL('../pdf-cfo.js',import.meta.url),'utf8'),c);
+ assert.deepEqual(JSON.parse(c.run('JSON.stringify(PDF_COR)')),{entra:[40,74,199],sai:[162,53,58]});
+ const r=JSON.parse(c.run("JSON.stringify(relatorioCFO({periodo:'Set/2026'}))"));
+ const retrato=r.blocos.find(b=>b.titulo==='Retrato do período');assert.deepEqual(retrato.tons,[['','entra'],['','sai'],['','entra']]);
+ const dre=r.blocos.find(b=>/DRE Simples, linha por linha/.test(b.titulo));assert.ok(dre.tons.some(t=>t[1]==='sai'),'saídas em vermelho');
+ for(const f of ['pdf-cfo.js','plano-contas.js'])assert.doesNotMatch(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),/\[(47,98,208|172,65,76|199,66,76|47,78,191|170,51,62)\]/,f+': nenhum outro RGB de dinheiro');
 });
