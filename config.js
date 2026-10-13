@@ -44,7 +44,8 @@ async function apiFn(fn, action, payload = {}, timeoutMs = 30000) {
       body: JSON.stringify({ action, ...payload }),
       signal: ctrl.signal,
     });
-    return r.json();
+    // Com await, o prazo cobre também o download do corpo (um mês com a trilha pesa ~300 KB).
+    return await r.json();
   } finally {
     clearTimeout(t);
   }

@@ -263,6 +263,31 @@ Deno.serve(async (req: Request) => {
         });
       }
 
+      // Índice leve (Fase 13): id e versão de cada mês, sem o conteúdo. O app compara com a
+      // cópia que guarda no aparelho e baixa só os meses novos ou mudados.
+      case "indice": {
+        const itens: any[] = [];
+        for (let offset = 0; offset < 20000; offset += 1000) {
+          const { data, error } = await sb.from("dre_registros")
+            .select("id,em:registro->>atualizadoEm,apagado:registro->>apagado")
+            .eq("colecao", "os").order("id").range(offset, offset + 999);
+          if (error) throw new Error(error.message);
+          for (const r of data ?? []) itens.push({ id: r.id, atualizadoEm: r.em ?? null, apagado: r.apagado === "true" });
+          if (!data || data.length < 1000) break;
+        }
+        return json({ ok: true, itens });
+      }
+
+      // Os meses pedidos pelo índice, no máximo 20 por vez (um mês com a trilha pesa ~300 KB).
+      case "buscar": {
+        const ids = Array.isArray(body.ids) ? [...new Set(body.ids.map((x: unknown) => String(x)))] : [];
+        if (!ids.length || ids.length > 20 || ids.some(id => !/^[A-Za-z0-9_/-]{1,80}$/.test(id)))
+          return json({ erro: "Informe de 1 a 20 meses válidos." }, 400);
+        const { data, error } = await sb.from("dre_registros").select("registro").eq("colecao", "os").in("id", ids);
+        if (error) throw new Error(error.message);
+        return json({ ok: true, itens: (data ?? []).map((r: any) => r.registro) });
+      }
+
       // Comparação atômica de versão: o relógio do cliente não decide quem ganha.
       case "upsert": {
         const reg = body.registro;

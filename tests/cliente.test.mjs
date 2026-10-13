@@ -77,23 +77,110 @@ test('ausência e escopo de um mês não são substituídos pelos do último mê
  assert.equal(r.company,'Impresilk');assert.equal(r.basis,'Caixa');assert.equal(r.cells.length,1);
 });
 
-// Cópia offline sem espaço (11/10/2026): o aviso voltava a cada releitura automática da nuvem.
-function cheio(c,limite){const s=new Map();const tam=()=>[...s].reduce((t,[k,v])=>t+k.length+v.length,0);
- c.localStorage={getItem:k=>s.has(k)?s.get(k):null,removeItem:k=>s.delete(k),get length(){return s.size;},key:i=>[...s.keys()][i]??null,
-  setItem(k,v){const antes=s.get(k);s.set(k,String(v));if(tam()>limite){if(antes==null)s.delete(k);else s.set(k,antes);throw new DOMException('cheio','QuotaExceededError');}}};return s;}
-test('sem espaço: sai só cópia descartável da nuvem (nunca fila nem login) e grava de novo',()=>{
- const c=client();const avisos=[];c.toast=(m,t)=>avisos.push([m,t]);const s=cheio(c,2000);
- vm.runInContext("STORE_KEY='dre_v2_data:eu';QUEUE_KEY='dre_v2_queue:eu'",c);
- s.set('impresilk_dre_cracha','x'.repeat(50));s.set('dre_v2_queue:eu','[1]');s.set('impresilk_dre_queue','[2]');s.set('dre_v2_queue:outro','[3]');s.set('dre_v2_data:outro','y'.repeat(900));s.set('impresilk_dre_data','z'.repeat(600));s.set('dre_v2_data:eu','w'.repeat(300));
- assert.equal(vm.runInContext("salvarLocal({months:[],accounts:[],registros:[{id:'a',cells:['"+'v'.repeat(900)+"']}]})",c),true,'coube depois de liberar');
- assert.deepEqual([...s.keys()].sort(),['dre_v2_data:eu','dre_v2_queue:eu','dre_v2_queue:outro','impresilk_dre_cracha','impresilk_dre_queue']);assert.deepEqual(avisos,[]);
+// Fase 13: a base não vai mais para o localStorage (5 MB divididos com os outros sistemas); a cópia
+// do aparelho fica no IndexedDB (CacheDRE) e a leitura da nuvem baixa só os meses que mudaram.
+test('a base não ocupa o localStorage: sem aviso de espaço, a sessão usa o dado e a cópia antiga sai',()=>{
+ const c=client();const avisos=[];c.toast=(m,t)=>avisos.push([m,t]);
+ vm.runInContext("STORE_KEY='dre_v2_data:eu';QUEUE_KEY='dre_v2_queue:eu'",c);c.localStorage.setItem('dre_v2_data:eu','{"velha":true}');c.localStorage.setItem('dre_v2_queue:eu','[9]');
+ c.localStorage.setItem=()=>{throw new DOMException('cheio','QuotaExceededError');};
+ for(let i=0;i<3;i++)assert.equal(vm.runInContext(`salvarLocal({n:${i}})`,c),true);
+ assert.deepEqual(avisos,[],'nenhum aviso de espaço');assert.equal(vm.runInContext('getCurrentData().n',c),2);
 });
-test('sem espaço mesmo assim: segue na sessão, sem cópia velha, e avisa uma vez só',()=>{
- const c=client();const avisos=[];c.toast=(m,t)=>avisos.push([m,t]);const s=cheio(c,400);
- vm.runInContext("STORE_KEY='dre_v2_data:eu';QUEUE_KEY='dre_v2_queue:eu'",c);s.set('dre_v2_data:eu','{"velha":true}');s.set('dre_v2_queue:eu','[9]');
- for(let i=0;i<3;i++)assert.equal(vm.runInContext(`salvarLocal({n:${i},grande:'${'g'.repeat(500)}'})`,c),false);
- assert.equal(avisos.length,1,'a releitura automática não repete o aviso');assert.equal(avisos[0][1],undefined,'aviso informativo, não erro');assert.match(avisos[0][0],/Sem espaço neste navegador para a cópia offline/);
- assert.equal(s.has('dre_v2_data:eu'),false,'a cópia velha não volta num recarregamento offline');assert.equal(s.get('dre_v2_queue:eu'),'[9]');
- assert.equal(vm.runInContext('getCurrentData().n',c),2,'a sessão usa o dado novo');
- c.localStorage.setItem=()=>{throw new Error('disco');};vm.runInContext('salvarLocal({})',c);assert.match(avisos[1][0],/Falha ao salvar no navegador: disco/);assert.equal(avisos[1][1],'err','outra falha continua avisando como erro');
+function cacheFalso(c,inicial=[]){const banco={meses:new Map(inicial.map(m=>[m.id,m])),base:null,gravacoes:[]};
+ c.CacheDRE={disponivel:()=>true,escopo(){},async ler(){return {meses:[...banco.meses.values()],base:banco.base};},async gravar({meses=[],apagar=[],base}={}){banco.gravacoes.push({meses:meses.map(m=>m.id),apagar:[...apagar]});for(const m of meses)banco.meses.set(m.id,m);for(const id of apagar)banco.meses.delete(id);if(base!==undefined)banco.base=base;return true;},async limpar(){banco.meses.clear();banco.base=null;banco.limpo=true;}};return banco;}
+const telaFalsa=(c,f=()=>{})=>d=>{f(d);c.aplicado=d;vm.runInContext('state',c).records=(d?.registros||[]).filter(r=>!r.apagado);};
+const mes=(id,at,v)=>({id,label:id.replace('_','/'),atualizadoEm:at,cells:[{code:'1',value:v},{code:'2',value:0}]});
+test('leitura incremental: índice leve e só os meses novos ou mudados; o que sumiu da nuvem sai do aparelho',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};let boots=0;c.boot=telaFalsa(c,()=>boots++);
+ const banco=cacheFalso(c,[mes('Ago_2026','t1',100),mes('Set_2026','t1',200),mes('Jul_2026','t1',50)]);
+ const pedidos=[];c.api=async(action,args={})=>{pedidos.push([action,args.ids||null]);
+  if(action==='permissions')return {permissoes:{leitura:true}};if(action==='getCfg')return {ok:true,cfg:{},atualizadoEm:'c1'};
+  if(action==='indice')return {ok:true,itens:[{id:'Ago_2026',atualizadoEm:'t1'},{id:'Set_2026',atualizadoEm:'t2'},{id:'Out_2026',atualizadoEm:'t1'}]};
+  if(action==='buscar')return {ok:true,itens:args.ids.map(id=>mes(id,id==='Set_2026'?'t2':'t1',id==='Set_2026'?250:300))};
+  return {ok:false,erro:'inesperado '+action};};
+ vm.runInContext("setQueue([])",c);await vm.runInContext('abrirCopiaDoAparelho()',c);
+ assert.equal(c.aplicado.registros.length,3,'abre na hora com a cópia do aparelho');
+ await vm.runInContext('pullCloud()',c);
+ assert.deepEqual(JSON.parse(JSON.stringify(pedidos.filter(p=>p[0]==='buscar').map(p=>p[1]))),[['Set_2026','Out_2026']],'só o que mudou e o que é novo');
+ assert.ok(!pedidos.some(p=>p[0]==='list'),'sem baixar a base inteira');
+ assert.deepEqual(JSON.parse(JSON.stringify(c.aplicado.registros.map(r=>[r.id,r.cells[0].value]))),[['Ago_2026',100],['Set_2026',250],['Out_2026',300]]);
+ assert.equal(banco.meses.has('Jul_2026'),false,'mês que sumiu da nuvem sai do aparelho');assert.equal(banco.meses.get('Set_2026').cells[0].value,250);
+ // segunda leitura sem novidade: nada baixado e a tela não é redesenhada
+ const antes=boots;pedidos.length=0;await vm.runInContext('pullCloud()',c);
+ assert.deepEqual(pedidos.filter(p=>p[0]==='buscar'),[]);assert.equal(boots,antes,'nada novo: sem redesenhar');
+});
+test('cópia do aparelho em dia: a primeira leitura não redesenha, e mês sem carimbo igual não conta como mudado',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};let boots=0;c.boot=telaFalsa(c,()=>boots++);
+ const semCarimbo={id:'Jul_2026',label:'Jul/2026',cells:[{code:'1',value:50},{code:'2',value:0}]};
+ const banco=cacheFalso(c,[mes('Ago_2026','t1',100),semCarimbo]);banco.base={versao:1,cfg:{},cfgVersion:'c1',lidoEm:'2026-10-12T10:00:00Z'};
+ const pedidos=[];c.api=async(action,args={})=>{pedidos.push(action);
+  if(action==='permissions')return {permissoes:{leitura:true}};if(action==='getCfg')return {ok:true,cfg:{},atualizadoEm:'c1'};
+  if(action==='indice')return {ok:true,itens:[{id:'Ago_2026',atualizadoEm:'t1'},{id:'Jul_2026',atualizadoEm:null}]};
+  if(action==='buscar')return {ok:true,itens:[JSON.parse(JSON.stringify(semCarimbo))]};return {ok:false};};
+ vm.runInContext("setQueue([])",c);await vm.runInContext('abrirCopiaDoAparelho()',c);assert.equal(boots,1);
+ await vm.runInContext('pullCloud()',c);
+ assert.ok(pedidos.includes('buscar'),'sem carimbo, confere o conteúdo');assert.equal(boots,1,'nada mudou: a tela do aparelho fica');
+});
+test('servidor sem o índice (versão anterior): a lista inteira, como antes, e grava a cópia',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};c.boot=telaFalsa(c);const banco=cacheFalso(c);
+ c.api=async action=>action==='permissions'?{permissoes:{leitura:true}}:action==='getCfg'?{ok:true,cfg:{}}:action==='indice'?{erro:'Ação desconhecida: indice'}:{ok:true,itens:[mes('Set_2026','t1',200)],nextOffset:null};
+ vm.runInContext("setQueue([])",c);await vm.runInContext('pullCloud()',c);
+ assert.equal(c.aplicado.registros[0].cells[0].value,200);assert.equal(banco.meses.size,1);
+});
+test('edição na fila continua por cima da cópia do aparelho, e a versão confirmada vai para o aparelho',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};c.boot=telaFalsa(c);const banco=cacheFalso(c,[mes('Set_2026','t1',200)]);
+ vm.runInContext(`setQueue([]);enqueueUpsert({...${JSON.stringify(mes('Set_2026','local',999))},baseAtualizadoEm:'t1'})`,c);
+ await vm.runInContext('abrirCopiaDoAparelho()',c);assert.equal(c.aplicado.registros[0].cells[0].value,999,'offline mostra a edição');
+ assert.equal(banco.meses.get('Set_2026').cells[0].value,200,'o aparelho guarda a versão do servidor');
+ c.api=async(action,args)=>action==='upsert'?{ok:true,registro:{...args.registro,atualizadoEm:'t9'}}:{ok:true};
+ await vm.runInContext('trySync()',c);await new Promise(r=>setTimeout(r,5));
+ assert.equal(banco.meses.get('Set_2026').atualizadoEm,'t9');assert.equal(banco.meses.get('Set_2026').cells[0].value,999);
+});
+test('sair apaga também a cópia do aparelho',async()=>{
+ const c=client();const banco=cacheFalso(c,[mes('Set_2026','t1',200)]);prepararSaida(c);await vm.runInContext('logout()',c);assert.equal(banco.limpo,true);
+});
+
+// Revisão da Fase 13: a leitura redesenha quando a TELA difere do que foi montado, uma leitura por vez.
+const apiBase=(extra={})=>async(action,args={})=>{if(extra[action])return extra[action](args);
+ if(action==='permissions')return {permissoes:{leitura:true,edicao:true,admin:false}};if(action==='getCfg')return {ok:true,cfg:{},atualizadoEm:'c1'};return {ok:false,erro:'inesperado '+action};};
+test('usar a versão da nuvem num conflito: a leitura seguinte troca a tela, mesmo sem novidade no índice',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};let boots=0;c.boot=telaFalsa(c,()=>boots++);const banco=cacheFalso(c,[mes('Set_2026','S2',200)]);
+ vm.runInContext(`setQueue([]);enqueueUpsert({...${JSON.stringify(mes('Set_2026','local',999))},baseAtualizadoEm:'S1'})`,c);
+ c.api=apiBase({indice:()=>({ok:true,itens:[{id:'Set_2026',atualizadoEm:'S2'}]}),upsert:()=>({conflito:true,servidor:mes('Set_2026','S2',200)})});
+ await vm.runInContext('abrirCopiaDoAparelho()',c);await vm.runInContext('pullCloud()',c);assert.equal(c.aplicado.registros[0].cells[0].value,999,'conflito: a edição fica na tela');
+ vm.runInContext('setQueue([])',c);await vm.runInContext('pullCloud()',c);
+ assert.equal(c.aplicado.registros[0].cells[0].value,200,'a versão da nuvem volta para a tela');assert.equal(banco.meses.get('Set_2026').cells[0].value,200);
+});
+test('edição pendente confirmada na leitura: tela e próxima edição partem da versão do servidor',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};c.boot=telaFalsa(c);cacheFalso(c,[mes('Set_2026','S1',200)]);
+ vm.runInContext(`setQueue([]);enqueueUpsert({...${JSON.stringify(mes('Set_2026','2026-10-12T09:00:00Z',300))},baseAtualizadoEm:'S1'})`,c);
+ await vm.runInContext('abrirCopiaDoAparelho()',c);
+ c.api=apiBase({upsert:a=>({ok:true,registro:{...a.registro,atualizadoEm:'S9'}}),indice:()=>({ok:true,itens:[{id:'Set_2026',atualizadoEm:'S9'}]})});
+ await vm.runInContext('pullCloud()',c);
+ assert.equal(vm.runInContext("state.records.find(r=>r.id==='Set_2026').atualizadoEm",c),'S9');assert.equal(vm.runInContext('getQueue().length',c),0);
+});
+test('permissões reais chegam à tela aberta pela cópia do aparelho, mesmo sem novidade',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};let boots=0;c.boot=telaFalsa(c,()=>boots++);const banco=cacheFalso(c,[mes('Set_2026','S1',200)]);banco.base={versao:1,cfg:{},cfgVersion:'c1',lidoEm:'x'};
+ c.api=apiBase({permissions:()=>({permissoes:{leitura:true,edicao:true,admin:true}}),indice:()=>({ok:true,itens:[{id:'Set_2026',atualizadoEm:'S1'}]})});
+ vm.runInContext('setQueue([]);state.permissoes={leitura:true,edicao:false,admin:false}',c);await vm.runInContext('abrirCopiaDoAparelho()',c);await vm.runInContext('pullCloud()',c);
+ assert.equal(boots,2,'redesenha com as permissões reais');await vm.runInContext('pullCloud()',c);assert.equal(boots,2,'depois, nada novo não redesenha');
+});
+test('leituras simultâneas rodam uma de cada vez; erro de rede no índice não baixa a base inteira',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};c.boot=telaFalsa(c);cacheFalso(c,[mes('Set_2026','S1',200)]);
+ const ordem=[];let solta;c.api=apiBase({indice:()=>{ordem.push('indice');return ordem.length===1?new Promise(r=>solta=()=>r({ok:true,itens:[{id:'Set_2026',atualizadoEm:'S1'}]})):{ok:true,itens:[{id:'Set_2026',atualizadoEm:'S1'}]};}});
+ vm.runInContext('setQueue([])',c);const a=vm.runInContext('pullCloud()',c),b=vm.runInContext('pullCloud()',c);await new Promise(r=>setTimeout(r,5));
+ assert.deepEqual(ordem,['indice'],'a segunda espera a primeira');solta();await a;await b;assert.deepEqual(ordem,['indice','indice']);
+ const pedidos=[];c.api=async(action)=>{pedidos.push(action);if(action==='indice')throw new TypeError('Failed to fetch');return apiBase()(action);};
+ let estado='';vm.runInContext('setSyncState=(e,t)=>{globalThis.__estado=e+":"+t;}',c);await vm.runInContext('pullCloud()',c);
+ assert.ok(!pedidos.includes('list'),'sem a lista inteira');assert.match(c.__estado,/^off:/);
+});
+test('sair durante a leitura: nada é gravado no aparelho nem desenhado',async()=>{
+ const c=client();let cracha='a';c.AUTH={temCracha:()=>true,cracha:()=>cracha};c.toast=()=>{};let boots=0;c.boot=telaFalsa(c,()=>boots++);const banco=cacheFalso(c);
+ c.api=apiBase({indice:()=>({ok:true,itens:[{id:'Set_2026',atualizadoEm:'S1'}]}),buscar:()=>({ok:true,itens:[mes('Set_2026','S1',200)]}),getCfg:()=>{cracha=null;return {ok:true,cfg:{},atualizadoEm:'c1'};}});
+ vm.runInContext('setQueue([])',c);await vm.runInContext('pullCloud()',c);assert.equal(boots,0);assert.equal(banco.gravacoes.length,0);
+});
+test('falha ao gravar no aparelho: a sessão para de gravar, para a hora da cópia não avançar sem os meses',async()=>{
+ const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};c.boot=telaFalsa(c);const banco=cacheFalso(c);let tentativas=0;c.CacheDRE.gravar=async()=>{tentativas++;return false;};
+ c.api=apiBase({indice:()=>({ok:true,itens:[{id:'Set_2026',atualizadoEm:'S1'}]}),buscar:()=>({ok:true,itens:[mes('Set_2026','S1',200)]})});
+ vm.runInContext('setQueue([])',c);await vm.runInContext('pullCloud()',c);await vm.runInContext('pullCloud()',c);assert.equal(tentativas,1);assert.equal(vm.runInContext('state.cacheOk',c),false);
 });

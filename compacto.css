@@ -282,3 +282,9 @@ body.dark .cmp-tinta-1{color:#fff}body.dark .cmp-tinta-2,body.dark .cmp-tinta-3,
 .plano-matrix thead .plano-ano small{display:block;font-size:10px;font-weight:400;text-transform:none;letter-spacing:0}
 @media (max-width:700px){.plano-matrix{scroll-padding-left:140px}.plano-matrix tbody th{padding-left:calc(6px + var(--recuo,0px)/2)}}
 @media (max-width:900px),(pointer:coarse){.plano-ramo{width:44px;flex-basis:44px;min-height:44px!important;font-size:16px}.plano-ramo-vazio{flex-basis:44px}.plano-matriz-acoes button{min-height:44px}.plano-matrix tbody th{padding-left:calc(4px + var(--recuo,0px)/2)}}
+
+/* Plano de contas · entradas e saídas juntas (Fase 13.1) */
+.plano-modo{display:inline-flex;gap:0;border:1px solid var(--line);border-radius:9px;overflow:hidden;margin:2px 0 8px;background:var(--bg)}.plano-modo button{border:0;border-radius:0;min-height:32px;font-size:12px;padding:5px 12px;background:transparent;color:var(--muted)}.plano-modo button+button{border-left:1px solid var(--line)}.plano-modo button[aria-pressed=true]{background:var(--selected);color:var(--blue);font-weight:650}
+.plano-juntas .plano-stats small+small{margin-top:2px}.plano-lados{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 22px;margin:12px 0 4px}.plano-lado h3{font-size:13px;margin:0 0 6px}.plano-lado-lista{display:grid;gap:2px}.plano-lado .expense-row{width:100%;min-height:36px;padding:5px 0}.plano-lado .expense-row b small{font-weight:500;color:var(--muted);font-size:11px}
+.plano-juntas tr.selected-month>td{background:var(--selected)}.plano-juntas tfoot th,.plano-juntas tfoot td{font-weight:650;border-top:2px solid var(--line)}.plano-juntas td button{font:inherit;color:inherit;border:0;background:transparent;padding:0;min-height:28px;text-decoration:underline dotted var(--line);text-underline-offset:3px}
+@media(max-width:600px){.plano-modo{display:flex}.plano-modo button{flex:1;min-height:40px}.plano-lados{grid-template-columns:1fr}}

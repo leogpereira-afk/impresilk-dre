@@ -165,37 +165,34 @@ function getCurrentData() {
   return {company:"Impresilk + Universo",basis:"Caixa gerencial",months:[],accounts:[],registros:[]};
 }
 
-// grava o dataset avisando quando o armazenamento do navegador encher —
-// antes a falha era silenciosa e o usuário perdia dados sem saber.
-// O navegador guarda uns 5 MB por site (e o github.io é dividido com os outros
-// sistemas). Sem espaço, saem as cópias da nuvem que não servem mais (a velha deste
-// crachá, a da versão antiga e as de outros crachás; filas de edição e login nunca)
-// e grava de novo. Se ainda não couber, segue só nesta sessão, sem deixar cópia velha
-// para um recarregamento offline, e avisa uma vez: a releitura automática da nuvem
-// (a cada coleta) repetia o aviso; a barra de sincronização já diz "sem cópia offline".
-let avisouSemCopia=false;
+// Fase 13: a base vive na memória da sessão; a cópia do aparelho fica no IndexedDB
+// (cache-local.js, CacheDRE), com a versão do SERVIDOR de cada mês, gravada pela leitura
+// da nuvem e pelas confirmações. O localStorage não guarda mais a base (uns 5 MB divididos
+// com os outros sistemas do github.io: não cabia e a página baixava tudo de novo).
+// A fila de edições continua no localStorage: é pequena e não pode se perder.
 const copiaDescartavel=k=>k===STORE_KEY||k==='impresilk_dre_data'||/^dre_v2_data:/.test(k);
 function liberarCopiasLocais(){
   const ks=[];try{for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(copiaDescartavel(String(k)))ks.push(k);}}catch(_){}
   for(const k of new Set([STORE_KEY,'impresilk_dre_data',...ks]))try{localStorage.removeItem(k);}catch(_){}
 }
-function salvarLocal(dataset) {
-  sessionDataset=dataset;
-  const texto=JSON.stringify(dataset);
-  try { localStorage.setItem(STORE_KEY, texto); return true; }
-  catch (e) {
-    const cheio = e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED' || e.code === 22 || e.code === 1014);
-    if (cheio) {
-      liberarCopiasLocais();
-      try { localStorage.setItem(STORE_KEY, texto); return true; } catch (_) { try{localStorage.removeItem(STORE_KEY);}catch(_){} }
-      if (!avisouSemCopia && typeof toast === 'function') toast('Sem espaço neste navegador para a cópia offline do DRE. Os dados aparecem normalmente enquanto a página estiver aberta; edições pendentes continuam guardadas.');
-      avisouSemCopia=true;
-      return false;
-    }
-    if (typeof toast === 'function') toast('Falha ao salvar no navegador: ' + (e && e.message || e), 'err');
-    return false;
-  }
+function salvarLocal(dataset) { sessionDataset=dataset; return true; }
+// Versão do servidor de cada mês guardada no aparelho (id → registro): base do índice.
+let servidorLocal=new Map(),cacheFalhou=false;
+const cacheDisponivel=()=>!cacheFalhou&&typeof CacheDRE!=='undefined'&&CacheDRE.disponivel();
+// Grava no aparelho o que veio do servidor; sem IndexedDB, segue na memória. Se uma gravação
+// falha (o banco fica como estava), a sessão para de gravar: assim a hora da cópia não avança
+// sem os meses, e a próxima abertura busca pelo índice o que faltou.
+async function guardarNoAparelho(meses,apagar=[],base){
+  for(const m of meses)if(m?.id)servidorLocal.set(m.id,m);for(const id of apagar)servidorLocal.delete(id);
+  // A cópia antiga do localStorage não é mais atualizada: sai a cada leitura completa (libera espaço dos outros sistemas).
+  if(base!==undefined)liberarCopiasLocais();
+  if(!cacheDisponivel())return false;
+  const ok=await CacheDRE.gravar({meses,apagar,base});
+  if(ok===false)cacheFalhou=true;
+  return ok===true;
 }
+// Configuração gravada na nuvem: a cópia do aparelho acompanha (sem mexer nos meses).
+function cfgConfirmada(){if(cacheDisponivel())CacheDRE.gravar({base:{versao:1,cfg:state.cfg,cfgVersion:state.cfgVersion,lidoEm:state.updated||null}}).then(ok=>{if(ok===false)cacheFalhou=true;}).catch(()=>{});}
 
 /* Sincronização por mês: fila isolada por usuário e versão da base lida.
    A resposta confirma somente seu ID de operação. Edições concorrentes,
@@ -288,7 +285,7 @@ function adoptServerMonth(record) {
   const map = new Map(recs.map(r => [r.id, r]));
   map.set(record.id, normalizeRecord(record));
   const merged = monthsToDataset([...map.values()]);
-  salvarLocal(merged);
+  salvarLocal(merged);if(record?.id)guardarNoAparelho([record]).catch(()=>{});
   const ts = getMonthTS(); ts[record.label || record.id] = record.atualizadoEm; setMonthTS(ts);
   boot(merged);
 }
@@ -343,10 +340,11 @@ async function trySync() {
         const stamp = r.registro?.atualizadoEm;
         // Uma edição feita durante o envio parte da versão que acaba de ser confirmada.
         if (stamp) {
+          if (r.registro?.id) guardarNoAparelho([r.registro]).catch(()=>{});
           atual.forEach(it => {if(it.registro?.id === item.registro.id) it.registro.baseAtualizadoEm = stamp;});
           const ts = getMonthTS(); ts[item.registro.label] = stamp; setMonthTS(ts);
           const D=getCurrentData();
-          if(D.registros){D.registros=D.registros.map(reg=>reg.id===item.registro.id?{...reg,atualizadoEm:stamp,baseAtualizadoEm:stamp}:reg);if(!salvarLocal(D))throw new Error('A confirmação chegou, mas a cópia local não foi gravada. A fila foi preservada.');}
+          if(D.registros){D.registros=D.registros.map(reg=>reg.id===item.registro.id?{...reg,atualizadoEm:stamp,baseAtualizadoEm:stamp}:reg);if(state.D===D)state.records=D.registros.filter(reg=>!reg.apagado);if(!salvarLocal(D))throw new Error('A confirmação chegou, mas a cópia local não foi gravada. A fila foi preservada.');}
         }
         setQueue(atual);
         continue;
@@ -378,34 +376,92 @@ const fato=(label,value)=>`<div class="fato"><span class="label">${esc(label)}</
 const linha=(label,value,total=false,code='')=>`<div class="line ${total?'total':''}"><span>${code?botaoConta(code,label):esc(label)}</span><b class="${tomDoValor(code,value)}">${value==null?'Não apurado':typeof value==='number'?money(value):esc(value)}</b></div>`;
 const card=(title,html,open=true)=>`<details class="card" ${open?'open':''}><summary>${esc(title)}</summary><div class="card-body">${html}</div></details>`;
 const metric=(label,value,desc,code='',tom='')=>`<${code?'button':'div'} class="metric${tom?' metric-'+tom.slice(4):''}" ${code?`data-account="${esc(code)}"`:''}><span class="label">${esc(label)}</span><strong${tom?` class="${tom}"`:''}>${value==null?'Não apurado':typeof value==='number'?money(value):esc(value)}</strong><small>${esc(desc)}</small></${code?'button':'div'}>`;
+function escreverRodape(){const el=$$('footMeta');if(!el||!state.D)return;el.textContent=state.view==='dre'&&dreUI.base==='competencia'?`Competência informada por mês · leitura da nuvem: ${dataBR(state.updated)}. Preenchimento não equivale a fechamento contábil.`:`${state.records.length} registros mensais · ${state.D.accounts.length} contas · ${state.periodo} · ${state.rotuloQualidade||''} · Leitura da nuvem: ${dataBR(state.updated)}. Valores não conciliados não representam fechamento.`;}
 function regAtual(){return state.records.find(r=>r.label===state.periodo)||null;}
 function boot(D){state.D=D;state.records=(D?.registros||datasetRecords(D||getCurrentData())).filter(r=>!r.apagado);if(!state.periodo)state.periodo=mesHoje();if(!state.comparar&&!(typeof rotaLida!=='undefined'&&rotaLida))state.comparar=state.records.filter(r=>monthSortKey(r.label)<monthSortKey(state.periodo)).at(-1)?.label||'';render();}
-function scopeSession(){sessionDataset=null;if(typeof planoSujo!=='undefined')planoSujo=false;let sub='equipe';try {const raw=AUTH.cracha().split('.')[1];sub=JSON.parse(atob(raw.replace(/-/g,'+').replace(/_/g,'/'))).sub||sub;}catch(_){}const suffix=encodeURIComponent(String(sub));STORE_KEY='dre_v2_data:'+suffix;MONTH_TS_KEY='dre_v2_ts:'+suffix;QUEUE_KEY='dre_v2_queue:'+suffix;}
+function scopeSession(){sessionDataset=null;if(typeof planoSujo!=='undefined')planoSujo=false;let sub='equipe';try {const raw=AUTH.cracha().split('.')[1];sub=JSON.parse(atob(raw.replace(/-/g,'+').replace(/_/g,'/'))).sub||sub;}catch(_){}const suffix=encodeURIComponent(String(sub));STORE_KEY='dre_v2_data:'+suffix;MONTH_TS_KEY='dre_v2_ts:'+suffix;QUEUE_KEY='dre_v2_queue:'+suffix;servidorLocal=new Map();cacheFalhou=false;state.lidoNuvem=false;state.telaDoAparelho=false;if(typeof CacheDRE!=='undefined')CacheDRE.escopo(suffix);}
 async function onAuthed(){
   if(!AUTH.temCracha())return;
   const check=await AUTH.conferir();if(check===false){scopeSession();limparCopiaLocal();AUTH.esquecer();return;}
   state.permissoes={leitura:true,edicao:false,admin:false};state.cfg={};state.cfgVersion=null;scopeSession();$$('authOverlay').hidden=true;$$('appShell').hidden=false;
-  boot(getCurrentData());await pullCloud();iniciarAcompanhamentoColeta();
+  await abrirCopiaDoAparelho();await pullCloud();iniciarAcompanhamentoColeta();
 }
-async function pullCloud(manual=false){
+const horaBR=s=>{const d=new Date(s||'');return Number.isFinite(d.getTime())?d.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';};
+// A tela abre na hora com a cópia do aparelho (versão do servidor + edições da fila por cima);
+// a leitura da nuvem vem depois e só troca o que mudou.
+function previaLegada(map){const legacy=state.cfg?.previaERP;if(legacy?.label)for(const r of map.values())if(r.label===legacy.label&&r.origem==='erp'&&!r.previaERP)r.previaERP=legacy;}
+async function abrirCopiaDoAparelho(){
+  const local=cacheDisponivel()?await CacheDRE.ler():null;
+  servidorLocal=new Map((local?.meses||[]).filter(r=>r?.id).map(r=>[r.id,r]));
+  if(local?.base?.cfg){state.cfg=local.base.cfg;state.cfgVersion=local.base.cfgVersion||null;if(typeof carregarGestao==='function')carregarGestao();}
+  if(!servidorLocal.size){boot(getCurrentData());return;}
+  const map=new Map([...servidorLocal.values()].filter(r=>!r.apagado).map(r=>[r.id,normalizeRecord(r)]));
+  let pend=[];try{pend=getQueue();}catch(_){}
+  for(const item of pend)if(item.registro)map.set(item.registro.id,item.registro);
+  previaLegada(map);if(local.base?.lidoEm)state.updated=local.base.lidoEm;
+  const D=monthsToDataset([...map.values()]);sessionDataset=D;state.telaDoAparelho=true;boot(D);
+  setSyncState('busy',`Dados deste aparelho${local.base?.lidoEm?' de '+horaBR(local.base.lidoEm):''} · conferindo a nuvem…`);
+}
+// Índice leve e só os meses novos ou mudados; servidor sem o índice (versão anterior): a lista inteira.
+async function lerMesesDaNuvem(){
+  let idx=null;
+  const ri=await api('indice');
+  if(ri?.ok&&Array.isArray(ri.itens))idx=ri.itens;
+  else if(!/Ação desconhecida/i.test(ri?.erro||''))throw new Error(ri?.erro||'Leitura não confirmada');
+  if(!idx){
+    const all=[];let offset=0;const seen=new Set();
+    do{if(seen.has(offset))throw new Error('Paginação inconsistente');seen.add(offset);const r=await api('list',{offset},60000);if(!r.ok||!Array.isArray(r.itens))throw new Error(r.erro||'Leitura não confirmada');all.push(...r.itens);offset=r.nextOffset;}while(offset!=null);
+    const ids=new Set(all.map(r=>r.id));
+    return {todos:all,mudados:all,apagados:[...servidorLocal.keys()].filter(id=>!ids.has(id)),indice:false};
+  }
+  const vivos=idx.filter(i=>!i.apagado),faltam=vivos.filter(i=>!i.atualizadoEm||servidorLocal.get(i.id)?.atualizadoEm!==i.atualizadoEm).map(i=>i.id);
+  const novos=[];
+  for(let k=0;k<faltam.length;k+=8){const r=await api('buscar',{ids:faltam.slice(k,k+8)},60000);if(!r?.ok||!Array.isArray(r.itens))throw new Error(r?.erro||'Leitura não confirmada');novos.push(...r.itens);}
+  const porId=new Map(novos.map(r=>[r.id,r])),vivosIds=new Set(vivos.map(i=>i.id));
+  // Mês sem carimbo de versão vem sempre; só conta como mudado se o conteúdo for outro.
+  const mudados=novos.filter(r=>JSON.stringify(r)!==JSON.stringify(servidorLocal.get(r.id)));
+  // Mês pedido e não devolvido (apagado entre o índice e a busca) fica de fora.
+  const todos=vivos.map(i=>porId.get(i.id)||(faltam.includes(i.id)?null:servidorLocal.get(i.id))).filter(Boolean);
+  return {todos,mudados,apagados:[...servidorLocal.keys()].filter(id=>!vivosIds.has(id)||!todos.some(r=>r.id===id)),indice:true};
+}
+// Uma leitura por vez: a mais nova sempre desenha por último (a coleta e o botão podem disparar juntos).
+let filaLeitura=Promise.resolve();
+function pullCloud(manual=false){const p=filaLeitura.catch(()=>{}).then(()=>lerNuvem(manual));filaLeitura=p;return p;}
+// O que a tela mostra de cada mês (id e versão), para saber se a leitura precisa redesenhar.
+const chavePermissoes=p=>[!!p?.leitura,!!p?.edicao,!!p?.admin].join();
+const assinaturaMeses=rs=>JSON.stringify([...rs].filter(r=>r&&!r.apagado).map(r=>[String(r.id),r.atualizadoEm??null]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0));
+async function lerNuvem(manual=false){
   if(!AUTH.temCracha())return;
+  const crachaAgora=()=>{try{return AUTH.cracha?.()??null;}catch(_){return null;}},cracha=crachaAgora();
   if(!navigator.onLine){setSyncState('off','Offline · dados locais');return;}
   setSyncState('busy','Lendo a nuvem…');
   try {
+    const permAntes=chavePermissoes(state.permissoes);
     const permissions=await api('permissions');state.permissoes=permissions.permissoes||{leitura:true,edicao:false,admin:false};
+    let filaAntes=0;try{filaAntes=getQueue().length;}catch(_){}
     if(state.permissoes.edicao)try{await trySync();}catch(e){toast('Edições locais preservadas; envio pendente.','err');}
-    let all=[],offset=0,seen=new Set();
-    do{if(seen.has(offset))throw new Error('Paginação inconsistente');seen.add(offset);const r=await api('list',{offset});if(!r.ok||!Array.isArray(r.itens))throw new Error(r.erro||'Leitura não confirmada');all.push(...r.itens);offset=r.nextOffset;}while(offset!=null);
-    const rc=await api('getCfg');if(!rc.ok)throw new Error('Não foi possível conferir as configurações.');state.cfg=rc.cfg||{};state.cfgVersion=rc.atualizadoEm||null;if(typeof carregarGestao==='function')carregarGestao();
-    const locais=getCurrentData();const pend=getQueue();const map=new Map(all.filter(r=>!r.apagado).map(r=>[r.id,normalizeRecord(r)]));
+    const lido=await lerMesesDaNuvem(),all=lido.todos;
+    const rc=await api('getCfg');if(!rc.ok)throw new Error('Não foi possível conferir as configurações.');
+    // Saiu ou trocou de pessoa durante a leitura: nada é gravado nem desenhado.
+    if(crachaAgora()!==cracha)return;
+    const cfgMudou=(rc.atualizadoEm||null)!==(state.cfgVersion||null);state.cfg=rc.cfg||{};state.cfgVersion=rc.atualizadoEm||null;if(typeof carregarGestao==='function')carregarGestao();
+    const pend=getQueue();const map=new Map(all.filter(r=>!r.apagado).map(r=>[r.id,normalizeRecord(r)]));
     for(const item of pend){if(item.registro){const rem=map.get(item.registro.id);if(rem&&rem.atualizadoEm!==item.registro.baseAtualizadoEm&&!item.conflito)item.conflito={servidor:rem};map.set(item.registro.id,item.registro);}}
     if(pend.length)try{setQueue(pend);}catch(e){toast('A fila anterior foi preservada. Conflitos serão conferidos novamente antes do envio.','err');}
     // Leitura nunca semeia, exclui duplicatas ou reenvia histórico automaticamente.
-    const legacy=state.cfg.previaERP;if(legacy?.label)for(const r of map.values())if(r.label===legacy.label&&r.origem==='erp'&&!r.previaERP)r.previaERP=legacy;
-    const merged=monthsToDataset([...map.values()]);
+    previaLegada(map);
     const ts={};all.forEach(r=>ts[r.label]=r.atualizadoEm);setMonthTS(ts);
-    const cacheOk=salvarLocal(merged);state.cacheOk=cacheOk;
-    state.updated=new Date().toISOString();boot(merged);setSyncState(pend.length?'pending':'ok',(pend.length?pend.length+' edições pendentes · ':'')+'Dados aplicados '+new Date().toLocaleTimeString('pt-BR')+(cacheOk?'':' · sem cópia offline'));
+    const lidoEm=new Date().toISOString();
+    const cacheOk=await guardarNoAparelho(lido.mudados,lido.apagados,{versao:1,cfg:state.cfg,cfgVersion:state.cfgVersion,lidoEm});state.cacheOk=cacheOk;
+    // Nada mudou desde a cópia do aparelho: a tela fica como está (sem redesenhar nem perder o foco).
+    // Redesenha quando algo mudou: meses, configuração, fila, permissões ou a própria tela
+    // (versão descartada num conflito, edição confirmada, leitura atrasada). Nada novo: a tela fica.
+    const mudou=(!state.lidoNuvem&&!state.telaDoAparelho)||lido.mudados.length||lido.apagados.length||cfgMudou||pend.length||pend.length!==filaAntes||chavePermissoes(state.permissoes)!==permAntes||assinaturaMeses(state.records||[])!==assinaturaMeses(map.values());
+    state.updated=lidoEm;
+    if(mudou){const merged=monthsToDataset([...map.values()]);salvarLocal(merged);boot(merged);}else escreverRodape();
+    state.lidoNuvem=true;
+    const n=lido.mudados.length,novidade=!lido.indice?'base inteira lida':n?`${n} ${n===1?'mês atualizado':'meses atualizados'}`:'nada novo';
+    setSyncState(pend.length?'pending':'ok',(pend.length?pend.length+' edições pendentes · ':'')+'Dados aplicados '+new Date().toLocaleTimeString('pt-BR')+' · '+novidade+(cacheOk?'':' · sem cópia neste aparelho'));
     if(manual)toast('Base salva na nuvem lida. Veja abaixo a data da coleta do ERP.');
   }catch(e){setSyncState('off','Leitura não concluída');toast(e.message||'Não foi possível ler a nuvem.','err');}
 }
@@ -503,7 +559,7 @@ function render(){
   $$('qualityBar').innerHTML=`<details class="status quality-details chip-details est-${esc(q.estado||'sem-dados')} ${q.comparavel?'good':''}"><summary aria-label="${esc(`Qualidade de ${state.periodo}: ${q.rotulo}${semContrato?'. Limites da API ainda não validados':''}. Ver cobertura`)}"><span class="quality-dot"></span><span>${esc(state.periodo)} · <b>${esc(q.rotulo)}</b></span>${semContrato?'<span class="st-ressalva">* API a validar</span>':''}<span class="quality-action">cobertura ▾</span></summary><div><p>${esc(q.mensagem)}</p><small>Última coleta/registro: ${esc(dataBR(q.coletadoEm))} · Fonte: ${!reg?'Não disponível':reg.origem==='erp'?'Mubisys':'Histórico / planilha'} · Base: caixa filtrado por “compõe DRE”. Conciliação bancária: ${reg?.qualidade?.conciliado?'registrada':'não comprovada'}.</small></div></details>`;
   const pages=paginasDoApp();
   $$('pageContent').innerHTML=(typeof navContexto==='function'?navContexto():'')+(pages[state.view]||renderInicio)(reg,q);
-  $$('cfoTools').hidden=['config','ajuda','indicadores','dre',...TELAS_CONTROLE].includes(state.view);$$('cfoPDF').hidden=state.view==='glossario';wireContent();if(typeof wirePlanoContas==='function')wirePlanoContas();document.body.dataset.screen=state.view;if(state.view==='indicadores')window.DREIndicadores?.mount($$('indicadoresRoot'),{records:state.records,cfg:state.cfg,periodo:state.anoTodo?fimDoAno(String(state.periodo).split('/')[1]):state.periodo,ano:!!state.anoTodo,api,dialog,refresh:()=>pullCloud(true),onPeriodo:selecionarPeriodo,onIntervalo:atualizarChipsPeriodo,onDRE:periodo=>{dreUI.base='competencia';state.view='dre';ligarAno(false);if(periodo?.de){const [y,m]=periodo.de.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;}render();}});$$('footMeta').hidden=state.view==='glossario';$$('footMeta').textContent=state.view==='dre'&&dreUI.base==='competencia'?`Competência informada por mês · leitura da nuvem: ${dataBR(state.updated)}. Preenchimento não equivale a fechamento contábil.`:`${state.records.length} registros mensais · ${state.D.accounts.length} contas · ${state.periodo} · ${q.rotulo} · Leitura da nuvem: ${dataBR(state.updated)}. Valores não conciliados não representam fechamento.`;
+  $$('cfoTools').hidden=['config','ajuda','indicadores','dre',...TELAS_CONTROLE].includes(state.view);$$('cfoPDF').hidden=state.view==='glossario';wireContent();if(typeof wirePlanoContas==='function')wirePlanoContas();document.body.dataset.screen=state.view;if(state.view==='indicadores')window.DREIndicadores?.mount($$('indicadoresRoot'),{records:state.records,cfg:state.cfg,periodo:state.anoTodo?fimDoAno(String(state.periodo).split('/')[1]):state.periodo,ano:!!state.anoTodo,api,dialog,refresh:()=>pullCloud(true),onPeriodo:selecionarPeriodo,onIntervalo:atualizarChipsPeriodo,onDRE:periodo=>{dreUI.base='competencia';state.view='dre';ligarAno(false);if(periodo?.de){const [y,m]=periodo.de.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;}render();}});$$('footMeta').hidden=state.view==='glossario';state.rotuloQualidade=q.rotulo;escreverRodape();
 }
 function renderInicio(reg,q){
  const latest=[...state.records].sort((a,b)=>monthSortKey(b.label)-monthSortKey(a.label))[0];
@@ -737,18 +793,18 @@ async function importarBackup(file){
   dialog('Revisar recuperação do backup',`<p>Marque os períodos que deseja recuperar e confira suas diferenças. Edições pendentes são preservadas.</p>${recs.map((r,i)=>{const dif=diffRegistro(state.records.find(x=>x.id===r.id),r);return `<details class="restore-month"><summary>${esc(r.label)} · ${dif.length} contas alteradas</summary><label class="check-label"><input aria-label="Recuperar ${esc(r.label)}" type="checkbox" data-restore-i="${i}">Recuperar este mês</label>${dif.map(x=>linha(x.name+' · atual '+money(x.antes)+' → backup',x.depois)).join('')||'<p>Não há diferença de valores.</p>'}</details>`;}).join('')}<button id="restoreConfirm" class="primary">Recuperar meses selecionados</button>
   ${Object.keys(cfg).length?`<details style="margin-top:24px"><summary>Regras e configurações do backup</summary><p>Esta etapa é independente dos meses e exige acesso administrativo. As demais configurações da nuvem serão mantidas.</p><pre class="config-diff">${esc(JSON.stringify(cfg,null,2))}</pre><label class="check-label"><input id="cfgAgree" type="checkbox" ${state.permissoes.admin?'':'disabled'}>Revisei estas regras e quero substituir os mesmos campos na nuvem</label><button id="cfgRestore" disabled>Recuperar regras revisadas</button><p id="cfgResult" role="status"></p></details>`:''}`);
   $$('restoreConfirm').onclick=async()=>{const selected=[...document.querySelectorAll('[data-restore-i]:checked')].map(el=>{const r=recs[+el.dataset.restoreI];return {...r,baseAtualizadoEm:state.records.find(x=>x.id===r.id)?.atualizadoEm||null,atualizadoEm:new Date().toISOString()};});if(!selected.length)return toast('Selecione pelo menos um período.');try{await salvarMeses(selected);document.querySelectorAll('[data-restore-i]:checked').forEach(el=>{el.checked=false;el.disabled=true;});}catch(e){toast(e.message,'err');}};
-  if($$('cfgAgree')){$$('cfgAgree').onchange=e=>$$('cfgRestore').disabled=!e.target.checked;$$('cfgRestore').onclick=async()=>{if(!state.permissoes.admin||!$$('cfgAgree').checked)return;const b=$$('cfgRestore');b.disabled=true;try{const volta=typeof paramPrepararRestauracao==='function'?paramPrepararRestauracao(cfg,state.cfg,data.exportadoEm):cfg;const r=await api('setCfg',{cfg:{...state.cfg,...volta},baseAtualizadoEm:state.cfgVersion||null});if(!r.ok)throw new Error(r.conflito?'As regras mudaram na nuvem. Leia a base novamente antes de revisar o backup.':r.erro||'Gravação não confirmada.');state.cfg={...state.cfg,...volta};state.cfgVersion=r.atualizadoEm;$$('cfgResult').textContent='Regras confirmadas na nuvem.';}catch(e){$$('cfgResult').textContent=e.message;b.disabled=false;}};}
+  if($$('cfgAgree')){$$('cfgAgree').onchange=e=>$$('cfgRestore').disabled=!e.target.checked;$$('cfgRestore').onclick=async()=>{if(!state.permissoes.admin||!$$('cfgAgree').checked)return;const b=$$('cfgRestore');b.disabled=true;try{const volta=typeof paramPrepararRestauracao==='function'?paramPrepararRestauracao(cfg,state.cfg,data.exportadoEm):cfg;const r=await api('setCfg',{cfg:{...state.cfg,...volta},baseAtualizadoEm:state.cfgVersion||null});if(!r.ok)throw new Error(r.conflito?'As regras mudaram na nuvem. Leia a base novamente antes de revisar o backup.':r.erro||'Gravação não confirmada.');state.cfg={...state.cfg,...volta};state.cfgVersion=r.atualizadoEm;cfgConfirmada();$$('cfgResult').textContent='Regras confirmadas na nuvem.';}catch(e){$$('cfgResult').textContent=e.message;b.disabled=false;}};}
  }catch(e){toast(e.message,'err');}
 }
 function revisarConflito(id){const item=getQueue().find(it=>it.opId===id);if(!item)return;const remote=item.conflito?.servidor;const dif=remote?diffRegistro(remote,item.registro):[];dialog('Revisar edição de '+item.registro.label,`<p>${remote?'Há uma versão diferente na nuvem. Compare os valores antes de escolher.':'A edição foi preservada e ainda não foi confirmada.'}</p>${dif.map(x=>linha(x.name+' · nuvem '+money(x.antes)+' → aparelho',x.depois)).join('')}<div class="actions"><button id="saveConflictCopy">Baixar cópia desta edição</button>${remote?'<button id="adoptRemote">Usar versão da nuvem</button><button id="retryLocal" class="primary">Confirmar versão deste aparelho</button>':'<button id="retryLocal" class="primary">Tentar envio novamente</button>'}</div>`);$$('saveConflictCopy').onclick=()=>download('edicao-'+safeId(item.registro.label)+'.json',JSON.stringify(item,null,2));if($$('adoptRemote'))$$('adoptRemote').onclick=async()=>{download('edicao-preservada-'+safeId(item.registro.label)+'.json',JSON.stringify(item,null,2));setQueue(getQueue().filter(it=>it.opId!==id));$$('detailDialog').close();await pullCloud();};$$('retryLocal').onclick=async()=>{const q=getQueue(),it=q.find(x=>x.opId===id);if(!it)return;it.registro.baseAtualizadoEm=item.conflito?(remote?.atualizadoEm||null):(it.registro.baseAtualizadoEm||null);delete it.conflito;delete it.erro;setQueue(q);$$('detailDialog').close();await trySync();render();};}
 // Sair apaga do aparelho a cópia dos números (ela volta do servidor no próximo
 // acesso). Edição que ainda não chegou à nuvem é tentada antes; se continuar
 // presa, só sai com a pessoa sabendo que ela será apagada.
-function limparCopiaLocal({fila=false}={}){sessionDataset=null;for(const k of [STORE_KEY,MONTH_TS_KEY,'impresilk_dre_data',...(fila?[QUEUE_KEY]:[])])try{localStorage.removeItem(k);}catch(_){}}
+function limparCopiaLocal({fila=false}={}){sessionDataset=null;servidorLocal=new Map();for(const k of [STORE_KEY,MONTH_TS_KEY,'impresilk_dre_data',...(fila?[QUEUE_KEY]:[])])try{localStorage.removeItem(k);}catch(_){}return typeof CacheDRE!=='undefined'?CacheDRE.limpar():Promise.resolve();}
 async function logout(){let q;try{q=getQueue();}catch(_){q=null;}if(q?.length&&navigator.onLine){try{await trySync();}catch(_){}try{q=getQueue();}catch(_){q=null;}}
  if(q===null&&!confirm('A fila de edições deste aparelho está ilegível. Sair apaga essa fila. Para guardar, cancele e use "Baixar backup do DRE" nas Configurações. Sair mesmo assim?'))return;
  if(q?.length&&!confirm(`${q.length===1?'Uma edição ainda não chegou':q.length+' edições ainda não chegaram'} à nuvem. Sair apaga ${q.length===1?'essa edição':'essas edições'} deste aparelho. Para guardar, cancele e use "Baixar backup do DRE" nas Configurações. Sair mesmo assim?`))return;
- globalThis.DREIndicadores?.clear();pararAcompanhamentoColeta();limparCopiaLocal({fila:true});AUTH.esquecer();$$('appShell').hidden=true;$$('authOverlay').hidden=false;$$('loginPass').value='';state.D=null;state.records=[];state.cfg={};state.cfgVersion=null;$$('detailDialog').close();state.permissoes={leitura:true,edicao:false,admin:false};}
+ globalThis.DREIndicadores?.clear();pararAcompanhamentoColeta();AUTH.esquecer();await limparCopiaLocal({fila:true});$$('appShell').hidden=true;$$('authOverlay').hidden=false;$$('loginPass').value='';state.D=null;state.records=[];state.cfg={};state.cfgVersion=null;$$('detailDialog').close();state.permissoes={leitura:true,edicao:false,admin:false};}
 function initApp(){
  if(typeof restaurarRota==='function')restaurarRota();
   $$('loginForm').onsubmit=async e=>{e.preventDefault();$$('loginErr').textContent='';const b=e.target.querySelector('button');b.disabled=true;try{await AUTH.entrar($$('loginPass').value);$$('loginPass').value='';await onAuthed();}catch(err){$$('loginErr').textContent=err.message||'Não foi possível entrar.';}finally{b.disabled=false;}};

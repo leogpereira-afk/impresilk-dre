@@ -62,3 +62,23 @@ test('revisão 12.5: base diferente não compara; código 51+ com nomes diferent
  // com filtro, sem botões de abrir e recolher (tudo aberto)
  c.run("state.consulta='cemig'");const h=c.run('renderPlanoContas()');assert.doesNotMatch(h,/data-plano-ramo=|data-plano-matriz=/);assert.match(h,/tudo aberto/);
 });
+
+// ── Fase 13.1: entradas e saídas juntas no Dashboard ──
+test('entradas e saídas juntas: mês com saldo, comparação, composição de cada lado e volta para a conta ao escolher',()=>{
+ const c=ctx();c.run("state.contaSelecionada='1';state.comparar='Ago/2026';planoUI.juntas=true");const h=c.run('dashboardPlano(contextoPlano())');
+ assert.match(h,/data-plano-juntas="sim" aria-pressed="true"/);assert.match(h,/⇄ Entradas e saídas <small>· Set\/2026/);
+ assert.match(h,/Set\/2026 · entradas<\/small><strong class="tom-entra">R\$\s1\.000,00/);assert.match(h,/Set\/2026 · saídas<\/small><strong class="tom-sai">R\$\s500,00/);
+ assert.match(h,/Saldo \(entradas − saídas\)<\/small><strong class="tom-entra">R\$\s500,00/);
+ assert.match(h,/as saídas consumiram 50% das entradas: sobrou R\$\s500,00\. Em Ago\/2026 o saldo foi R\$\s500,00\./);
+ assert.match(h,/Para onde foi · Set\/2026[\s\S]*Cemig[\s\S]*30%/,'Cemig é 30% das saídas');assert.match(h,/De onde veio · Set\/2026<\/h3><p class="hint">Sem subcontas/);
+ assert.match(h,/aria-label="Set\/2026 · Entradas: R\$\s1\.000,00 · Saídas: R\$\s500,00/,'gráfico com as duas séries');
+ assert.match(h,/<tfoot><tr><th scope="row">Total 2026<\/th><td class="num tom-entra">R\$\s2\.000,00<\/td><td class="num tom-sai">R\$\s1\.000,00<\/td><td class="num tom-entra">R\$\s1\.000,00<\/td><td class="num">50%<\/td>/);
+ assert.match(h,/<td>Jan\/2026<\/td><td class="num ">—<\/td><td class="num ">—<\/td><td class="num ">—<\/td>/,'mês sem registro fica em branco, não zero');
+ c.run("planoSelecionar('2.5.3')");assert.equal(c.run('planoUI.juntas'),false,'escolher uma conta volta para a conta');
+});
+test('entradas e saídas juntas no chip Ano: mesmos meses do ano anterior e o saldo comparado',()=>{
+ const c=ctx();comAnos(c);c.run("state.anoTodo=true;planoUI.juntas=true");const h=c.run('dashboardPlano(contextoPlano())');
+ assert.match(h,/Ano 2026 contra 2025/);assert.match(h,/Entradas · Ago a Set<\/small><strong class="tom-entra">R\$\s2\.000,00<\/strong><small>2025: R\$\s1\.600,00 · \+25%/);
+ assert.match(h,/Nos mesmos meses \(Ago a Set\), as saídas consumiram 50% das entradas, contra 50% em 2025\. O saldo melhorou R\$\s200,00\./);
+ const sem=ctx();sem.run("state.anoTodo=true;planoUI.juntas=true");assert.match(sem.run('dashboardPlano(contextoPlano())'),/Sem meses fechados, da mesma base, em 2026 e 2025/);
+});

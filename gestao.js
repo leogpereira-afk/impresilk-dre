@@ -45,7 +45,7 @@ async function salvarGestao(chave,valor,original=state.cfg?.gestao?.[chave]??nul
   const cfg={...r.cfg,gestao:{...r.cfg?.gestao,[chave]:item,historico:[...(r.cfg?.gestao?.historico||[]),{chave,em:atualizadoEm,anterior:atual,novo:item}]}};
   const saved=await api('setCfg',{cfg,baseAtualizadoEm:r.atualizadoEm||null});if(!saved.ok)throw new Error(saved.conflito?'As configurações mudaram durante a gravação. Sua edição continua aberta.':'Gravação não confirmada: '+(saved.erro||'tente novamente.'));
   if(sessao!==STORE_KEY)throw new Error('O acesso mudou. Entre novamente para conferir a gravação.');
-  state.cfg=cfg;state.cfgVersion=saved.atualizadoEm;return item;
+  state.cfg=cfg;state.cfgVersion=saved.atualizadoEm;if(typeof cfgConfirmada==='function')cfgConfirmada();return item;
  }finally{gestaoSaving=false;}
 }
 function alertasPeriodo(reg){

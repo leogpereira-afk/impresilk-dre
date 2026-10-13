@@ -254,7 +254,7 @@ async function salvarParametros(caminho,valor,original){
   const saved=await paramApi('setCfg',{cfg,baseAtualizadoEm:r.atualizadoEm||null});
   if(!saved?.ok)throw new Error(saved?.conflito?'Os parâmetros mudaram durante a gravação. Sua edição continua aberta.':'Gravação não confirmada: '+(saved?.erro||'tente novamente.'));
   if(sessao!==STORE_KEY)throw new Error('O acesso mudou. Entre novamente para conferir a gravação.');
-  state.cfg=cfg;state.cfgVersion=saved.atualizadoEm;return novo;
+  state.cfg=cfg;state.cfgVersion=saved.atualizadoEm;if(typeof cfgConfirmada==='function')cfgConfirmada();return novo;
  }finally{parametrosSalvando=false;}
 }
 // Recuperar backup: os parâmetros voltam, mas o histórico de agora fica e
