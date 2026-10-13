@@ -128,3 +128,63 @@ test('planilha (Fase 11.5): base, números, mês a mês do ano e o simulador; fo
  c.run(`precosUI.custo='100';precosUI.lucro='10'`);const r2=c.json('precosCSV()');assert.ok(r2.some(r=>r[0]==='Preço'&&/^\d+,\d{2}$/.test(r[1])));
  assert.equal(tela({periodo:'Mai/2026'}).json('precosCSV()'),null,'sem meses fechados: sem planilha');
 });
+
+// ── Fase 12.2: chip Ano, comparação com o ano anterior e avaliação de cada cartão ──
+const aval=h=>[...h.matchAll(/<span class="aval-selo aval-(excelente|boa|ruim)">([^<]*)<\/span><span class="aval-texto">/g)].map(m=>m[1]);
+const ANOS=[...['Jul','Ago','Set'].map(m=>reg(m+'/2025',{Jul:'2025-07-31',Ago:'2025-08-31',Set:'2025-09-30'}[m],mes(.8))),...REG];
+test('avaliação: margem 50% boa, fixas 20% e equilíbrio 40% das vendas excelentes, distância do mês excelente; faixas na régua',()=>{
+ const h=tela().run('renderPrecos()');
+ assert.deepEqual(aval(h),['boa','excelente','excelente','excelente'],'margem, equilíbrio, distância, fixas');
+ assert.match(h,/sobra de 45% a 55% de cada venda/);assert.match(h,/40% das vendas médias/);assert.match(h,/Margem de segurança: 53,3% das vendas do mês/);
+ assert.match(h,/aria-label="Margem de contribuição 50%: boa\. Faixas: excelente a partir de 55%, boa de 45% a 55%, ruim abaixo de 45%\./);
+ assert.match(h,/Mesmo período de 2025: sem os mesmos meses fechados/,'sem 2025 na base: diz, não inventa');
+ const c=tela();assert.deepEqual(['mc','pe','seguranca','fixas'].map(k=>c.json(`precoAvaliar('${k}',${{mc:44.9,pe:70.1,seguranca:29.9,fixas:35.1}[k]})`).nivel),['ruim','ruim','ruim','ruim']);
+ assert.deepEqual(['mc','pe','seguranca','fixas'].map(k=>c.json(`precoAvaliar('${k}',${{mc:55,pe:50,seguranca:50,fixas:25}[k]})`).nivel),['excelente','excelente','excelente','excelente'],'borda é do lado melhor');
+ assert.equal(c.json('precoAvaliar("mc",null)'),null);
+});
+test('comparação com o mesmo período do ano anterior: valor de antes, diferença e cor de melhorou/piorou; comparativo ano a ano',()=>{
+ const h=tela({registros:ANOS}).run('renderPrecos()');
+ // 2025 em 0,8x: mesma margem (50%) e mesmo peso das fixas (20%): a diferença é pela medida da régua (% das vendas), então sem cor
+ assert.match(h,/Mesmo período de 2025: 50%<\/span>/,'margem igual: sem diferença');assert.match(h,/aval-marca-ant/,'o ano anterior na régua');
+ assert.match(h,/Mesmo período de 2025: R\$\s1\.600,00 \(20% das vendas\)<\/span>/,'fixas no mesmo peso das vendas: sem melhorou nem piorou');
+ // fixas pesando mais em 2026 (2.000 → 2.400 sobre as mesmas vendas): vermelho em p.p.
+ const mais=ANOS.map(r=>r.label.endsWith('2026')?{...r,cells:r.cells.map(x=>x.code==='2.1'||x.code==='2.1.4'?{...x,value:x.value*1.2}:x.code==='2'?{...x,value:x.value+(r.cells.find(y=>y.code==='2.1').value*.2)}:x)}:r);
+ assert.match(tela({registros:mais}).run('renderPrecos()'),/Mesmo período de 2025: R\$\s1\.600,00 \(20% das vendas\)<b class="tom-sai"> \(\+4 p\.p\. nas vendas\)<\/b>/);
+ assert.match(h,/Set\/2025: R\$\s4\.800,00 \(60%\)<b class="tom-sai"> \(−6,7 p\.p\.\)<\/b>/,'margem de segurança do mesmo mês caiu: vermelho');
+ assert.match(h,/<summary>Comparativo ano a ano · Jul a Set<\/summary>/);assert.match(h,/<th scope="row">2025<\/th>/);assert.match(h,/<tr class="selected-month"><th scope="row">2026<\/th>/);
+ assert.doesNotMatch(tela().run('renderPrecos()'),/Comparativo ano a ano/,'um ano só: sem comparativo');
+});
+test('chip Ano: média dos meses fechados do ano, distância pelas vendas médias e comparação com os mesmos meses',()=>{
+ const c=tela({registros:ANOS,periodo:'Set/2026'});c.run('state.anoTodo=true');
+ const b=c.json("precoBaseTela('Set/2026')");assert.deepEqual(b.meses,['Jun/2026','Jul/2026','Ago/2026','Set/2026']);
+ const h=c.run('renderPrecos()'),k=cartoes(h);
+ assert.equal(k[3].rotulo,'Despesas fixas por mês (média do ano)');assert.match(k[0].nota,/média de Jun\/2026 a Set\/2026 \(Jan\/2026 a Mai\/2026 sem dados ficaram de fora\) \(4 meses fechados de 2026\)/);
+ assert.match(k[2].nota,/^Vendas por mês \(R\$\s10\.000,00, média/);assert.match(h,/Mesmos meses de 2025/);
+ assert.match(tela({registros:ANOS,periodo:'Set/2026'}).run("state.anoTodo=true;precosCSV=precosCSV;__b=null;download=(n,c)=>{__b=c};precosCSV();__b"),/Jun\/2026, Jul\/2026, Ago\/2026, Set\/2026/);
+});
+test('mês sem plano de contas (2.99) fica fora da média e é dito',()=>{
+ const sem=REG.map(r=>r.label!=='Ago/2026'?r:{...r,cells:[cel('1','Receitas',15000),cel('1.1','Comunicação Visual',15000),cel('2','Despesas',9000),cel('2.99','Sem plano de contas',8900),cel('2.4','Impostos',100),cel('2.4.8','ISSQN',100)]});
+ const c=tela({registros:sem}),b=c.json("precoBase('Set/2026')");
+ assert.deepEqual(b.meses,['Jun/2026','Jul/2026','Set/2026']);assert.deepEqual(b.lacunas,[{label:'Ago/2026',motivo:'sem plano de contas'}]);
+ assert.match(c.run('renderPrecos()'),/Ago\/2026 sem plano de contas ficou de fora/);
+});
+
+test('revisão 12.2: virada do ano, comparação só nos mesmos meses, sem equilíbrio no ano anterior, prejuízo, sem plano de contas, borda e planilha no Ano',()=>{
+ // janeiro: base Nov a Jan compara com Nov a Jan de um ano antes, com o rótulo do intervalo
+ const vira=[...['Nov','Dez'].map(m=>reg(m+'/2024',{Nov:'2024-11-30',Dez:'2024-12-31'}[m],mes(1))),reg('Jan/2025','2025-01-31',mes(1)),...['Nov','Dez'].map(m=>reg(m+'/2025',{Nov:'2025-11-30',Dez:'2025-12-31'}[m],mes(1))),reg('Jan/2026','2026-01-31',mes(1))];
+ const hv=tela({registros:vira,periodo:'Jan/2026'}).run('renderPrecos()');assert.match(hv,/Mesmo período de Nov\/2024 a Jan\/2025/);assert.match(hv,/<tr class="selected-month"><th scope="row">2026<\/th>/);
+ // só Set/2025 fechou: compara Set com Set (só 1 de 3 meses)
+ const um=[reg('Set/2025','2025-09-30',mes(1)),...REG];const hu=tela({registros:um}).run('renderPrecos()');assert.match(hu,/\(só 1 de 3 meses, comparados com os mesmos meses de hoje\)/);
+ // ano anterior fechado, mas sem equilíbrio
+ const caro=c=>c.map(x=>x.code==='2.12'||x.code==='2.12.1'?{...x,value:x.value*3}:x.code==='2'?{...x,value:x.value+8000*(x.value/7000)}:x);
+ const semEq=[...['Jul','Ago','Set'].map(m=>reg(m+'/2025',{Jul:'2025-07-31',Ago:'2025-08-31',Set:'2025-09-30'}[m],caro(mes(1)))),...REG];
+ assert.match(tela({registros:semEq}).run('renderPrecos()'),/Mesmo período de 2025: sem ponto de equilíbrio \(margem de contribuição não positiva\)/);
+ // mês abaixo do equilíbrio: o texto diz que deu prejuízo
+ const c=tela();assert.match(c.json("precoAvaliar('seguranca',-40)").texto,/abaixo do equilíbrio: deram prejuízo/);assert.equal(c.json("precoAvaliar('mc',54.96)").nivel,'excelente','54,96% aparece como 55%');
+ // meses coletados sem plano de contas: não manda coletar
+ const semPlano=REG.map(r=>({...r,cells:[cel('1','Receitas',10000),cel('1.1','CV',10000),cel('2','Despesas',9000),cel('2.99','Sem plano',8900),cel('2.4','Impostos',100),cel('2.4.8','ISSQN',100)]}));
+ const hs=tela({registros:semPlano}).run('renderPrecos()');assert.match(hs,/Meses sem plano de contas até Set\/2026/);assert.doesNotMatch(hs,/Colete os meses/);
+ // planilha no Ano: distância pelas vendas médias e a margem de segurança
+ const a=tela({registros:ANOS,periodo:'Set/2026'});a.run('state.anoTodo=true;__r=null;download=(n,x)=>{};');const rows=a.json('precosCSV()');
+ assert.ok(rows.some(r=>/^Distância do equilíbrio \(vendas médias de 2026\)$/.test(r[0])&&r[1]==='6000,00'));assert.ok(rows.some(r=>r[0]==='Margem de segurança'&&r[1]==='60,00%'));
+});

@@ -227,3 +227,24 @@ body.dark .cmp-tinta-1{color:#fff}body.dark .cmp-tinta-2,body.dark .cmp-tinta-3,
 .cmp-marcador span{flex:1 1 320px;font-size:12px;line-height:1.5;color:var(--muted)}
 /* valor em cima de cada barra a partir de 400px (a biblioteca só mostra acima de 520px) */
 @container (min-width:400px){.g-cmp-var .g-rot.g-opcional,.g-cmp-grupos .g-rot.g-opcional{display:block}}
+/* Preço e equilíbrio (Fase 12.2): selo excelente/boa/ruim, régua de três faixas e a comparação com o ano anterior */
+.aval{display:grid;gap:4px;margin-top:10px}
+.aval-selo{display:inline-block;justify-self:start;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:750;letter-spacing:.02em;border:1px solid transparent;white-space:nowrap}
+.aval-excelente{background:color-mix(in srgb,var(--g-entrada) 14%,transparent);color:var(--blue);border-color:color-mix(in srgb,var(--g-entrada) 40%,transparent)}
+.aval-boa{background:color-mix(in srgb,var(--g-texto-2) 12%,transparent);color:var(--text);border-color:var(--line)}
+.aval-ruim{background:color-mix(in srgb,var(--g-saida) 14%,transparent);color:var(--red);border-color:color-mix(in srgb,var(--g-saida) 40%,transparent)}
+.aval-texto{font-size:12px;line-height:1.4;color:var(--muted)}
+.aval-regua{position:relative;display:flex;height:10px;margin:8px 0 2px}
+.aval-faixa{height:100%}
+.aval-faixa:first-child{border-radius:5px 0 0 5px}.aval-faixa:last-of-type{border-radius:0 5px 5px 0}
+.aval-f-ruim{background:var(--g-risco-1)}.aval-f-boa{background:var(--g-faixa-3)}.aval-f-excelente{background:var(--g-seq-2)}
+.aval-marca{position:absolute;top:-4px;width:3px;height:18px;margin-left:-1.5px;border-radius:2px;background:var(--g-texto)}
+.aval-marca-ant{position:absolute;top:-3px;width:10px;height:16px;margin-left:-5px;border:2px solid var(--g-texto-2);border-radius:3px;box-sizing:border-box}
+.aval-legenda,.aval-comp{display:block;font-size:11px;line-height:1.45;color:var(--muted)}
+.aval-comp b{font-weight:650}
+.precos-anos-tabela .aval-selo{margin-left:6px;font-size:10px;padding:1px 6px}
+.precos-anos-tabela caption{caption-side:top;text-align:left;font-size:11px;color:var(--muted);padding:8px 10px 4px}
+.precos-anos-tabela tbody th{text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);background:none;white-space:nowrap}
+.precos-anos-tabela th small{font-weight:400;color:var(--muted)}
+.precos-anos-tabela td.num{white-space:nowrap}
+@media (forced-colors:active){.aval-faixa{border:1px solid CanvasText}.aval-marca{background:CanvasText}}

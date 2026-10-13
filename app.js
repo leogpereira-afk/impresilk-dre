@@ -416,7 +416,7 @@ async function pullCloud(manual=false){
    para que Voltar, link ou um mês gravado por fora não encurtem o ano. Clicar num
    mês volta ao mês, em qualquer tela. Na DRE por competência o chip não aparece: lá
    a visão é por apuração. */
-const ANO_TELAS=['dre','dfc','indicadores'];
+const ANO_TELAS=['dre','dfc','indicadores','precos'];
 const anoAtivo=()=>!!state.anoTodo;
 const anoCompetencia=()=>state.view==='dre'&&typeof dreUI!=='undefined'&&dreUI.base==='competencia';
 function hojeRotulo(){const d=typeof dfcHoje==='function'?dfcHoje():'';return /^\d{4}-\d{2}/.test(d)?PT_MON[Number(d.slice(5,7))-1]+'/'+d.slice(0,4):mesHoje();}

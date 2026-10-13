@@ -435,21 +435,48 @@ if(typeof document!=='undefined'&&typeof document.addEventListener==='function')
    markup divisor: preço = custo variável ÷ (1 − impostos − fixas − lucro). */
 const precosUI={custo:'',lucro:'',imposto:'observado',fixas:''};
 const precoCache=new WeakMap();
+// Mês com mais de 10% das saídas sem plano de contas (2.99) não entra: em 2020 e no começo
+// de 2021 quase tudo era lançado sem conta, e a margem sairia perto de 100%.
+const PRECO_SEM_CONTA_MAX=10;
 function precoMes(label){
  const m=typeof dfcMes==='function'?dfcMes(label):null,reg=m?.reg;if(!reg)return {label,dado:null,parcial:false};
  if(!precoCache.has(reg))precoCache.set(reg,typeof DRESimples!=='undefined'?DRESimples.apurar(reg):null);
  const a=precoCache.get(reg);if(!a)return {label,dado:null,parcial:!!m.parcial};
- const l=a.linhas;return {label,parcial:!!m.parcial,emAndamento:!!m.emAndamento,ate:m.ate,dado:{vendas:l.vendas,das:l.das,impostosVendas:l.impostosVendas,devolucoes:l.devolucoes,variaveis:l.variaveis,mc:l.margemContribuicao,fixas:l.fixas,resultado:l.ebitda,financeiro:(l.despesasFinanceiras||0)-(l.receitasFinanceiras||0)}};
+ const l=a.linhas;return {label,parcial:!!m.parcial,emAndamento:!!m.emAndamento,ate:m.ate,semConta:a.pctSemConta!=null&&a.pctSemConta>PRECO_SEM_CONTA_MAX,dado:{vendas:l.vendas,das:l.das,impostosVendas:l.impostosVendas,devolucoes:l.devolucoes,variaveis:l.variaveis,mc:l.margemContribuicao,fixas:l.fixas,resultado:l.ebitda,financeiro:(l.despesasFinanceiras||0)-(l.receitasFinanceiras||0)}};
 }
+const precoUsavel=m=>!!m.dado&&!m.parcial&&!m.semConta;
+const precoMotivo=m=>!m.dado?'sem dados':m.semConta?'sem plano de contas':m.emAndamento?'em andamento':'incompleto';
 // Média dos três últimos meses fechados até `label` (olha até 12 meses para trás).
 function precoBase(label){
  const meses=[],pulados=[];let cur=label;
- for(let i=0;i<12&&cur&&meses.length<3;i++){const m=precoMes(cur);if(m.dado&&!m.parcial)meses.push(m);else pulados.push({label:cur,motivo:m.dado?(m.emAndamento?'em andamento':'incompleto'):'sem dados'});cur=typeof dfcMesDesloca==='function'?dfcMesDesloca(cur,-1):null;}
+ for(let i=0;i<12&&cur&&meses.length<3;i++){const m=precoMes(cur);if(precoUsavel(m))meses.push(m);else pulados.push({label:cur,motivo:precoMotivo(m)});cur=typeof dfcMesDesloca==='function'?dfcMesDesloca(cur,-1):null;}
+ // Fora da média e dentro da janela (do mais antigo usado ao escolhido): dito na tela. O mês
+ // escolhido em andamento não é lacuna, é o mês que ainda não fechou.
+ const ki=meses.length?monthSortKey(meses[meses.length-1].label):Infinity;
+ return precoCalcular(meses,pulados.filter(p=>monthSortKey(p.label)>ki&&!(p.label===label&&p.motivo==='em andamento')));
+}
+// Média de uma lista de meses (o ano no chip Ano; o mesmo período do ano anterior).
+function precoBaseLista(labels){
+ const meses=[],pulados=[];
+ for(const l of [...labels].sort((a,b)=>monthSortKey(b)-monthSortKey(a))){const m=precoMes(l);if(precoUsavel(m))meses.push(m);else if(precoMotivo(m)!=='em andamento')pulados.push({label:l,motivo:precoMotivo(m)});}
+ return precoCalcular(meses,pulados);
+}
+// Chip Ano: de janeiro ao mês escolhido (o último com dados do ano), só os meses fechados.
+function precoBaseAno(label){
+ const [mm,ano]=String(label).split('/'),ate=PT_MON.indexOf(mm)+1;if(!ate)return null;
+ const b=precoBaseLista(PT_MON.slice(0,ate).map(x=>x+'/'+ano));if(b)b.ano=ano;return b;
+}
+const precoAno=()=>typeof anoAtivo==='function'&&anoAtivo();
+const precoBaseTela=label=>precoAno()?precoBaseAno(label):precoBase(label);
+// Comparação: os mesmos meses um ano antes (só os que fecharam lá).
+function precoComparacao(b){
+ if(!b||typeof dfcMesDesloca!=='function')return null;
+ const ls=b.meses.map(l=>dfcMesDesloca(l,-12)).filter(Boolean);return ls.length?precoBaseLista(ls):null;
+}
+function precoCalcular(meses,pulados){
  if(!meses.length)return null;
- // Meses pulados entre o primeiro e o último usado (o mês escolhido em andamento não conta como lacuna).
- const ki=monthSortKey(meses[meses.length-1].label),kf=monthSortKey(meses[0].label);
  const n=meses.length,soma=k=>meses.reduce((t,m)=>t+Math.round((Number(m.dado[k])||0)*100),0),med=k=>Math.round(soma(k)/n)/100;
- const b={meses:meses.map(m=>m.label).reverse(),n,lacunas:pulados.filter(p=>{const k=monthSortKey(p.label);return k>ki&&k<kf;}).reverse(),vendas:med('vendas'),das:med('das'),impostosVendas:med('impostosVendas'),devolucoes:med('devolucoes'),variaveis:med('variaveis'),mc:med('mc'),fixas:med('fixas'),resultado:med('resultado'),financeiro:med('financeiro')};
+ const b={meses:meses.map(m=>m.label).reverse(),n,lacunas:[...pulados].sort((a,c)=>monthSortKey(a.label)-monthSortKey(c.label)),vendas:med('vendas'),das:med('das'),impostosVendas:med('impostosVendas'),devolucoes:med('devolucoes'),variaveis:med('variaveis'),mc:med('mc'),fixas:med('fixas'),resultado:med('resultado'),financeiro:med('financeiro')};
  // Índices e equilíbrio pelas somas em centavos (arredondar as médias antes desviaria um centavo).
  const sv=soma('vendas'),pct=k=>sv>0?Math.round(soma(k)/sv*10000)/100:null;
  b.indice=sv>0?soma('mc')/sv:null;
@@ -458,9 +485,53 @@ function precoBase(label){
  return b;
 }
 const precoPct=v=>v==null||!Number.isFinite(v)?'—':v.toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+/* Avaliação (Fase 12.2): cada cartão diz se o número está ruim, bom ou excelente, por faixas
+   de referência de comunicação visual no Simples, escritas aqui e explicadas na tela e no
+   Glossário. Margem de contribuição: material, terceiros e Simples consomem o resto de cada
+   venda. Ponto de equilíbrio e distância usam a sazonalidade da casa: o mês mais fraco do ano
+   (fevereiro) vende cerca de 70% do mês médio, então com o equilíbrio acima de 70% das vendas
+   os meses fracos ficam no prejuízo. A distância é o espelho do equilíbrio (100% − equilíbrio).
+   min e max só desenham a régua. */
+const PRECO_FAIXAS={
+ mc:{maior:true,excelente:55,boa:45,min:30,max:70,nome:'Margem de contribuição',
+  texto:{excelente:'cada venda deixa mais de 55% para pagar a estrutura e dar lucro',boa:'sobra de 45% a 55% de cada venda; preço ou compra de material podem melhorar',ruim:'menos de 45% sobra de cada venda: preço baixo ou material e terceiros caros'}},
+ pe:{maior:false,excelente:50,boa:70,min:20,max:110,nome:'Ponto de equilíbrio',
+  texto:{excelente:'a estrutura se paga com até metade das vendas de um mês médio',boa:'a estrutura pede de 50% a 70% das vendas: os meses fracos ficam perto do limite',ruim:'a estrutura pede mais de 70% das vendas: os meses fracos do ano dão prejuízo'}},
+ seguranca:{maior:true,excelente:50,boa:30,min:-20,max:80,nome:'Distância do equilíbrio',
+  texto:{excelente:'as vendas podem cair mais da metade antes de dar prejuízo',boa:'as vendas podem cair de 30% a 50% antes de dar prejuízo',ruim:'uma queda de menos de 30% nas vendas já dá prejuízo'}},
+ fixas:{maior:false,excelente:25,boa:35,min:10,max:50,nome:'Despesas fixas',
+  texto:{excelente:'estrutura leve: até 25% das vendas',boa:'de 25% a 35% das vendas; atenção à folha crescendo mais que as vendas',ruim:'mais de 35% das vendas vão para a estrutura fixa'}},
+};
+const PRECO_NIVEL={excelente:'Excelente',boa:'Boa',ruim:'Ruim'};
+function precoAvaliar(chave,v){
+ const f=PRECO_FAIXAS[chave];if(!f||v==null||!Number.isFinite(v))return null;
+ v=Math.round(v*10)/10; // avalia o número como a tela mostra (uma casa): 54,96% aparece e vale 55%
+ const nivel=f.maior?(v>=f.excelente?'excelente':v>=f.boa?'boa':'ruim'):(v<=f.excelente?'excelente':v<=f.boa?'boa':'ruim');
+ const texto=chave==='seguranca'&&v<0?'as vendas ficaram abaixo do equilíbrio: deram prejuízo':chave==='pe'&&v>100?'nem as vendas médias pagam a estrutura: o mês médio dá prejuízo':f.texto[nivel];
+ return {nivel,rotulo:PRECO_NIVEL[nivel],texto};
+}
+const precoFaixasTexto=chave=>{const f=PRECO_FAIXAS[chave],u=v=>precoPct(v);return f.maior?`excelente a partir de ${u(f.excelente)}, boa de ${u(f.boa)} a ${u(f.excelente)}, ruim abaixo de ${u(f.boa)}`:`excelente até ${u(f.excelente)}, boa até ${u(f.boa)}, ruim acima de ${u(f.boa)}`;};
+// Régua com as três faixas, o valor de agora (traço cheio) e o do ano anterior (traço vazado).
+function precoAvalHtml(chave,v,ant,rotuloAnt){
+ const f=PRECO_FAIXAS[chave],a=precoAvaliar(chave,v);if(!a)return '';
+ const pos=x=>Math.min(100,Math.max(0,(x-f.min)/(f.max-f.min)*100)),c1=pos(f.maior?f.boa:f.excelente),c2=pos(f.maior?f.excelente:f.boa);
+ const ordem=f.maior?['ruim','boa','excelente']:['excelente','boa','ruim'],larg=[c1,c2-c1,100-c2];
+ const temAnt=ant!=null&&Number.isFinite(ant),aAnt=temAnt?precoAvaliar(chave,ant):null;
+ const leitura=`${f.nome} ${precoPct(v)}: ${a.rotulo.toLowerCase()}. Faixas: ${precoFaixasTexto(chave)}.${temAnt?` ${rotuloAnt}: ${precoPct(ant)} (${aAnt.rotulo.toLowerCase()}).`:''}`;
+ return `<div class="aval"><span class="aval-selo aval-${a.nivel}">${esc(a.rotulo)}</span><span class="aval-texto">${esc(a.texto)}.</span>`
+  +`<div class="aval-regua" role="img" aria-label="${esc(leitura)}" title="${esc(leitura)}">${ordem.map((n,i)=>`<span class="aval-faixa aval-f-${n}" style="width:${larg[i].toFixed(2)}%"></span>`).join('')}`
+  +`${temAnt?`<i class="aval-marca-ant" style="left:${pos(ant).toFixed(2)}%"></i>`:''}<i class="aval-marca" style="left:${pos(v).toFixed(2)}%"></i></div>`
+  +`<span class="aval-legenda">${esc(precoFaixasTexto(chave))}${temAnt?` · traço vazado: ${esc(rotuloAnt)}`:''}</span></div>`;
+}
+// Comparação dentro do cartão: o valor de antes e a diferença; azul quando melhorou, vermelho quando piorou.
+function precoCompHtml(rotuloAnt,valorAnt,dif,melhorou,unidade,semTxt){
+ if(valorAnt==null)return `<span class="aval-comp">${esc(rotuloAnt)}: ${esc(semTxt||'sem os mesmos meses fechados')}</span>`;
+ const d=dif==null||!Number.isFinite(dif)||Math.abs(dif)<.05?'':` (${dif>0?'+':'−'}${Math.abs(dif).toLocaleString('pt-BR',{maximumFractionDigits:1})}${unidade})`;
+ return `<span class="aval-comp">${esc(rotuloAnt)}: ${esc(valorAnt)}${d?`<b class="${melhorou==null?'':melhorou?'tom-entra':'tom-sai'}">${esc(d)}</b>`:''}</span>`;
+}
 // Imposto do simulador: o observado (Simples pago ÷ vendas) ou a alíquota do PGDAS de cada empresa.
 function precoImpostos(b,label){
- const ops=[{id:'observado',rotulo:`Observado nos últimos meses: ${precoPct(b?.pct?.das)}`,valor:b?.pct?.das??null}];
+ const ops=[{id:'observado',rotulo:`${precoAno()?'Observado no ano':'Observado nos últimos meses'}: ${precoPct(b?.pct?.das)}`,valor:b?.pct?.das??null}];
  if(typeof PARAM_EMPRESAS!=='undefined'&&typeof paramAliquota==='function')for(const e of PARAM_EMPRESAS){const a=paramAliquota(e.id,label);ops.push({id:e.id,rotulo:`${e.nome} (PGDAS ${a.origem==='padrao'?'— padrão provisório':'de '+label}): ${precoPct(a.valor)}`,valor:a.valor});}
  return ops;
 }
@@ -483,18 +554,50 @@ function precoSimuladorHtml(b,label){
 }
 function renderPrecos(){
  const label=state.periodo;if(!label||!F.periodo(label))return '<p class="hint">Escolha um mês para ver o preço e o ponto de equilíbrio.</p>';
- const b=precoBase(label),m=precoMes(label),ano=label.split('/')[1],perm={admin:!!state.permissoes?.admin};
- if(!b)return `<div class="cards cards-controle">${['Margem de contribuição','Ponto de equilíbrio','Distância do equilíbrio','Despesas fixas por mês (média)'].map(t=>recCartao(t,'Não apurado','Faltam meses fechados com vendas na DRE de caixa.')).join('')}</div><section class="estado-vazio precos-sem-dados"><div><h2>Sem meses fechados até ${esc(label)}</h2><p>O cálculo usa a média dos três últimos meses fechados da DRE de caixa. Colete os meses no Mubisys ou importe a planilha.</p></div></section>`;
+ const modoAno=precoAno(),b=precoBaseTela(label),m=precoMes(label),ano=label.split('/')[1],perm={admin:!!state.permissoes?.admin};
+ if(!b){
+  // Meses coletados, mas quase tudo lançado sem plano de contas (2020, começo de 2021): não manda coletar.
+  const janela=modoAno?PT_MON.slice(0,PT_MON.indexOf(label.split('/')[0])+1).map(x=>x+'/'+ano):Array.from({length:12},(_,i)=>typeof dfcMesDesloca==='function'?dfcMesDesloca(label,-i):null).filter(Boolean);
+  const semPlano=janela.map(precoMes).some(x=>x.dado&&!x.parcial&&x.semConta);
+  const motivo=semPlano?`Os meses ${modoAno?`de ${ano}`:`até ${label}`} foram coletados, mas mais de ${PRECO_SEM_CONTA_MAX}% das saídas estão sem plano de contas no Mubisys: margem e equilíbrio sairiam errados.`:'Faltam meses fechados com vendas na DRE de caixa.';
+  return `<div class="cards cards-controle">${['Margem de contribuição','Ponto de equilíbrio','Distância do equilíbrio','Despesas fixas por mês (média)'].map(t=>recCartao(t,'Não apurado',motivo)).join('')}</div><section class="estado-vazio precos-sem-dados"><div><h2>${semPlano?`Meses sem plano de contas ${modoAno?`em ${esc(ano)}`:`até ${esc(label)}`}`:modoAno?`Sem meses fechados em ${esc(ano)}`:`Sem meses fechados até ${esc(label)}`}</h2><p>${semPlano?'Escolha um mês a partir de junho de 2021, quando as saídas passaram a ter plano de contas.':`${modoAno?'No Ano, o cálculo usa a média dos meses fechados do ano':'O cálculo usa a média dos três últimos meses fechados'} da DRE de caixa, com plano de contas. Colete os meses no Mubisys ou importe a planilha.`}</p></div></section>`;
+ }
  // Meses seguidos: "de Jul a Set"; com lacuna, a lista dos usados e o que ficou fora.
  const lista=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0];
- const periodo=b.lacunas.length?`${lista(b.meses)} (${lista(b.lacunas.map(p=>`${p.label} ${p.motivo}`))} ficou de fora)`:b.meses.length>1?`${b.meses[0]} a ${b.meses[b.meses.length-1]}`:b.meses[0];
- const media=`média de ${periodo}${b.n<3?` (só ${b.n} ${b.n===1?'mês fechado':'meses fechados'})`:''}`;
- const dist=m.dado&&!m.parcial&&b.pe!=null?Math.round((m.dado.vendas-b.pe)*100)/100:null;
+ const usados=precoFaixasDeMeses(b.meses.map(l=>({label:l}))),txtUsados=usados.length===1?precoFaixaTxt(usados[0]):lista(b.meses);
+ const periodo=b.lacunas.length?`${txtUsados} (${lista(precoFaixasDeMeses(b.lacunas).map(f=>`${precoFaixaTxt(f)} ${f.motivo}`))} ${b.lacunas.length>1?'ficaram':'ficou'} de fora)`:txtUsados;
+ const media=modoAno?`média de ${periodo} (${b.n} ${b.n===1?'mês fechado':'meses fechados'} de ${ano})`:`média de ${periodo}${b.n<3?` (só ${b.n} ${b.n===1?'mês fechado':'meses fechados'})`:''}`;
+ // No Ano, a distância é a das vendas médias do ano; no mês, a das vendas do mês escolhido.
+ const vendasDist=modoAno?b.vendas:m.dado&&!m.parcial?m.dado.vendas:null,dist=vendasDist!=null&&b.pe!=null?Math.round((vendasDist-b.pe)*100)/100:null;
+ // O mesmo período um ano antes, para cada cartão (e a distância do mesmo mês, no modo mês).
+ // Ano da comparação pelo último mês da base: em janeiro, a base Nov a Jan compara com Nov a Jan de um ano antes.
+ const anoFim=Number(b.meses[b.meses.length-1].split('/')[1]),cruza=b.meses[0].split('/')[1]!==b.meses[b.meses.length-1].split('/')[1];
+ const bc0=precoComparacao(b);
+ // Comparar só os mesmos meses: se lá fecharam menos, o lado de hoje também usa só esses.
+ const bcMes=bc0?new Set(bc0.meses):null,bh=bc0&&bc0.n<b.n?precoBaseLista(b.meses.filter(l=>bcMes.has(dfcMesDesloca(l,-12)))):b,bc=bh?bc0:null;
+ const rotAnt=`${modoAno?'Mesmos meses de':'Mesmo período de'} ${cruza&&bc?`${bc.meses[0]} a ${bc.meses[bc.meses.length-1]}`:anoFim-1}${bc&&bc.n<b.n?` (só ${bc.n} de ${b.n} meses, comparados com os mesmos meses de hoje)`:''}`;
+ const mAnt=!modoAno&&typeof dfcMesDesloca==='function'?precoMes(dfcMesDesloca(label,-12)):null,bAnt=mAnt&&precoUsavel(mAnt)?precoBase(mAnt.label):null;
+ const distAnt=modoAno?(bc&&bc.pe!=null?bc.vendas-bc.pe:null):(bAnt&&bAnt.pe!=null?mAnt.dado.vendas-bAnt.pe:null),vendasAnt=modoAno?bc?.vendas:mAnt?.dado?.vendas;
+ const semEq='sem ponto de equilíbrio (margem de contribuição não positiva)',semDistAnt=modoAno?(bc?semEq:null):!mAnt?.dado?'sem dados':!precoUsavel(mAnt)?precoMotivo(mAnt):bAnt&&bAnt.pe==null?semEq:null;
+ const segPct=(d,v)=>d!=null&&v>0?d/v*100:null,pePct=x=>x&&x.pe!=null&&x.vendas>0?x.pe/x.vendas*100:null;
+ const seg=segPct(dist,vendasDist),segAnt=segPct(distAnt,vendasAnt);
+ const rotDistAnt=modoAno?rotAnt:mAnt?`${mAnt.label}`:rotAnt;
  // A meta de Parâmetros é o resultado do mês (depois de juros e tarifas): o financeiro líquido médio entra na conta.
  const meta=typeof paramOperacao==='function'?paramOperacao(label)?.metaResultado:null,metaN=meta==null||meta===''||!Number.isFinite(Number(meta))?null:Number(meta),paraMeta=metaN!=null&&b.pe!=null?Math.round((b.pe+(b.financeiro+metaN)/b.indice)*100)/100:null;
- const semDist=!m.dado?`${label} ainda não foi coletado: colete no Mubisys ou importe a planilha do mês.`:m.parcial?(m.emAndamento?`${label} ainda não fechou: a distância sai quando o mês fechar.`:`${label} tem dados só até ${(m.ate||'').split('-').reverse().slice(0,2).join('/')||'uma data não registrada'}: atualize o Mubisys ou importe a planilha completa para ver a distância.`):'Sem ponto de equilíbrio: a margem de contribuição não é positiva, então não há distância.';
- const cards=`<div class="cards cards-controle">${recCartao('Margem de contribuição',precoPct(b.pct.mc),`${money(b.mc)} por mês sobre ${money(b.vendas)} de vendas, ${media}`,b.mc>0?'tom-entra':b.mc<0?'tom-sai':'')}${recCartao('Ponto de equilíbrio',b.pe==null?'Sem equilíbrio':money(b.pe),b.pe==null?'A margem de contribuição não é positiva: nenhum volume de vendas cobre as despesas fixas.':`Vendas por mês que pagam ${money(b.fixas)} de despesas fixas com ${precoPct(b.pct.mc)} de margem`)}${dist!=null?recCartao('Distância do equilíbrio',money(dist),`Vendas de ${label} (${money(m.dado.vendas)}) ${dist>=0?'acima':'abaixo'} do ponto de equilíbrio`,dist>0?'tom-entra':dist<0?'tom-sai':''):recCartao('Distância do equilíbrio','Não apurado',semDist)}${recCartao('Despesas fixas por mês (média)',money(b.fixas),`${precoPct(b.pct.fixas)} das vendas, ${media}`,b.fixas>0?'tom-sai':'')}</div>`;
- const nota=`<p class="hint precos-base">Base caixa: vendas recebidas e custos pagos, das linhas da DRE Simples, na ${esc(media)}. ${b.n<3?'Com menos de três meses fechados, a média oscila mais. ':''}O Simples entra pelo que foi pago (alíquota observada de ${esc(precoPct(b.pct.das))}); a alíquota do PGDAS de cada empresa fica no simulador.${paraMeta!=null?(paraMeta>0?` Para a meta de resultado do mês de ${esc(money(metaN))} em ${esc(label)} (Parâmetros; depois de juros e tarifas), as vendas precisam chegar a ${esc(money(paraMeta))} por mês.`:` A meta de resultado do mês de ${esc(money(metaN))} em ${esc(label)} (Parâmetros) é atingida com qualquer venda.`):''}</p>`;
+ const semDist=modoAno||(m.dado&&!m.parcial)?'Sem ponto de equilíbrio: a margem de contribuição não é positiva, então não há distância.':!m.dado?`${label} ainda não foi coletado: colete no Mubisys ou importe a planilha do mês.`:m.parcial?(m.emAndamento?`${label} ainda não fechou: a distância sai quando o mês fechar.`:`${label} tem dados só até ${(m.ate||'').split('-').reverse().slice(0,2).join('/')||'uma data não registrada'}: atualize o Mubisys ou importe a planilha completa para ver a distância.`):'Sem ponto de equilíbrio: a margem de contribuição não é positiva, então não há distância.';
+ const extra=(html,bloco)=>html.replace(/<\/div>$/,bloco+'</div>');
+ const pp=(a,b2)=>a!=null&&b2!=null?a-b2:null,pr=(a,b2)=>a!=null&&b2>0?(a/b2-1)*100:null;
+ const cMc=extra(recCartao('Margem de contribuição',precoPct(b.pct.mc),`${money(b.mc)} por mês sobre ${money(b.vendas)} de vendas, ${media}`,b.mc>0?'tom-entra':b.mc<0?'tom-sai':''),
+  precoAvalHtml('mc',b.pct.mc,bc?.pct?.mc,rotAnt)+precoCompHtml(rotAnt,bc?precoPct(bc.pct.mc):null,pp(bh?.pct?.mc,bc?.pct?.mc),pp(bh?.pct?.mc,bc?.pct?.mc)>0,' p.p.'));
+ const cPe=extra(recCartao('Ponto de equilíbrio',b.pe==null?'Sem equilíbrio':money(b.pe),b.pe==null?'A margem de contribuição não é positiva: nenhum volume de vendas cobre as despesas fixas.':`Vendas por mês que pagam ${money(b.fixas)} de despesas fixas com ${precoPct(b.pct.mc)} de margem`),
+  b.pe==null?'':`<span class="aval-comp">${esc(precoPct(pePct(b)))} das vendas médias (${esc(money(b.vendas))} por mês)</span>`+precoAvalHtml('pe',pePct(b),pePct(bc),rotAnt)+precoCompHtml(rotAnt,bc&&bc.pe!=null?`${money(bc.pe)} (${precoPct(pePct(bc))} das vendas)`:null,pp(pePct(bh),pePct(bc)),pp(pePct(bh),pePct(bc))<0,' p.p. nas vendas',bc&&bc.pe==null?semEq:null));
+ const cDist=dist!=null?extra(recCartao('Distância do equilíbrio',money(dist),modoAno?`Vendas por mês (${money(b.vendas)}, ${media}) ${dist>=0?'acima':'abaixo'} do ponto de equilíbrio`:`Vendas de ${label} (${money(m.dado.vendas)}) ${dist>=0?'acima':'abaixo'} do ponto de equilíbrio`,dist>0?'tom-entra':dist<0?'tom-sai':''),
+  `<span class="aval-comp">Margem de segurança: ${esc(precoPct(seg))} das vendas${modoAno?'':' do mês'}</span>`+precoAvalHtml('seguranca',seg,segAnt,rotDistAnt)+precoCompHtml(rotDistAnt,distAnt!=null?`${money(distAnt)} (${precoPct(segAnt)})`:null,pp(modoAno?segPct(bh.pe!=null?bh.vendas-bh.pe:null,bh.vendas):seg,segAnt),pp(modoAno?segPct(bh.pe!=null?bh.vendas-bh.pe:null,bh.vendas):seg,segAnt)>0,' p.p.',semDistAnt))
+  :recCartao('Distância do equilíbrio','Não apurado',semDist);
+ const cFix=extra(recCartao(modoAno?'Despesas fixas por mês (média do ano)':'Despesas fixas por mês (média)',money(b.fixas),`${precoPct(b.pct.fixas)} das vendas, ${media}`,b.fixas>0?'tom-sai':''),
+  precoAvalHtml('fixas',b.pct.fixas,bc?.pct?.fixas,rotAnt)+precoCompHtml(rotAnt,bc?`${money(bc.fixas)} (${precoPct(bc.pct.fixas)} das vendas)`:null,pp(bh?.pct?.fixas,bc?.pct?.fixas),pp(bh?.pct?.fixas,bc?.pct?.fixas)<0,' p.p. nas vendas'));
+ const cards=`<div class="cards cards-controle precos-cards">${cMc}${cPe}${cDist}${cFix}</div>`;
+ const nota=`<p class="hint precos-base">Base caixa: vendas recebidas e custos pagos, das linhas da DRE Simples, na ${esc(media)}. ${!modoAno&&b.n<3?'Com menos de três meses fechados, a média oscila mais. ':''}Mês com mais de ${PRECO_SEM_CONTA_MAX}% das saídas sem plano de contas fica de fora. As faixas de excelente, boa e ruim são de referência para comunicação visual no Simples; o Glossário explica cada uma. O Simples entra pelo que foi pago (alíquota observada de ${esc(precoPct(b.pct.das))}); a alíquota do PGDAS de cada empresa fica no simulador.${paraMeta!=null?(paraMeta>0?` Para a meta de resultado do mês de ${esc(money(metaN))} em ${esc(label)} (Parâmetros; depois de juros e tarifas), as vendas precisam chegar a ${esc(money(paraMeta))} por mês.`:` A meta de resultado do mês de ${esc(money(metaN))} em ${esc(label)} (Parâmetros) é atingida com qualquer venda.`):''}</p>`;
  const anoMeses=PT_MON.map(x=>x+'/'+ano),serie=anoMeses.map(l=>{const pm=precoMes(l),pb=pm.dado?precoBase(l):null;return {l,pm,pe:pb?.pe??null};}),sel=anoMeses.findIndex(l=>monthSortKey(l)===monthSortKey(label));
  const g1=recPainel('Quanto falta vender para empatar?','Vendas recebidas por mês e o ponto de equilíbrio de cada mês (média dos três meses fechados até ele). Mês parcial (*) fica hachurado.',gEmpilhadas(serie.map(x=>({rotulo:x.l.slice(0,3)+(x.pm.parcial&&x.pm.dado?'*':''),valores:x.pm.dado&&!x.pm.parcial?{vendas:x.pm.dado.vendas}:{},linha:x.pe})),{series:[{chave:'vendas',rotulo:'Vendas recebidas'}],linha:{rotulo:'Ponto de equilíbrio'},selecionado:sel,titulo:'Vendas e ponto de equilíbrio'}));
  const g2=recPainel('Para onde vai cada real vendido?',`Da venda ao resultado operacional, ${media}; cada degrau em % das vendas.`,gCascata([{rotulo:'Vendas',curto:'Vendas',valor:b.vendas,total:true},{rotulo:'Simples pago',curto:'Simples',valor:-b.das},{rotulo:'ISS e devoluções',curto:'ISS/dev.',valor:-(b.impostosVendas+b.devolucoes)},{rotulo:'Custos variáveis',curto:'Variáveis',valor:-b.variaveis},{rotulo:'Margem de contribuição',curto:'Margem',valor:b.mc,total:true},{rotulo:'Despesas fixas',curto:'Fixas',valor:-b.fixas},{rotulo:'Resultado operacional',curto:'Resultado',valor:b.resultado,total:true}],{base:b.vendas,titulo:'Da venda ao resultado'}),false);
@@ -502,22 +605,46 @@ function renderPrecos(){
  const cel=v=>`<td class="num">${v==null?'<span class="muted" title="Não apurado">—</span>':esc(money(v))}</td>`;
  const linhas=serie.map(x=>{const d=x.pm.dado,dm=d&&!x.pm.parcial&&x.pe!=null?Math.round((d.vendas-x.pe)*100)/100:null;return `<tr${monthSortKey(x.l)===monthSortKey(label)?' class="selected-month"':''}><th scope="row">${esc(x.l)}${x.pm.parcial&&d?' *':''}</th>${cel(d?.vendas)}${cel(d?d.das+d.impostosVendas+d.devolucoes:null)}${cel(d?.variaveis)}${cel(d?.mc)}<td class="num">${d&&d.vendas>0?esc(precoPct(Math.round(d.mc/d.vendas*10000)/100)):'—'}</td>${cel(d?.fixas)}${cel(x.pe)}<td class="num ${x.pm.parcial||dm==null?'':dm>0?'tom-entra':dm<0?'tom-sai':''}">${dm==null?'<span class="muted" title="Não apurado">—</span>':esc(money(dm))}</td></tr>`;}).join('');
  const tabela=`<details class="card precos-mensal"><summary>Margem e equilíbrio mês a mês · ${esc(ano)}</summary><div class="card-body"><div class="table-scroll"><table class="tabela-controle precos-tabela"><caption>Base caixa · ponto de equilíbrio pela média dos três meses fechados até cada mês · * = mês em andamento ou incompleto</caption><thead><tr><th scope="col">Mês</th><th scope="col" class="num">Vendas</th><th scope="col" class="num">Impostos e devoluções</th><th scope="col" class="num">Custos variáveis</th><th scope="col" class="num">Margem de contribuição</th><th scope="col" class="num">Margem %</th><th scope="col" class="num">Despesas fixas</th><th scope="col" class="num">Ponto de equilíbrio</th><th scope="col" class="num">Distância</th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
- return cards+nota+'<div class="actions"><button type="button" data-precos-csv>Baixar planilha (CSV)</button></div>'+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+tabela;
+ return cards+nota+'<div class="actions"><button type="button" data-precos-csv>Baixar planilha (CSV)</button></div>'+precoComparativoHtml(b,modoAno)+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+tabela;
+}
+// Meses seguidos com o mesmo motivo viram faixa: "Jan/2026 a Mai/2026 sem dados".
+function precoFaixasDeMeses(itens){
+ const g=[];for(const x of [...itens].sort((a,c)=>monthSortKey(a.label)-monthSortKey(c.label))){const k=monthSortKey(x.label),u=g[g.length-1];if(u&&u.motivo===x.motivo&&k===u.k+1){u.fim=x.label;u.k=k;u.n++;}else g.push({ini:x.label,fim:x.label,k,motivo:x.motivo,n:1});}
+ return g;
+}
+const precoFaixaTxt=f=>f.ini===f.fim?f.ini:`${f.ini} a ${f.fim}`;
+// Comparativo ano a ano: os mesmos meses da base em cada ano, do mais antigo com plano de contas
+// até o escolhido, com a avaliação de cada número.
+function precoAnos(b){
+ if(!b||typeof dfcMesDesloca!=='function')return [];
+ const anoFim=Number(b.meses[b.meses.length-1].split('/')[1]);
+ const out=[];for(let k=0;k<10;k++){const ls=b.meses.map(l=>dfcMesDesloca(l,-12*k)).filter(Boolean);if(!ls.length)break;const x=k?precoBaseLista(ls):b;if(!x){if(k>1&&!out.length)break;continue;}out.unshift({ano:anoFim-k,b:x,pe:x.pe!=null&&x.vendas>0?x.pe/x.vendas*100:null,seg:x.pe!=null&&x.vendas>0?(x.vendas-x.pe)/x.vendas*100:null});}
+ return out;
+}
+function precoComparativoHtml(b,modoAno){
+ const anos=precoAnos(b);if(anos.length<2)return '';
+ const ms=b.meses.map(l=>l.split('/')[0]),seguidos=precoFaixasDeMeses(b.meses.map(l=>({label:l}))).length===1,mesesTxt=ms.length===1?ms[0]:seguidos?`${ms[0]} a ${ms[ms.length-1]}`:ms.slice(0,-1).join(', ')+' e '+ms[ms.length-1];
+ const selo=(chave,v)=>{const a=precoAvaliar(chave,v);return a?` <span class="aval-selo aval-${a.nivel}">${esc(a.rotulo)}</span>`:'';};
+ const cel=(chave,v)=>`<td class="num">${v==null?'<span class="muted" title="Não apurado">—</span>':esc(precoPct(Math.round(v*10)/10))+selo(chave,v)}</td>`;
+ const linhas=anos.map((x,i)=>`<tr${i===anos.length-1?' class="selected-month"':''}><th scope="row">${x.ano}${x.b.n<b.n?` <small>(${x.b.n} ${x.b.n===1?'mês':'meses'})</small>`:''}</th><td class="num">${esc(money(x.b.vendas))}</td>${cel('mc',x.b.pct.mc)}${cel('fixas',x.b.pct.fixas)}${cel('pe',x.pe)}${cel('seguranca',x.seg)}</tr>`).join('');
+ return `<details class="card precos-anos" open><summary>Comparativo ano a ano · ${esc(mesesTxt)}</summary><div class="card-body"><p class="hint">${modoAno?'Os meses fechados do ano escolhido':'Os mesmos meses da média'} em cada ano: ${esc(mesesTxt)}. Ano com menos meses fechados mostra quantos entraram. Mês sem plano de contas fica de fora.</p><div class="table-scroll"><table class="tabela-controle precos-anos-tabela"><caption>Base caixa · média por mês · avaliação pelas faixas de referência</caption><thead><tr><th scope="col">Ano</th><th scope="col" class="num">Vendas por mês</th><th scope="col" class="num">Margem de contribuição</th><th scope="col" class="num">Despesas fixas</th><th scope="col" class="num">Ponto de equilíbrio</th><th scope="col" class="num">Margem de segurança</th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
 }
 // Planilha da tela (Fase 11.5): base da média, os quatro números, o mês a mês do ano e o
 // simulador, se preenchido. Separador ';' e vírgula decimal (Excel em português).
 function precosCSV(){
- const label=state.periodo,b=label?precoBase(label):null;if(!b)return null;
+ const label=state.periodo,b=label?precoBaseTela(label):null;if(!b)return null;
  const n=v=>v==null||!Number.isFinite(Number(v))?'Não apurado':Number(v).toFixed(2).replace('.',','),pc=v=>v==null||!Number.isFinite(Number(v))?'Não apurado':Number(v).toFixed(2).replace('.',',')+'%';
- const m=precoMes(label),dist=m.dado&&!m.parcial&&b.pe!=null?Math.round((m.dado.vendas-b.pe)*100)/100:null,ano=label.split('/')[1];
- const rows=[['Preço e ponto de equilíbrio',label,'Base caixa (linhas da DRE Simples)'],
+ const modoAno=precoAno(),m=precoMes(label),ano=label.split('/')[1],vendasDist=modoAno?b.vendas:m.dado&&!m.parcial?m.dado.vendas:null,dist=vendasDist!=null&&b.pe!=null?Math.round((vendasDist-b.pe)*100)/100:null,seg=dist!=null&&vendasDist>0?dist/vendasDist*100:null,aSeg=precoAvaliar('seguranca',seg);
+ const rows=[['Preço e ponto de equilíbrio',modoAno?`${ano} (média dos meses fechados)`:label,'Base caixa (linhas da DRE Simples)'],
   ['Meses da média',b.meses.join(', '),b.n<3?`só ${b.n} mês(es) fechado(s)`:''],
   ...(b.lacunas.length?[['Ficaram de fora',b.lacunas.map(p=>`${p.label} (${p.motivo})`).join(', ')]]:[]),
   [],['Indicador','Valor','Observação'],
   ['Vendas por mês (média)',n(b.vendas),''],['Simples pago (média)',n(b.das),pc(b.pct.das)+' das vendas'],['ISS e devoluções (média)',n(b.impostosVendas+b.devolucoes),''],['Custos variáveis (média)',n(b.variaveis),pc(b.pct.variaveis)+' das vendas'],
   ['Margem de contribuição (média)',n(b.mc),pc(b.pct.mc)+' das vendas'],['Despesas fixas por mês (média)',n(b.fixas),pc(b.pct.fixas)+' das vendas'],
   ['Ponto de equilíbrio (vendas por mês)',b.pe==null?'Sem equilíbrio':n(b.pe),b.pe==null?'margem de contribuição não positiva':''],
-  ['Distância do equilíbrio em '+label,n(dist),dist==null?(m.dado?'mês em andamento ou incompleto':'mês sem dados'):''],
+  ...[['Avaliação da margem de contribuição','mc',b.pct.mc],['Avaliação do ponto de equilíbrio (% das vendas)','pe',b.pe!=null&&b.vendas>0?b.pe/b.vendas*100:null],['Avaliação das despesas fixas','fixas',b.pct.fixas]].map(([r,k,v])=>{const a=precoAvaliar(k,v);return [r,a?a.rotulo:'Não apurado',a?precoFaixasTexto(k):''];}),
+  [modoAno?`Distância do equilíbrio (vendas médias de ${ano})`:'Distância do equilíbrio em '+label,n(dist),dist==null?(modoAno||(m.dado&&!m.parcial)?'sem ponto de equilíbrio':m.dado?'mês em andamento ou incompleto':'mês sem dados'):''],
+  ['Margem de segurança',seg==null?'Não apurado':pc(seg),aSeg?`${aSeg.rotulo}: ${precoFaixasTexto('seguranca')}`:''],
   [],['Mês','Vendas','Impostos e devoluções','Custos variáveis','Margem de contribuição','Margem %','Despesas fixas','Ponto de equilíbrio','Distância','Situação'],
   ...PT_MON.map(x=>x+'/'+ano).map(l=>{const pm=precoMes(l),d=pm.dado,pe=d?precoBase(l)?.pe??null:null,dm=d&&!pm.parcial&&pe!=null?Math.round((d.vendas-pe)*100)/100:null;
    return [l,n(d?.vendas),n(d?d.das+d.impostosVendas+d.devolucoes:null),n(d?.variaveis),n(d?.mc),d&&d.vendas>0?pc(Math.round(d.mc/d.vendas*10000)/100):'Não apurado',n(d?.fixas),n(pe),n(dm),!d?'sem dados':pm.parcial?'em andamento ou incompleto':'fechado'];})];
@@ -530,8 +657,8 @@ function precosCSV(){
 function wirePrecos(){
  if(typeof document==='undefined'||typeof document.addEventListener!=='function')return;
  document.addEventListener('click',e=>{if(e.target?.closest?.('[data-precos-csv]'))precosCSV();});
- document.addEventListener('input',e=>{const f=e.target?.closest?.('[data-precos-sim]');if(!f||!e.target.name)return;precosUI[e.target.name]=e.target.value;const b=precoBase(state.periodo),r=precoSimular(b,state.periodo),out=f.querySelector('.precos-sim-resultado');if(out)out.innerHTML=`${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}`;});
- document.addEventListener('change',e=>{if(e.target?.closest?.('[data-precos-sim]')&&e.target.name==='imposto'){precosUI.imposto=e.target.value;const b=precoBase(state.periodo),r=precoSimular(b,state.periodo),out=e.target.closest('[data-precos-sim]').querySelector('.precos-sim-resultado');if(out)out.innerHTML=`${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}`;}});
+ document.addEventListener('input',e=>{const f=e.target?.closest?.('[data-precos-sim]');if(!f||!e.target.name)return;precosUI[e.target.name]=e.target.value;const b=precoBaseTela(state.periodo),r=precoSimular(b,state.periodo),out=f.querySelector('.precos-sim-resultado');if(out)out.innerHTML=`${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}`;});
+ document.addEventListener('change',e=>{if(e.target?.closest?.('[data-precos-sim]')&&e.target.name==='imposto'){precosUI.imposto=e.target.value;const b=precoBaseTela(state.periodo),r=precoSimular(b,state.periodo),out=e.target.closest('[data-precos-sim]').querySelector('.precos-sim-resultado');if(out)out.innerHTML=`${r.preco!=null?`<b>${esc(money(r.preco))}</b> · `:''}${esc(r.texto)}`;}});
 }
 if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('DOMContentLoaded',wirePrecos);
 
