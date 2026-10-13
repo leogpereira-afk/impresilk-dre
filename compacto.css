@@ -220,5 +220,10 @@
 .cmp-tinta-1,.cmp-tinta-2{color:#1b2333}.cmp-tinta-3,.cmp-tinta-4{color:#fff}
 body.dark .cmp-tinta-1{color:#fff}body.dark .cmp-tinta-2,body.dark .cmp-tinta-3,body.dark .cmp-tinta-4{color:#1b2333}
 @media (max-width:700px){.cmp-tabela tbody th{min-width:150px;max-width:46vw;white-space:normal}}
+/* Marcador do material político (Fase 12.1): caixa de marcar com a área de toque de 44px */
+.cmp-marcador{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;margin:4px 0 14px;padding:8px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.cmp-marcador label{flex-direction:row;align-items:center;gap:10px;font-size:14px;font-weight:650;color:var(--text);min-height:44px;cursor:pointer;margin:0}
+.cmp-marcador input{width:20px;height:20px;margin:0;accent-color:#284ac7}
+.cmp-marcador span{flex:1 1 320px;font-size:12px;line-height:1.5;color:var(--muted)}
 /* valor em cima de cada barra a partir de 400px (a biblioteca só mostra acima de 520px) */
 @container (min-width:400px){.g-cmp-var .g-rot.g-opcional,.g-cmp-grupos .g-rot.g-opcional{display:block}}

@@ -12,10 +12,17 @@
      (2.99). Em 2020 e no começo de 2021 quase tudo era lançado sem plano de contas;
    - crescimento compara os mesmos meses dos dois anos; o índice de vendas usa os
      mesmos meses em todos os anos (janeiro até o mês de referência);
-   - nada vira zero: ano sem dado aparece como "·". */
+   - nada vira zero: ano sem dado aparece como "·";
+   - material político (Fase 12.1): a conta 1.5, o produto "Material Político" das O.S.
+     (que o robô deixava em 1.1.99, sem conta) e, nos meses com a trilha dos
+     recebimentos, o dinheiro das O.S. marcadas nas campanhas de Política do Painel. O
+     marcador "Incluir material político" tira esse valor das vendas nos painéis de
+     venda; a DRE, as margens e as despesas continuam com ele (o custo não se separa). */
 const CMP_SEM_CONTA_MAX = 10;
 const CMP_MES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const cmpUI = { chave: '', modelo: null };
+const CMP_CHAVE_POLITICA = 'impresilk_dre_cmp_sem_politica';
+const cmpUI = { chave: '', modelo: null, semPolitica: false, abertos: {}, campanhas: null, campErro: '', campBusy: false, campEm: 0, campSeq: 0 };
+try { cmpUI.semPolitica = typeof localStorage !== 'undefined' && localStorage.getItem(CMP_CHAVE_POLITICA) === '1'; } catch { cmpUI.semPolitica = false; }
 const cmpCacheAp = new WeakMap();
 function cmpAp(reg) { if (!cmpCacheAp.has(reg)) cmpCacheAp.set(reg, typeof DRESimples !== 'undefined' ? DRESimples.apurar(reg) : null); return cmpCacheAp.get(reg); }
 const cmpNorm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -36,17 +43,74 @@ function cmpFaixasMeses(xs) {
   return g.map(f => f.ini === f.fim ? r(f.ini) : `${r(f.ini)} a ${r(f.fim)}`);
 }
 
+// ── Material político ───────────────────────────────────────────────────────
+// Três sinais, do mais antigo ao mais preciso:
+// 1) a conta 1.5 (Material Político), quando o ERP já classificou assim (2024 e parte de 2026);
+// 2) o produto "Material Político" das O.S. (previaERP.receitaPorProduto: "Material Politico",
+//    "xMaterial Político 2022x", "Material Político 2026"), que o robô deixava em 1.1.99;
+// 3) nos meses com a trilha dos recebimentos (eventos com o número da O.S.), o dinheiro das
+//    O.S. que o Painel marcou nas campanhas de Política (tela Campanhas: escolha feita à mão).
+// O mês fica com o maior entre (1+2) e (3): cada um só pode deixar algo de fora, nunca contar
+// a mais, porque os dois medem o mesmo dinheiro por caminhos diferentes. Por isso, no sinal (3),
+// o título que paga O.S. da campanha junto com outras fica de fora.
+const cmpEhPolitico = nome => /material\s*politic/.test(cmpNorm(nome));
+// "xMaterial Político 2022x" é o nome de um produto desativado no Mubisys; "*" marca a ficha viva.
+function cmpNomeProduto(nome) {
+  let s = String(nome ?? '').trim().replace(/\*+\s*$/, '').trim();
+  const m = s.match(/^x(.+)x$/);
+  if (m && /^[A-ZÀ-Ý]/.test(m[1])) s = m[1].trim();
+  return s;
+}
+function cmpOsPoliticas() {
+  const c = cmpUI.campanhas; if (!c || !Array.isArray(c.campanhas)) return null;
+  const s = new Set(); for (const k of c.campanhas) if (k?.politica) for (const n of k.os || []) s.add(String(n));
+  return s.size ? s : null;
+}
+function cmpPolitico(reg, ap, osPol) {
+  const vendas = ap ? Math.max(0, ap.linhas.vendas) : 0;
+  const conta = (ap?.composicao?.vendas || []).filter(i => /^1\.5(\.|$)/.test(String(i.code))).reduce((t, i) => t + i.valor, 0);
+  // produto que o robô já pôs em 1.5 (ex.: "Material Político 2024" em 1.5.51) não conta duas vezes
+  const em15 = new Set((reg.cells || []).filter(c => /^1\.5\./.test(String(c?.code || ''))).map(c => cmpNorm(cmpNomeProduto(c.name))));
+  const prev = reg.previaERP?.receitaPorProduto;
+  let produto = 0;
+  if (prev && typeof prev === 'object' && !Array.isArray(prev)) {
+    for (const [n, v] of Object.entries(prev)) if (cmpEhPolitico(n) && !em15.has(cmpNorm(cmpNomeProduto(n))) && Number.isFinite(Number(v))) produto += Number(v);
+  } else for (const c of reg.cells || []) {
+    const code = String(c?.code || '');
+    if (/^1\.1\.(1|99)\.\d+$/.test(code) && cmpEhPolitico(c.name) && Number.isFinite(Number(c.value))) produto += Number(c.value);
+  }
+  let porOS = null;
+  const ev = Array.isArray(reg.eventos) ? reg.eventos.filter(e => e?.natureza === 'entrada') : [];
+  if (osPol && ev.length) {
+    porOS = 0;
+    for (const e of ev) {
+      const v = Number(e.valor); if (!Number.isFinite(v)) continue;
+      // entrada classificada fora das vendas (rendimento, empréstimo, a identificar) não é material político
+      if (e.contaGerencial && !/^1\.(1|2|5|6)(\.|$)/.test(String(e.contaGerencial))) continue;
+      const ns = [...new Set((Array.isArray(e.ordensServico) ? e.ordensServico : []).map(String))], pol = ns.filter(n => osPol.has(n)).length;
+      // Título que paga O.S. da campanha e outras ao mesmo tempo fica de fora: sem o valor de
+      // cada O.S., repartir pela quantidade poderia contar a mais (e o mês fica com o maior sinal).
+      if (pol && pol === ns.length) porOS += v;
+      else if (!ns.length && /^1\.5(\.|$)/.test(String(e.contaGerencial || ''))) porOS += v;
+    }
+  }
+  const sinais = conta + produto, bruto = porOS != null ? Math.max(sinais, porOS) : sinais;
+  const valor = Math.min(Math.max(0, bruto), vendas);
+  return { valor, conta, produto, porOS, excesso: Math.max(0, valor - conta - produto), fonte: porOS != null && porOS > sinais + .005 ? 'os' : 'produto' };
+}
+
 // ── O modelo: tudo calculado uma vez por base e mês escolhido ────────────────
 function cmpMeses() {
   const hoje = typeof dfcHoje === 'function' ? dfcHoje() : new Date().toISOString().slice(0, 10);
   const regs = (typeof dedupePeriods === 'function' ? dedupePeriods(state.records).kept : [...state.records]).filter(r => monthSortKey(r.label) >= 0).sort((a, b) => monthSortKey(a.label) - monthSortKey(b.label));
+  const osPol = cmpOsPoliticas();
   return regs.map(reg => {
     const [m, a] = String(reg.label).split('/'), mes = PT_MON.indexOf(m) + 1, ano = Number(a), ap = cmpAp(reg), per = F.periodo(reg.label), q = F.qualidade(reg);
     const fechado = !!ap && !!per && per.ate < hoje && !q.parcial;
-    const politico = (ap?.composicao?.vendas || []).filter(i => /^1\.5(\.|$)/.test(String(i.code))).reduce((t, i) => t + i.valor, 0);
+    const pol = ap ? cmpPolitico(reg, ap, osPol) : { valor: 0, conta: 0, produto: 0, porOS: null, excesso: 0, fonte: 'produto' };
     const pct = ap?.pctSemConta ?? null;
     const nomes = new Map((reg.cells || []).filter(c => c?.code).map(c => [String(c.code), c.name || '']));
-    return { reg, label: reg.label, ano, mes, ap, fechado, classificado: fechado && (pct == null || pct <= CMP_SEM_CONTA_MAX), pctSemConta: pct, vendas: ap ? ap.linhas.vendas : null, politico, nomes };
+    return { reg, label: reg.label, ano, mes, ap, fechado, classificado: fechado && (pct == null || pct <= CMP_SEM_CONTA_MAX), pctSemConta: pct, vendas: ap ? ap.linhas.vendas : null, politico: pol.valor, pol, nomes };
   });
 }
 const CMP_LINHAS = ['vendas', 'das', 'impostosVendas', 'devolucoes', 'receitaLiquida', 'variaveis', 'margemContribuicao', 'pessoal', 'ocupacao', 'administrativas', 'veiculos', 'marketing', 'taxas', 'fixasOutras', 'fixas', 'ebitda', 'receitasFinanceiras', 'despesasFinanceiras', 'resultado', 'socios', 'investimentos', 'dividas', 'transferencias', 'semDetalhamento', 'emprestimos', 'aIdentificar', 'foraOutras', 'variacao'];
@@ -82,6 +146,8 @@ function cmpModelo() {
   const anos = []; for (let a = primeiro; a <= refAno; a++) anos.push(a);
   if (!anos.length) return null;
   const doAno = a => meses.filter(x => x.ano === a && x.fechado && (a < refAno || x.mes <= refMes));
+  // Marcador desmarcado: os painéis de venda usam as vendas sem o material político.
+  const sem = !!cmpUI.semPolitica, vb = x => (Number(x.vendas) || 0) - (sem ? x.politico : 0);
   const porAno = anos.map(ano => {
     const todos = doAno(ano), cls = todos.filter(x => x.classificado);
     const vendas = cmpSoma(todos, x => x.vendas), politico = cmpSoma(todos, x => x.politico), vc = cmpSoma(cls, x => x.vendas);
@@ -91,12 +157,12 @@ function cmpModelo() {
     pct.outrasEntradas = pct.aIdentificar != null ? pct.aIdentificar + pct.foraOutras : null;
     pct.pe = cls.length && linhas.margemContribuicao > 0 ? linhas.fixas / linhas.margemContribuicao * 100 : null;
     pct.sociosResultado = cls.length && linhas.resultado > 0 ? linhas.socios / linhas.resultado * 100 : null;
-    return { ano, meses: todos.map(x => x.mes), mesesCls: cls.map(x => x.mes), todos, cls, vendas, politico, vendasCls: vc, linhas, pct };
+    return { ano, meses: todos.map(x => x.mes), mesesCls: cls.map(x => x.mes), todos, cls, vendas, politico, vendasBase: cmpSoma(todos, vb), politicoCls: cmpSoma(cls, x => x.politico), vendasCls: vc, linhas, pct };
   }).filter(p => p.todos.length);
   // Índice de vendas nos mesmos meses (janeiro até o mês de referência), em todos os anos que os têm.
   const idx = porAno.map(p => { const xs = meses.filter(x => x.ano === p.ano && x.fechado && x.mes <= refMes); return xs.length === refMes ? { ano: p.ano, vendas: cmpSoma(xs, x => x.vendas), politico: cmpSoma(xs, x => x.politico) } : null; }).filter(Boolean);
-  const base = idx[0]?.vendas;
-  const indice = base > 0 ? idx.map(i => ({ ano: i.ano, vendas: i.vendas, politico: i.politico, valor: i.vendas / base * 100, semPolitico: (i.vendas - i.politico) / base * 100, extra: i.politico / base * 100 })) : [];
+  const base = idx[0] ? idx[0].vendas - (sem ? idx[0].politico : 0) : null;
+  const indice = base > 0 ? idx.map(i => ({ ano: i.ano, vendas: i.vendas, politico: i.politico, valor: (i.vendas - (sem ? i.politico : 0)) / base * 100, semPolitico: (i.vendas - i.politico) / base * 100, extra: sem ? 0 : i.politico / base * 100 })) : [];
   // Crescimento de cada linha contra os mesmos meses do ano anterior.
   const LCRESC = [
     ['vendas', 'Vendas', x => x.vendas, false], ['vendasSemPolitico', 'Vendas sem material político', x => x.vendas - x.politico, false],
@@ -119,31 +185,59 @@ function cmpModelo() {
   // Sazonalidade: cada mês contra a média mensal do ano, nos anos inteiros.
   const cheios = porAno.filter(p => p.meses.length === 12);
   const saz = cheios.length ? CMP_MES.map((_, i) => {
-    const vs = cheios.map(p => { const media = p.vendas / 12, x = p.todos.find(t => t.mes === i + 1); return media > 0 && x ? x.vendas / media * 100 : null; }).filter(cmpNum);
+    const vs = cheios.map(p => { const media = p.vendasBase / 12, x = p.todos.find(t => t.mes === i + 1); return media > 0 && x ? vb(x) / media * 100 : null; }).filter(cmpNum);
     return vs.length ? { mes: i + 1, indice: vs.reduce((t, v) => t + v, 0) / vs.length, min: Math.min(...vs), max: Math.max(...vs) } : null;
   }) : [];
   // O ano de referência mês a mês contra o mesmo mês do ano anterior.
   const mesAMes = []; for (let m = 1; m <= 12; m++) {
     const a = meses.find(x => x.ano === refAno && x.mes === m && x.fechado && m <= refMes), b = meses.find(x => x.ano === refAno - 1 && x.mes === m && x.fechado);
-    mesAMes.push({ mes: m, valor: a && b && b.vendas > 0 ? a.vendas / b.vendas * 100 - 100 : null });
+    mesAMes.push({ mes: m, valor: a && b && vb(b) > 0 ? vb(a) / vb(b) * 100 - 100 : null });
   }
   // Mix da receita: as contas de venda de 2º nível (1.1, 1.2, 1.5, 1.6...).
   const ultimoNome = new Map(); for (const x of meses) for (const [c, n] of x.nomes) if (n && n !== c) ultimoNome.set(c, n);
-  const mixMapas = porAno.map(p => { const g = new Map(); for (const x of p.todos) for (const it of x.ap.composicao.vendas || []) { const k = String(it.code).split('.').slice(0, 2).join('.'); g.set(k, (g.get(k) || 0) + it.valor); } return g; });
-  const mixCod = [...new Set(mixMapas.flatMap(g => [...g.keys()]))].sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }));
-  const mix = mixCod.map(k => ({ rotulo: ultimoNome.get(k) || k, valores: porAno.map((p, i) => p.vendas > 0 ? (mixMapas[i].get(k) || 0) / p.vendas * 100 : null) })).filter(l => l.valores.some(v => v >= 0.05));
-  // Produtos (contas 1.1.1.x) e o que está sem produto definido na O.S. (1.1.99 e 1.1.98).
+  // O material político vira uma linha só (a conta 1.5 entra nela); o que estava no produto
+  // ou nas O.S. da campanha sai de Comunicação Visual (1.1), onde o robô o deixava.
+  const mixMapas = porAno.map(p => {
+    const g = new Map();
+    for (const x of p.todos) {
+      const gm = new Map();
+      for (const it of x.ap.composicao.vendas || []) { const k = String(it.code).split('.').slice(0, 2).join('.'); if (k !== '1.5') gm.set(k, (gm.get(k) || 0) + it.valor); }
+      const prod = Math.min(x.pol.produto, x.politico - x.pol.conta), k11 = gm.has('1.1') ? '1.1' : [...gm.keys()].sort((a, b) => gm.get(b) - gm.get(a))[0];
+      if (prod && k11) gm.set(k11, gm.get(k11) - prod);
+      const exc = x.pol.excesso, pos = [...gm.values()].filter(v => v > 0).reduce((t, v) => t + v, 0);
+      if (exc > 0 && pos > 0) for (const [k, v] of gm) if (v > 0) gm.set(k, v - exc * v / pos);
+      for (const [k, v] of gm) g.set(k, (g.get(k) || 0) + v);
+      if (!sem) g.set('~pol', (g.get('~pol') || 0) + x.politico);
+    }
+    return g;
+  });
+  const mixCod = [...new Set(mixMapas.flatMap(g => [...g.keys()]))].sort((a, b) => (a === '~pol') - (b === '~pol') || a.localeCompare(b, 'pt-BR', { numeric: true }));
+  const mix = mixCod.map(k => ({ rotulo: k === '~pol' ? 'Material político (eleições)' : ultimoNome.get(k) || k, politico: k === '~pol', valores: porAno.map((p, i) => p.vendasBase > 0 ? (mixMapas[i].get(k) || 0) / p.vendasBase * 100 : null) })).filter(l => l.valores.some(v => v >= 0.05));
+  // Produtos: o rateio do recebido pelos itens das O.S. (previaERP.receitaPorProduto), pelo
+  // nome do produto. As contas de produto (1.1.1.x, 1.1.99.x) não servem: o código de cada
+  // produto muda de um mês para outro. Mês sem a prévia (planilha) usa as contas pelo nome.
+  // O recebido sem O.S. completa (1.1.98) fica numa linha à parte.
   const prodAnos = porAno.filter(p => p.vendas > 0).slice(-5), prod = new Map();
-  for (const p of prodAnos) for (const x of p.todos) for (const c of x.reg.cells || []) {
-    const code = String(c?.code || ''); let k, rot;
-    if (/^1\.1\.1\.\d+$/.test(code)) { rot = c.name || code; k = cmpNorm(rot); } else if (code === '1.1.99' || code === '1.1.98') { k = '~sem'; rot = 'Sem produto definido na O.S.'; } else continue;
-    const v = Number(c.value); if (!Number.isFinite(v)) continue;
-    const e = prod.get(k) || { rotulo: rot, v: new Map() }; e.v.set(p.ano, (e.v.get(p.ano) || 0) + v); prod.set(k, e);
+  const somaProd = (ano, k, rot, v) => { const e = prod.get(k) || { rotulo: rot, v: new Map() }; e.rotulo = rot; e.v.set(ano, (e.v.get(ano) || 0) + v); prod.set(k, e); };
+  for (const p of prodAnos) for (const x of p.todos) {
+    const prev = x.reg.previaERP?.receitaPorProduto;
+    const itens = (prev && typeof prev === 'object' && !Array.isArray(prev) ? Object.entries(prev)
+      : (x.reg.cells || []).filter(c => /^1\.1\.(1|99)\.\d+$/.test(String(c?.code || ''))).map(c => [c.name, c.value])).map(([n, v]) => [n, Number(v)]).filter(([, v]) => Number.isFinite(v) && v);
+    const cel98 = (x.reg.cells || []).find(c => String(c?.code) === '1.1.98'), v98 = Number(cel98?.value);
+    // Sem o material político, o dinheiro das O.S. da campanha que o robô rateou em produtos de
+    // nome comum (lona, adesivo) ou deixou sem O.S. sai de cada um na proporção, como do total.
+    const comuns = itens.filter(([n, v]) => !cmpEhPolitico(n) && v > 0).reduce((t, [, v]) => t + v, 0) + (v98 > 0 ? v98 : 0);
+    const fator = sem && x.pol.excesso > 0 && comuns > 0 ? Math.max(0, 1 - x.pol.excesso / comuns) : 1;
+    for (const [n, v] of itens) {
+      if (cmpEhPolitico(n)) somaProd(p.ano, '~pol', 'Material político (produto)', v);
+      else { const rot = cmpNomeProduto(n) || 'Produto sem nome'; somaProd(p.ano, cmpNorm(rot), rot, v > 0 ? v * fator : v); }
+    }
+    if (Number.isFinite(v98) && v98) somaProd(p.ano, '~semos', 'Recebido sem O.S. completa', v98 > 0 ? v98 * fator : v98);
   }
-  const produtosTodos = [...prod.entries()].map(([k, e]) => ({ k, rotulo: e.rotulo, valores: prodAnos.map(p => e.v.has(p.ano) ? e.v.get(p.ano) / p.vendas * 100 : null) }));
-  const semProduto = produtosTodos.find(x => x.k === '~sem') || null;
+  const produtosTodos = [...prod.entries()].map(([k, e]) => ({ k, rotulo: e.rotulo, valores: prodAnos.map(p => e.v.has(p.ano) && p.vendasBase > 0 ? e.v.get(p.ano) / p.vendasBase * 100 : null) }));
+  const semOS = produtosTodos.find(x => x.k === '~semos') || null, produtoPolitico = sem ? null : produtosTodos.find(x => x.k === '~pol') || null;
   const maxV = l => Math.max(0, ...l.valores.filter(cmpNum));
-  const produtos = produtosTodos.filter(x => x.k !== '~sem').sort((a, b) => maxV(b) - maxV(a)).slice(0, 12);
+  const produtos = produtosTodos.filter(x => !x.k.startsWith('~')).sort((a, b) => maxV(b) - maxV(a)).slice(0, 12);
   // Detalhe de cada linha, nos meses com plano de contas.
   const detalhes = {};
   for (const [linha] of CMP_DETALHES) {
@@ -152,7 +246,9 @@ function cmpModelo() {
     const itens = [...g.values()].map(e => ({ rotulo: e.rotulo, codes: [...e.codes], valores: porAno.map((p, i) => p.cls.length && p.vendasCls > 0 ? (e.v[i] ? e.v[i] / p.vendasCls * 100 : null) : null) }));
     detalhes[linha] = itens.sort((a, b) => maxV(b) - maxV(a));
   }
-  return { refAno, refMes, meses, porAno, indice, crescimento, saz, mesAMes, mix, produtos, prodAnos: prodAnos.map(p => p.ano), semProduto, detalhes };
+  // De onde veio o material político: meses medidos pelas O.S. das campanhas do Painel.
+  const pelasOS = meses.filter(x => x.fechado && x.pol.porOS != null);
+  return { refAno, refMes, meses, porAno, indice, crescimento, saz, mesAMes, mix, produtos, prodAnos: prodAnos.map(p => p.ano), semOS, produtoPolitico, detalhes, semPolitica: sem, pelasOS };
 }
 
 // ── Gráficos (as mesmas peças do app: GX, classes de cor, dica e tabela) ────
@@ -371,7 +467,13 @@ function cmpLeitura(M) {
   if (semConta.length) { const ps = semConta.map(x => x.pctSemConta).filter(cmpNum); limites.push(`<b>${cmpFaixasMeses(semConta).join(', ')}</b>: ${faixa(ps)} das saídas foram lançadas no Mubisys sem plano de contas. Vendas e caixa desses meses valem; custos e despesas ficam de fora da comparação.`); }
   const abertos = M.meses.filter(x => !x.fechado && x.ano * 12 + x.mes >= M.refAno * 12 + M.refMes);
   if (abertos.length) limites.push(`<b>${abertos.map(x => x.label).join(', ')}</b> fica fora (mês em andamento ou coletado pela metade).`);
-  if (M.semProduto) { const v = M.semProduto.valores.filter(cmpNum); if (v.length && Math.max(...v) >= 10) limites.push(`<b>Produtos</b>: ${faixa(v)} das vendas estão em O.S. sem produto definido, então o mix de produtos mostra só uma parte.`); }
+  if (M.semOS) { const v = M.semOS.valores.filter(cmpNum); if (v.length && Math.max(...v) >= 10) limites.push(`<b>Produtos</b>: ${faixa(v)} das vendas foram recebidas sem O.S. completa no Mubisys, então o mix de produtos mostra só uma parte.`); }
+  // Material político: de onde vem e o que o marcador muda
+  const camp = cmpUI.campanhas, osMeses = M.pelasOS.length ? cmpFaixasMeses(M.pelasOS).join(', ') : '';
+  const basePol = '<b>Material político</b>: vem da conta 1.5 e do produto "Material Político" de cada O.S.';
+  limites.push(camp ? (osMeses ? `${basePol}; em ${osMeses}, também do dinheiro das O.S. marcadas nas campanhas de Política do Painel (fica o maior dos dois). Antes disso, o DRE não guardou a O.S. de cada recebimento.` : `${basePol}; as campanhas de Política do Painel só entram nos meses com a trilha dos recebimentos.`)
+    : cmpUI.campErro ? `${basePol}; as campanhas do Painel não puderam ser lidas agora (${esc(cmpUI.campErro)}), então nos meses de eleição recentes o valor pode ficar abaixo do real.` : `${basePol}; as campanhas do Painel ainda estão sendo lidas.`);
+  if (M.semPolitica) limites.push('<b>Sem material político</b>: as vendas dos painéis de venda saem sem ele; a DRE, as margens e as despesas continuam com ele, porque o custo do material político se mistura às outras compras.');
   limites.push('Base caixa: compra paga no mês não é o custo do que foi vendido, e estoque não entra. Contas renomeadas pelo robô entram na linha pelo nome.');
   // Pontos a conferir (regras automáticas)
   if (R) {
@@ -395,7 +497,7 @@ function cmpLeitura(M) {
     const mkt = (M.detalhes.variaveis || []).filter(it => /ag[eê]ncia|instagram|v[ií]deo ?maker|patroc[ií]n|outdoor|r[aá]dio|panflet/i.test(it.rotulo) && !/papel|lona|vinil|mm\b|pvc|acm|chapa|manta/i.test(it.rotulo));
     for (const it of mkt) conferir.push(`<b>${esc(it.rotulo)}</b> lançada em conta de material (${it.codes.join(', ')}): é marketing.`);
   }
-  if (M.semProduto) { const v = M.semProduto.valores[M.semProduto.valores.length - 1]; if (v >= 30) passos.push(`<b>Mix de produtos</b>: classificar os produtos das O.S. (${pc(v)} das vendas sem produto em ${M.prodAnos[M.prodAnos.length - 1]}) para enxergar a margem por linha.`); }
+  if (M.semOS) { const v = M.semOS.valores[M.semOS.valores.length - 1]; if (v >= 20) passos.push(`<b>O.S. nos recebimentos</b>: ${pc(v)} das vendas de ${M.prodAnos[M.prodAnos.length - 1]} entraram sem O.S. completa no título; informar a O.S. no Mubisys mostra de que produto veio a venda.`); }
   // ano de eleição sem material político (as eleições no Brasil são nos anos pares)
   const ult = P[P.length - 1], anterior = P.filter(p => p.ano % 2 === 0 && p.ano < ult.ano && p.vendas > 0 && p.politico / p.vendas * 100 >= 5).pop();
   if (ult.ano % 2 === 0 && anterior && ult.vendas > 0 && ult.politico / ult.vendas * 100 < 1) passos.push(`<b>Eleição de ${ult.ano}</b>: material político está em ${pc(ult.politico / ult.vendas * 100, 1)} das vendas até ${mesRef}; em ${anterior.ano} foi ${pc(anterior.politico / anterior.vendas * 100)}.`);
@@ -405,10 +507,46 @@ function cmpLeitura(M) {
 // ── A seção no Dashboard ────────────────────────────────────────────────────
 function cmpChave() {
   const recente = state.records.reduce((m, r) => String(r?.atualizadoEm || '') > m ? String(r.atualizadoEm) : m, '');
-  return [state.records.length, recente, state.periodo, typeof dfcHoje === 'function' ? dfcHoje() : ''].join('|');
+  return [state.records.length, recente, state.periodo, typeof dfcHoje === 'function' ? dfcHoje() : '', cmpUI.semPolitica ? 'sem' : 'com', cmpUI.campanhas ? `c${cmpUI.campanhas.atualizadoEm || ''}:${cmpUI.campanhas.campanhas.length}` : '', cmpUI.campErro].join('|');
+}
+// As campanhas do Painel: uma leitura a cada 10 minutos, com ou sem erro (a tela redesenha
+// ao chegar e não pode pedir de novo em laço). Sem elas, vale o produto e a conta 1.5.
+function cmpCarregarCampanhas() {
+  if (typeof api !== 'function' || cmpUI.campBusy || Date.now() - cmpUI.campEm < 600000) return;
+  const seq = ++cmpUI.campSeq; cmpUI.campBusy = true; cmpUI.campEm = Date.now();
+  Promise.resolve().then(() => api('indicadores', { fonte: 'campanhas' })).then(r => {
+    if (seq !== cmpUI.campSeq) return;
+    if (!r?.ok || r.fonte !== 'campanhas' || !Array.isArray(r.campanhas)) throw new Error(r?.erro || 'Fonte inválida.');
+    cmpUI.campanhas = r; cmpUI.campErro = '';
+  }).catch(e => {
+    if (seq !== cmpUI.campSeq) return;
+    const m = String(e?.message || e || '');
+    // O servidor anterior a esta fase responde à fonte nova com "Fonte inválida" ou com o erro de período.
+    cmpUI.campErro = /desconhecida|Fonte inválida|intervalo válido/i.test(m) ? 'o servidor ainda não tem a leitura das campanhas' : /abort/i.test(m) ? 'o servidor demorou a responder' : m || 'erro na leitura';
+  }).finally(() => {
+    if (seq !== cmpUI.campSeq) return;
+    cmpUI.campBusy = false; cmpUI.campEm = Date.now();
+    if (state.view === 'inicio' && typeof render === 'function' && cmpChave() !== cmpUI.chave) render();
+  });
+}
+// Cartão da seção que lembra se a pessoa o abriu ou fechou: marcar o material político
+// e a chegada das campanhas redesenham a tela.
+function cmpCard(chave, titulo, html, aberto) {
+  const open = chave in cmpUI.abertos ? cmpUI.abertos[chave] : aberto;
+  return `<details class="card" data-cmp-sec="${chave}"${open ? ' open' : ''}><summary>${esc(titulo)}</summary><div class="card-body">${html}</div></details>`;
+}
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+  document.addEventListener('toggle', ev => { const d = ev.target; if (d?.dataset?.cmpSec) cmpUI.abertos[d.dataset.cmpSec] = !!d.open; }, true);
+  document.addEventListener('change', ev => {
+    const t = ev.target; if (!t || typeof t.matches !== 'function' || !t.matches('[data-cmp-politica]')) return;
+    cmpUI.semPolitica = !t.checked;
+    try { localStorage.setItem(CMP_CHAVE_POLITICA, cmpUI.semPolitica ? '1' : '0'); } catch { /* sem armazenamento: vale só nesta visita */ }
+    if (typeof render === 'function') { render(); document.querySelector?.('[data-cmp-politica]')?.focus?.(); }
+  });
 }
 function renderComparativos() {
   if (typeof GX === 'undefined' || typeof DRESimples === 'undefined') return '';
+  cmpCarregarCampanhas();
   const chave = cmpChave(); if (cmpUI.chave !== chave) { cmpUI.modelo = cmpModelo(); cmpUI.chave = chave; }
   const M = cmpUI.modelo;
   const topo = `<div class="section-heading" id="comparativos-anuais"><div><p class="eyebrow">COMPARATIVOS ANUAIS</p><h2>Comparativos anuais</h2></div></div>`;
@@ -416,33 +554,40 @@ function renderComparativos() {
   const P = M.porAno, D = P.filter(p => p.cls.length), iD = D.map(p => P.indexOf(p));
   const ateTxt = M.refMes < 12 ? `janeiro a ${['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][M.refMes - 1]}` : 'ano inteiro';
   const intro = `<p class="hint">Os anos lado a lado, das mesmas linhas da DRE de caixa, em % das vendas, crescimento e índice. Ano de referência: <b>${M.refAno}</b>, até ${CMP_MES[M.refMes - 1]} (o último mês fechado do mês escolhido na barra). Crescimento sempre compara os mesmos meses; custos e despesas só dos meses com plano de contas. Os valores em reais ficam em "Ver os valores" e nas outras telas.</p>`;
+  const sem = M.semPolitica, P0 = P.filter(p => p.vendas > 0 && p.politico / p.vendas >= .005);
+  const fonteTxt = cmpUI.campanhas ? `Conta 1.5, produto "Material Político" das O.S. e as O.S. das campanhas de Política do Painel${M.pelasOS.length ? ` (${cmpFaixasMeses(M.pelasOS).join(', ')})` : ''}.`
+    : cmpUI.campErro ? `Conta 1.5 e produto "Material Político" das O.S. (as campanhas do Painel não puderam ser lidas: ${cmpUI.campErro}).` : 'Conta 1.5 e produto "Material Político" das O.S.; lendo as campanhas do Painel.';
+  const marcador = `<div class="cmp-marcador"><label><input type="checkbox" data-cmp-politica${sem ? '' : ' checked'}> Incluir material político (eleições)</label>`
+    + `<span>${P0.length ? `Material político: ${P0.map(p => `${p.ano} ${cmpFmt(p.politico / p.vendas * 100)}%`).join(' · ')} das vendas.` : 'Nenhum material político encontrado.'} ${esc(fonteTxt)}${sem ? ' Desmarcado: os painéis de venda saem sem ele; a DRE e as margens continuam com ele.' : ''}</span></div>`;
   // 1. Vendas
   const ix = M.indice;
-  const gIdx = ix.length ? cmpGrafColunas(ix.map(i => ({ rotulo: String(i.ano), topo: String(Math.round(i.valor)), partes: [{ valor: i.semPolitico, cor: 'entrada' }, { valor: i.extra, cor: 'serie-2' }], dica: `${i.ano} · ${ateTxt}\nÍndice ${Math.round(i.valor)}${i.extra >= .5 ? ` (eleição +${Math.round(i.extra)})` : ''}\nVendas: ${money(i.vendas)}` })),
-    { H: 200, leitura: `Vendas de ${ateTxt} de cada ano, em índice (${ix[0].ano} = 100): ${ix.map(i => `${i.ano} ${Math.round(i.valor)}`).join(', ')}.`, legenda: [{ rotulo: 'Vendas sem material político', cor: 'entrada' }, { rotulo: 'Material político (eleição)', cor: 'serie-2' }],
-      tabela: GX.tabela(['Ano', 'Índice', 'Sem material político', 'Vendas'], ix.map(i => [String(i.ano), String(Math.round(i.valor)), String(Math.round(i.semPolitico)), money(i.vendas)]), [1, 2, 3]) }) : GX.aviso('cmp-colunas', 'Não apurado: nenhum ano com todos os meses do período.');
+  const gIdx = ix.length ? cmpGrafColunas(ix.map(i => ({ rotulo: String(i.ano), topo: String(Math.round(i.valor)), partes: [{ valor: i.semPolitico, cor: 'entrada' }, { valor: i.extra, cor: 'serie-2' }], dica: `${i.ano} · ${ateTxt}\nÍndice ${Math.round(i.valor)}${i.extra >= .5 ? ` (eleição +${Math.round(i.extra)})` : ''}\nVendas${sem ? ' sem material político' : ''}: ${money(i.vendas - (sem ? i.politico : 0))}${i.politico > 0 ? `\nMaterial político: ${money(i.politico)}${sem ? ' (fora)' : ''}` : ''}` })),
+    { H: 200, leitura: `Vendas de ${ateTxt} de cada ano${sem ? ', sem o material político' : ''}, em índice (${ix[0].ano} = 100): ${ix.map(i => `${i.ano} ${Math.round(i.valor)}`).join(', ')}.`, legenda: sem ? [{ rotulo: 'Vendas sem material político', cor: 'entrada' }] : [{ rotulo: 'Vendas sem material político', cor: 'entrada' }, { rotulo: 'Material político (eleição)', cor: 'serie-2' }],
+      tabela: GX.tabela(['Ano', 'Índice', 'Sem material político', 'Vendas', 'Material político'], ix.map(i => [String(i.ano), String(Math.round(i.valor)), String(Math.round(i.semPolitico)), money(i.vendas), money(i.politico)]), [1, 2, 3, 4]) }) : GX.aviso('cmp-colunas', 'Não apurado: nenhum ano com todos os meses do período.');
   const cv = M.crescimento.linhas.find(l => l.chave === 'vendas'), cs = M.crescimento.linhas.find(l => l.chave === 'vendasSemPolitico');
   const tCresc = cmpTabela(['Crescimento das vendas', 'Vendas', 'Sem material político'], M.crescimento.pares.map((pr, i) => [`${pr.a1} × ${pr.a0}${pr.meses.length && pr.meses.length < 12 ? ` (${cmpMesesTexto(pr.meses)})` : ''}`, cmpVar(cv.valores[i]?.valor), cmpVar(cs.valores[i]?.valor)]), { legenda: 'Contra os mesmos meses do ano anterior' });
   const gSaz = cmpFaixaSazonal(M.saz, { leitura: 'Sazonalidade: cada mês contra a média mensal do ano, nos anos inteiros.', tabela: GX.tabela(['Mês', 'Índice', 'Menor', 'Maior'], M.saz.filter(Boolean).map(s => [CMP_MES[s.mes - 1], String(Math.round(s.indice)), String(Math.round(s.min)), String(Math.round(s.max))]), [1, 2, 3]) });
   const gMes = cmpGrafVariacao(M.mesAMes.map(x => ({ rotulo: CMP_MES[x.mes - 1], valor: x.valor, dica: `${CMP_MES[x.mes - 1]}/${M.refAno} contra ${CMP_MES[x.mes - 1]}/${M.refAno - 1}` })), { leitura: `${M.refAno} mês a mês contra o mesmo mês de ${M.refAno - 1}.`, tabela: GX.tabela(['Mês', `${M.refAno} × ${M.refAno - 1}`], M.mesAMes.map(x => [CMP_MES[x.mes - 1], cmpNum(x.valor) ? cmpVar(x.valor) : 'sem mês fechado']), [1]) });
-  const sec1 = card('1. Vendas', `<div class="graficos-controle">${painelGrafico(`Vendas de ${ateTxt}, índice (${ix[0]?.ano ?? ''} = 100)`, 'Os mesmos meses em todos os anos; o ano sem esses meses no Mubisys fica de fora.', gIdx)}${painelGrafico('Crescimento das vendas', 'Com e sem material político (anos de eleição).', tCresc)}</div>`
-    + `<div class="graficos-controle">${painelGrafico('Sazonalidade', 'Cada mês contra a média mensal do ano (100 = mês médio), nos anos inteiros.', gSaz)}${painelGrafico(`${M.refAno} mês a mês`, `Contra o mesmo mês de ${M.refAno - 1}.`, gMes)}</div>`, true);
+  const sec1 = cmpCard('vendas', '1. Vendas', `<div class="graficos-controle">${painelGrafico(`Vendas de ${ateTxt}${sem ? ' sem material político' : ''}, índice (${ix[0]?.ano ?? ''} = 100)`, 'Os mesmos meses em todos os anos; o ano sem esses meses no Mubisys fica de fora.', gIdx)}${painelGrafico('Crescimento das vendas', 'Com e sem material político (anos de eleição).', tCresc)}</div>`
+    + `<div class="graficos-controle">${painelGrafico('Sazonalidade', `Cada mês contra a média mensal do ano (100 = mês médio), nos anos inteiros${sem ? ', sem o material político' : ''}.`, gSaz)}${painelGrafico(`${M.refAno} mês a mês`, `Contra o mesmo mês de ${M.refAno - 1}${sem ? ', sem o material político' : ''}.`, gMes)}</div>`, true);
   // 2. Receita
-  const tMix = cmpTabela(['% das vendas', ...P.map(p => cmpCabAno(p, M, false))], M.mix.map(l => [l.rotulo, ...l.valores.map(v => cmpFmt(v))]));
+  const tMix = cmpTabela(['% das vendas', ...P.map(p => cmpCabAno(p, M, false))], M.mix.map(l => [l.rotulo, ...l.valores.map(v => cmpFmt(v))]), { destaques: M.mix.map((l, i) => l.politico ? i : -1).filter(i => i >= 0), legenda: sem ? '% das vendas sem material político' : '' });
   const tEnt = cmpTabela(['% das vendas', ...D.map(p => cmpCabAno(p, M, true))], [
     ['Rendimentos (aluguel e juros recebidos)', ...D.map(p => cmpFmt(p.pct.receitasFinanceiras))], ['Empréstimos recebidos', ...D.map(p => cmpFmt(p.pct.emprestimos))], ['Recebimentos sem conta no Mubisys', ...D.map(p => cmpFmt(p.pct.outrasEntradas))],
   ], { destaques: [1] });
-  const tProd = M.produtos.length ? cmpTabela(['% das vendas', ...M.prodAnos.map(a => a === M.refAno && M.refMes < 12 ? `${a}<br><small>jan a ${CMP_MES[M.refMes - 1]}</small>` : String(a))], [...M.produtos.map(l => [l.rotulo, ...l.valores.map(v => cmpFmt(v))]), ...(M.semProduto ? [[M.semProduto.rotulo, ...M.semProduto.valores.map(v => cmpFmt(v))]] : [])], { destaques: M.semProduto ? [M.produtos.length] : [] }) : '<p class="hint">Sem produtos classificados nas O.S.</p>';
-  const sec2 = card('2. De onde vem a receita', `<h3 class="cmp-h3">Mix das vendas</h3>${tMix}<h3 class="cmp-h3">Entradas que não são venda</h3>${tEnt}<h3 class="cmp-h3">Produtos mais vendidos</h3>${tProd}`, false);
+  const extrasProd = [M.produtoPolitico, M.semOS].filter(Boolean);
+  const tProd = M.produtos.length ? cmpTabela(['% das vendas', ...M.prodAnos.map(a => a === M.refAno && M.refMes < 12 ? `${a}<br><small>jan a ${CMP_MES[M.refMes - 1]}</small>` : String(a))], [...M.produtos, ...extrasProd].map(l => [l.rotulo, ...l.valores.map(v => cmpFmt(v))]), { destaques: extrasProd.map((_, i) => M.produtos.length + i), legenda: `${sem ? '% das vendas sem material político' : '% das vendas'} · rateio do recebido pelos itens das O.S.` }) : '<p class="hint">Sem produtos nas O.S. dos recebimentos.</p>';
+  const sec2 = cmpCard('receita', '2. De onde vem a receita', `<h3 class="cmp-h3">Mix das vendas</h3>${tMix}<h3 class="cmp-h3">Entradas que não são venda</h3>${tEnt}<h3 class="cmp-h3">Produtos mais vendidos</h3>${tProd}`, false);
   // 3. DRE ano a ano
   const L = k => D.map(p => cmpFmt(p.pct[k]));
   const dreLinhas = [
-    ['Receita bruta de vendas', ...D.map(() => '100,0')], ['(−) Simples (DAS e DARF), ISS e devoluções', ...L('deducoes')], ['(=) Receita líquida', ...L('receitaLiquida')], ['(−) Custos variáveis', ...L('variaveis')], ['(=) Margem de contribuição', ...L('margemContribuicao')],
+    ['Receita bruta de vendas', ...D.map(() => '100,0')], ['dos quais, material político', ...D.map(p => cmpFmt(p.vendasCls > 0 ? p.politicoCls / p.vendasCls * 100 : null))], ['(−) Simples (DAS e DARF), ISS e devoluções', ...L('deducoes')], ['(=) Receita líquida', ...L('receitaLiquida')], ['(−) Custos variáveis', ...L('variaveis')], ['(=) Margem de contribuição', ...L('margemContribuicao')],
     ['(−) Despesas fixas', ...L('fixas')], ['Pessoal', ...L('pessoal')], ['Administrativas e terceiros', ...L('administrativas')], ['Ocupação e utilidades', ...L('ocupacao')], ['Veículos', ...L('veiculos')], ['Marketing', ...L('marketing')], ['Taxas e IPTU', ...L('taxas')], ['Saídas sem linha na DRE', ...L('fixasOutras')],
     ['(=) Resultado operacional', ...L('ebitda')], ['(+/−) Financeiro (juros, tarifas e rendimentos)', ...D.map(p => cmpFmt(p.pct.receitasFinanceiras - p.pct.despesasFinanceiras))], ['(=) Resultado antes dos sócios', ...L('resultado')], ['Ponto de equilíbrio (vendas necessárias)', ...L('pe')],
     ['(−) Retiradas e arrendamento (sócios)', ...L('socios')], ['(−) Investimentos e parcelas de ativos', ...L('investimentos')], ['(−) Dívidas pagas', ...L('dividas')], ['(−) Saídas sem detalhamento', ...L('semDetalhamento')], ['(+) Empréstimos recebidos', ...L('emprestimos')], ['(+) Outras entradas', ...L('outrasEntradas')], ['(=) Variação do caixa', ...L('variacao')],
   ];
-  const sec3 = card('3. A DRE ano a ano (% das vendas)', cmpTabela(['% das vendas', ...D.map(p => cmpCabAno(p, M, true))], dreLinhas, { subtotais: [0, 2, 4, 13, 15, 23], destaques: [5, 16], recuo: [6, 7, 8, 9, 10, 11, 12], legenda: '% das vendas · só os meses com plano de contas' })
+  const sec3 = cmpCard('dre', '3. A DRE ano a ano (% das vendas)', (sem ? '<p class="hint">Esta parte continua com o material político: o custo dele está nas mesmas compras das outras vendas e não se separa.</p>' : '')
+    + cmpTabela(['% das vendas', ...D.map(p => cmpCabAno(p, M, true))], dreLinhas, { subtotais: [0, 3, 5, 14, 16, 24], destaques: [6, 17], recuo: [1, 7, 8, 9, 10, 11, 12, 13], legenda: '% das vendas · só os meses com plano de contas' })
     + '<p class="hint">Ponto de equilíbrio = despesas fixas ÷ margem de contribuição, em % das vendas. Valores arredondados.</p>', true);
   // 4. Margens e crescimento
   const rot = D.map(p => `${p.ano}${p.mesesCls.length < 12 ? '*' : ''}`);
@@ -453,16 +598,16 @@ function renderComparativos() {
     { leitura: 'Para onde vai cada R$ 100 vendidos, por ano.', tabela: GX.tabela(['Ano', 'Simples e devoluções', 'Custos variáveis', 'Despesas fixas', 'Resultado operacional'], D.map((p, i) => [rot[i], ...[p.pct.deducoes, p.pct.variaveis, p.pct.fixas, p.pct.ebitda].map(v => cmpFmt(v) + '%')]), [1, 2, 3, 4]) });
   const parRot = M.crescimento.pares.map(pr => `${pr.a1} × ${pr.a0}`);
   const tCr = cmpTabela(['Linha', ...parRot], M.crescimento.linhas.map(l => [l.rotulo, ...l.valores.map(v => cmpVar(v?.valor))]), { destaques: [M.crescimento.linhas.findIndex(l => l.chave === 'pessoal')], legenda: 'Contra os mesmos meses do ano anterior; custos e despesas só nos meses com plano de contas' });
-  const sec4 = card('4. Margens, estrutura e crescimento', `<div class="graficos-controle">${painelGrafico('Margem, despesas fixas e resultado', `% das vendas por ano.${notaParcial}`, gLin)}${painelGrafico('Para onde vai cada R$ 100 vendidos', `Resultado operacional = antes de juros, sócios, investimentos e dívidas.${notaParcial}`, gCem)}</div>${painelGrafico('Crescimento de cada linha', 'Contra o mesmo período do ano anterior.', tCr)}`, true);
+  const sec4 = cmpCard('margens', '4. Margens, estrutura e crescimento', `<div class="graficos-controle">${painelGrafico('Margem, despesas fixas e resultado', `% das vendas por ano.${notaParcial}`, gLin)}${painelGrafico('Para onde vai cada R$ 100 vendidos', `Resultado operacional = antes de juros, sócios, investimentos e dívidas.${notaParcial}`, gCem)}</div>${painelGrafico('Crescimento de cada linha', 'Contra o mesmo período do ano anterior.', tCr)}`, true);
   // 5 a 7. Detalhes
-  const sec5 = card('5. Custos variáveis: o que acompanha a produção', cmpDetalheTabela(M, 'variaveis', 'Custos variáveis'), false);
-  const sec6 = card('6. Despesas fixas', ['pessoal', 'administrativas', 'ocupacao', 'veiculos'].map(k => `<h3 class="cmp-h3">${esc(CMP_DETALHES.find(d => d[0] === k)[1])}</h3>${cmpDetalheTabela(M, k, CMP_DETALHES.find(d => d[0] === k)[1])}`).join(''), false);
+  const sec5 = cmpCard('variaveis', '5. Custos variáveis: o que acompanha a produção', cmpDetalheTabela(M, 'variaveis', 'Custos variáveis'), false);
+  const sec6 = cmpCard('fixas', '6. Despesas fixas', ['pessoal', 'administrativas', 'ocupacao', 'veiculos'].map(k => `<h3 class="cmp-h3">${esc(CMP_DETALHES.find(d => d[0] === k)[1])}</h3>${cmpDetalheTabela(M, k, CMP_DETALHES.find(d => d[0] === k)[1])}`).join(''), false);
   const gDiv = cmpGrafGrupos(D.map((p, i) => rot[i]), [{ rotulo: 'Empréstimos recebidos', cor: 'serie-2', valores: D.map(p => p.pct.emprestimos) }, { rotulo: 'Dívidas pagas', cor: 'serie-3', valores: D.map(p => p.pct.dividas) }], { leitura: 'Empréstimos recebidos e dívidas pagas, em % das vendas, por ano.', tabela: GX.tabela(['Ano', 'Empréstimos recebidos', 'Dívidas pagas'], D.map((p, i) => [rot[i], cmpFmt(p.pct.emprestimos) + '%', cmpFmt(p.pct.dividas) + '%']), [1, 2]) });
-  const sec7 = card('7. Depois do resultado: sócios, investimentos e dívida', painelGrafico('Empréstimos recebidos e dívidas pagas', `% das vendas por ano; financiamento não é bom nem ruim por si.${notaParcial}`, gDiv)
+  const sec7 = cmpCard('depois', '7. Depois do resultado: sócios, investimentos e dívida', painelGrafico('Empréstimos recebidos e dívidas pagas', `% das vendas por ano; financiamento não é bom nem ruim por si.${notaParcial}`, gDiv)
     + ['socios', 'investimentos', 'dividas', 'emprestimos', 'semDetalhamento'].map(k => `<h3 class="cmp-h3">${esc(CMP_DETALHES.find(d => d[0] === k)[1])}</h3>${cmpDetalheTabela(M, k, CMP_DETALHES.find(d => d[0] === k)[1])}`).join('')
     + `<p class="hint">Retiradas e arrendamento em % do resultado antes dos sócios: ${D.map((p, i) => `${rot[i]} ${cmpFmt(p.pct.sociosResultado)}%`).join(' · ')}.</p>`, false);
   // A explicação, embaixo
   const Lt = cmpLeitura(M), lista = xs => xs.length ? `<ul class="cmp-lista">${xs.map(x => `<li>${x}</li>`).join('')}</ul>` : '<p class="hint">Nada a apontar.</p>';
-  const expl = card('O que os números mostram', lista(Lt.pontos) + `<h3 class="cmp-h3">Limites desta comparação</h3>${lista(Lt.limites)}<h3 class="cmp-h3">Pontos a conferir no Mubisys</h3>${lista(Lt.conferir)}<h3 class="cmp-h3">Próximos passos sugeridos</h3>${lista(Lt.passos)}`, true);
-  return topo + intro + sec1 + sec2 + sec3 + sec4 + sec5 + sec6 + sec7 + expl;
+  const expl = cmpCard('leitura', 'O que os números mostram', lista(Lt.pontos) + `<h3 class="cmp-h3">Limites desta comparação</h3>${lista(Lt.limites)}<h3 class="cmp-h3">Pontos a conferir no Mubisys</h3>${lista(Lt.conferir)}<h3 class="cmp-h3">Próximos passos sugeridos</h3>${lista(Lt.passos)}`, true);
+  return topo + intro + marcador + sec1 + sec2 + sec3 + sec4 + sec5 + sec6 + sec7 + expl;
 }
