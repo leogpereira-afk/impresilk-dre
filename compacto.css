@@ -259,3 +259,26 @@ body.dark .cmp-tinta-1{color:#fff}body.dark .cmp-tinta-2,body.dark .cmp-tinta-3,
 .glossary-tela{margin:10px 0 0}
 .glossary-tela .text-button{min-height:36px;padding:4px 0;font-weight:650}
 @media (max-width:900px),(pointer:coarse){.glossary-indice a,.glossary-tela .text-button{min-height:44px}}
+/* Plano de contas (Fase 12.5): planilha em árvore, colunas do ano e a coluna fixa que não corta número */
+.plano-matriz-acoes{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:6px 0 8px}
+.plano-matriz-acoes button{min-height:34px;padding:5px 11px;font-size:12px}
+.plano-matriz-acoes .hint{margin:0;font-size:11px}
+.plano-matrix{scroll-snap-type:x proximity;scroll-padding-left:200px}
+.plano-matrix thead th.num{scroll-snap-align:start}
+.plano-matrix tbody th,.plano-matrix thead th:first-child{box-shadow:6px 0 6px -6px color-mix(in srgb,var(--text) 35%,transparent)}
+.plano-matrix tbody th{padding-left:calc(9px + var(--recuo,0px))}
+.plano-linha-nome{display:flex;align-items:center;gap:4px}
+.plano-ramo{flex:0 0 22px;width:22px;min-height:24px!important;padding:0!important;border:0;background:none;color:var(--muted);font-size:13px;line-height:1}
+.plano-ramo-vazio{flex:0 0 22px}
+.plano-linha.nivel-1>th{background:color-mix(in srgb,var(--selected) 80%,var(--surface))}.plano-linha.nivel-1>td{background:color-mix(in srgb,var(--selected) 80%,transparent)}
+.plano-linha.nivel-1 th,.plano-linha.nivel-2 th{font-weight:700}
+.plano-linha.nivel-2>th{background:color-mix(in srgb,var(--selected) 35%,var(--surface))}.plano-linha.nivel-2>td{background:color-mix(in srgb,var(--selected) 35%,transparent)}
+.plano-linha.nivel-1 tbody th,.plano-linha th button[data-plano-select]{font-weight:inherit}
+.plano-linha th button[data-plano-select]::before{content:'';display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;vertical-align:1px;background:var(--g-saida,#c7424c)}
+.plano-linha.entrada th button[data-plano-select]::before{background:var(--g-entrada,#2f62d0)}
+.plano-linha:hover>th{background:color-mix(in srgb,var(--selected) 55%,var(--surface))}.plano-linha:hover>td{background:color-mix(in srgb,var(--selected) 55%,transparent)}
+.plano-matrix .plano-linha>td.selected-month,.plano-matrix .plano-linha:hover>td.selected-month{background:color-mix(in srgb,var(--blue) 14%,var(--surface))}
+.plano-matrix .plano-ano{border-left:1px solid var(--line);white-space:nowrap}
+.plano-matrix thead .plano-ano small{display:block;font-size:10px;font-weight:400;text-transform:none;letter-spacing:0}
+@media (max-width:700px){.plano-matrix{scroll-padding-left:140px}.plano-matrix tbody th{padding-left:calc(6px + var(--recuo,0px)/2)}}
+@media (max-width:900px),(pointer:coarse){.plano-ramo{width:44px;flex-basis:44px;min-height:44px!important;font-size:16px}.plano-ramo-vazio{flex-basis:44px}.plano-matriz-acoes button{min-height:44px}.plano-matrix tbody th{padding-left:calc(4px + var(--recuo,0px)/2)}}

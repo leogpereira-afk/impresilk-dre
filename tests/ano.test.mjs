@@ -27,7 +27,7 @@ test('chip "Ano": vai ao último mês com dados do ano (até hoje) e liga o ano;
 test('uma fonte só: a "Matriz do ano" segue o chip; clicar num mês tira os Indicadores do ano em qualquer tela',()=>{
  const d=app({view:'dre'});d.run("selecionarAno('2026')");assert.deepEqual(d.json('[state.anoTodo,gestaoUI.dre,anoAtivo()]'),[true,'ano',true]);
  d.run("selecionarPeriodo('Mar/2026')");assert.deepEqual(d.json('[state.anoTodo,gestaoUI.dre,anoAtivo()]'),[false,'mes',false]);
- assert.deepEqual(d.json('ANO_TELAS'),['dre','dfc','indicadores','precos']);
+ assert.deepEqual(d.json('ANO_TELAS'),['dre','dfc','indicadores','precos','detalhe']);
  const x=app({view:'dfc'});x.run("selecionarAno('2026')");x.run("selecionarPeriodo('Abr/2026')");assert.deepEqual(x.json('__ind'),[['ano','Abr/2026'],['mes','Abr/2026']],'os Indicadores saem do ano mesmo com o mês clicado na DFC');
 });
 test('Indicadores: o ano do app (até o último mês com dados) ou o ano civil acendem o chip; outro ano ou recorte apagam',()=>{
