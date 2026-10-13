@@ -494,7 +494,8 @@ const precoPct=v=>v==null||!Number.isFinite(v)?'—':v.toLocaleString('pt-BR',{m
    min e max só desenham a régua. */
 const PRECO_FAIXAS={
  mc:{maior:true,excelente:55,boa:45,min:30,max:70,nome:'Margem de contribuição',
-  texto:{excelente:'cada venda deixa mais de 55% para pagar a estrutura e dar lucro',boa:'sobra de 45% a 55% de cada venda; preço ou compra de material podem melhorar',ruim:'menos de 45% sobra de cada venda: preço baixo ou material e terceiros caros'}},
+  // Os níveis seguem a referência do setor que o Léo trouxe (12/10): apagar incêndio, produção controlada, governança e valor agregado.
+  texto:{excelente:'mais de 55% de cada venda sobra para a estrutura e o lucro: nível de quem vende projeto de valor, com fluxo roteirizado e material bem aproveitado',boa:'sobra de 45% a 55% de cada venda: produção controlada (arquivo conferido antes da máquina, manutenção em dia); preço e aproveitamento de material ainda podem subir',ruim:'menos de 45% sobra de cada venda: sinal de produção apagando incêndio (improviso, retalho alto) ou de briga pelo preço do metro quadrado'}},
  pe:{maior:false,excelente:50,boa:70,min:20,max:110,nome:'Ponto de equilíbrio',
   texto:{excelente:'a estrutura se paga com até metade das vendas de um mês médio',boa:'a estrutura pede de 50% a 70% das vendas: os meses fracos ficam perto do limite',ruim:'a estrutura pede mais de 70% das vendas: os meses fracos do ano dão prejuízo'}},
  seguranca:{maior:true,excelente:50,boa:30,min:-20,max:80,nome:'Distância do equilíbrio',

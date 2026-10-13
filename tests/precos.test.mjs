@@ -135,7 +135,7 @@ const ANOS=[...['Jul','Ago','Set'].map(m=>reg(m+'/2025',{Jul:'2025-07-31',Ago:'2
 test('avaliação: margem 50% boa, fixas 20% e equilíbrio 40% das vendas excelentes, distância do mês excelente; faixas na régua',()=>{
  const h=tela().run('renderPrecos()');
  assert.deepEqual(aval(h),['boa','excelente','excelente','excelente'],'margem, equilíbrio, distância, fixas');
- assert.match(h,/sobra de 45% a 55% de cada venda/);assert.match(h,/40% das vendas médias/);assert.match(h,/Margem de segurança: 53,3% das vendas do mês/);
+ assert.match(h,/sobra de 45% a 55% de cada venda: produção controlada/);assert.match(ler('glossario.js'),/Níveis de margem na comunicação visual/);assert.match(h,/40% das vendas médias/);assert.match(h,/Margem de segurança: 53,3% das vendas do mês/);
  assert.match(h,/aria-label="Margem de contribuição 50%: boa\. Faixas: excelente a partir de 55%, boa de 45% a 55%, ruim abaixo de 45%\./);
  assert.match(h,/Mesmo período de 2025: sem os mesmos meses fechados/,'sem 2025 na base: diz, não inventa');
  const c=tela();assert.deepEqual(['mc','pe','seguranca','fixas'].map(k=>c.json(`precoAvaliar('${k}',${{mc:44.9,pe:70.1,seguranca:29.9,fixas:35.1}[k]})`).nivel),['ruim','ruim','ruim','ruim']);
