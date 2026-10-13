@@ -19,7 +19,7 @@ export async function estabilizar(page, minimo = 250) {
   await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).catch(() => {});
 }
 export async function lancar() {
-  return chromium.launch({...(CHROME ? {executablePath: CHROME} : {}), headless: true, args: ['--no-sandbox', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost']});
+  return chromium.launch({...(CHROME ? {executablePath: CHROME} : {}), headless: true, args: ['--no-sandbox', `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost, EXCLUDE ${new URL(BASE).hostname}`]});
 }
 export async function contexto(browser, {mobile = false, sw = 'block', servidor = criarServidor(), cpu = 1} = {}) {
   const context = await browser.newContext({viewport: mobile ? {width: 390, height: 844} : {width: 1440, height: 1000}, serviceWorkers: sw, timezoneId: 'America/Sao_Paulo', locale: 'pt-BR', deviceScaleFactor: 1, ...(mobile ? {isMobile: true, hasTouch: true} : {})});
