@@ -205,7 +205,11 @@ test('conta renomeada pelo robô (51+) decide pelo nome: materiais × marketing,
  assert.equal(k('2.52',{'2.52':'Outra coisa'}).linha,'fixasOutras','nome desconhecido continua sem linha');
  assert.equal(k('2.12.51.3.1',{'2.12.51.3.1':'3mm'}).conferir,'','pelo nome: sem alarme');
  // 2.51 "Despesas Publicitárias": o grupo inteiro é marketing; outro nome segue sem linha.
- assert.equal(k('2.51.1.1.2',{'2.51':'Despesas Publicitárias','2.51.1.1.2':'Leitoso'}).linha,'marketing');
+ // Jul a set de 2024: o grupo "Despesas Publicitárias" trazia material de produção; só o nome de marketing fica em marketing.
+ assert.equal(k('2.51.1.1.2',{'2.51':'Despesas Publicitárias','2.51.1.1.2':'Leitoso'}).linha,'variaveis');
+ assert.equal(k('2.51.2.6.2',{'2.51':'Despesas Publicitárias','2.51.2.6':'2.51.2.6','2.51.2.6.2':'Kynar'}).linha,'variaveis');
+ for(const [code,n] of [['2.51.1','Instagram'],['2.51.4','Agência']])assert.equal(k(code,{'2.51':'Despesas Publicitárias',[code]:n}).linha,'marketing',n);
+ assert.equal(k('2.99',{'2.99':'Fatura de cartão (sem detalhamento)'}).linha,'semDetalhamento','2.99 mantém a regra própria');
  assert.equal(k('2.51',{'2.51':'Outra coisa'}).linha,'fixasOutras');
  // 2.14.51 "Distribuição Leonardo" (retirada de sócio): o grupo inteiro é sócio.
  for(const code of ['2.14.51','2.14.51.2','2.14.51.3'])assert.deepEqual([k(code,{'2.14.51':'Distribuição Leonardo','2.14.51.2':'Leonardo','2.14.51.3':'Combustível'}).linha,k(code,{'2.14.51':'Distribuição Leonardo'}).conferir],['socios',''],code);
@@ -214,4 +218,10 @@ test('conta renomeada pelo robô (51+) decide pelo nome: materiais × marketing,
  const reg={label:'Set/2026',cells:[{code:'1',name:'Receitas',value:1000},{code:'1.1',name:'CV',value:1000},{code:'2',name:'Despesas',value:300},{code:'2.12',name:'Materiais',value:300},{code:'2.12.51',name:'Agência',value:300},{code:'2.12.51.1',name:'6mm',value:200}]};
  const a=JSON.parse(c.run(`JSON.stringify(DRESimples.apurar(${JSON.stringify(reg)}).linhas)`));
  assert.deepEqual([a.variaveis,a.marketing],[200,100]);
+});
+
+test('apuração diz quanto das saídas ficou sem plano de contas (2.99)',()=>{
+ const c=context();const reg={label:'Mar/2020',cells:[{code:'1',name:'Receitas',value:1000},{code:'1.1',name:'CV',value:1000},{code:'2',name:'Despesas',value:800},{code:'2.13',name:'Bancárias',value:20},{code:'2.99',name:'Fatura de cartão (sem detalhamento)',value:780}]};
+ const a=JSON.parse(c.run(`JSON.stringify(DRESimples.apurar(${JSON.stringify(reg)}))`));
+ assert.equal(a.semConta,780);assert.equal(Math.round(a.pctSemConta),98);
 });

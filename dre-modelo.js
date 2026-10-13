@@ -167,8 +167,15 @@ var DRESimples=(()=>{
    if(!proprio||proprio===partes.join('.'))return {...R('variaveis','Conta renomeada pelo robô sem nome: confirme se é material ou marketing'),regra};
    return ehMarketing(proprio)?{...R('marketing','','Marketing pelo nome (conta renomeada pelo robô)'),regra}:{...R('variaveis','','Material pelo nome (conta renomeada pelo robô)'),regra};
   }
-  if(raiz==='2'&&cadeia.some(ehMarketing))return {...R('marketing','','Marketing pelo nome (conta renomeada pelo robô)'),regra};
-  if(raiz==='2'&&cadeia.some(n=>NOME_EXTERNAS.test(n)))return {...R('variaveis','','Serviço externo da produção (conta renomeada pelo robô)'),regra};
+  // 2.51 em diante (2.99 tem regra própria): vale o nome da PRÓPRIA conta. Em jul a set
+  // de 2024 o grupo "Despesas Publicitárias" do Mubisys trazia vinil, lona, ACM, perfis e
+  // LED: material de produção, não marketing (auditoria de 12/10). Só a conta com nome de
+  // marketing fica em marketing; grupo de despesas externas, publicidade ou material vai
+  // para custo variável; nome desconhecido segue sem linha, a conferir.
+  if(raiz==='2'&&partes[1]!=='99'){
+   if(ehMarketing(proprio))return {...R('marketing','','Marketing pelo nome (conta renomeada pelo robô)'),regra};
+   if(cadeia.some(n=>NOME_EXTERNAS.test(n)||/publicit/i.test(n)||NOME_MATERIAL.test(n)))return {...R('variaveis','','Custo da produção pelo nome do grupo (conta renomeada pelo robô)'),regra};
+  }
   if(raiz==='2.14'&&NOME_SOCIOS.test(todos))return {...R('socios','','Retirada de sócio (conta renomeada pelo robô)'),regra};
   return null;
  }
@@ -204,8 +211,12 @@ var DRESimples=(()=>{
   // a DRE inteira tem de fechar com entradas − saídas do ERP
   const total=code=>valor.has(code)?valor.get(code):cells.filter(c=>c.code.split('.').length===2&&c.code.startsWith(code+'.')).reduce((t,c)=>t+valor.get(c.code),0);
   const caixa=r(total('1')-total('2'));
+  // Saídas sem plano de contas no Mubisys (o robô as põe em 2.99): em 2020 eram quase todas.
+  // Mês com muita saída sem conta não serve para comparar custos e despesas.
+  const semConta=(valor.get('2.99')||0)-(filhas.get('2.99')||0),saidas=total('2');
   for(const k of Object.keys(composicao))composicao[k].sort((a,b)=>Math.abs(b.valor)-Math.abs(a.valor));
   return {linhas,composicao,conferir,caixa,diferenca:Math.round((linhas.variacao-caixa)*100)/100,
+   semConta:r(semConta),pctSemConta:saidas>0?semConta/saidas*100:null,
    margens:{margemContribuicao:pct('margemContribuicao'),ebitda:pct('ebitda'),resultado:pct('resultado'),receitaLiquida:pct('receitaLiquida')},pct};
  }
  // Imposto do Simples de uma competência (DAS 2.4.1 e DARF do PGDAS 2.4.3), pago no

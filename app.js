@@ -510,7 +510,7 @@ function renderInicio(reg,q){
  let h=!reg?`<div class="month-empty"><div><b>${esc(state.periodo)} ainda não tem dados.</b><span>O histórico abaixo continua disponível para consulta.</span></div>${latest?`<button data-period="${esc(latest.label)}">Abrir ${esc(latest.label)} →</button>`:''}</div>`:'';
  h+=resumoMovimento(reg)+comparativoMovimento(reg);
  h+=`<div class="dashboard-grid">${typeof evolucaoCompacta==='function'?evolucaoCompacta():graficoEvolucao()}${painelGrafico('Para onde foi o dinheiro',state.periodo+' · principais grupos de saídas',rankingCustos(reg),'<button data-go="custos" class="text-button">Ver todas →</button>')}</div>`;
- h+=cfoResumo(reg)+card('Planilha do Dashboard · mês a mês',historicoTabela(),false)+resumoGestao(reg);
+ h+=cfoResumo(reg)+(typeof renderComparativos==='function'?renderComparativos():'')+card('Planilha do Dashboard · mês a mês',historicoTabela(),false)+resumoGestao(reg);
  h+=card('Conferência e próximos passos',`<div class="review-grid"><div><span class="label">Cobertura da base</span><b>${esc(q.rotulo)}</b></div><div><span class="label">Pendências de classificação</span><b>${(reg?.pendencias||[]).length}</b></div><div><span class="label">Saldo bancário disponível</span><b>Não apurado</b></div></div><div class="actions"><button data-go="conferencia">Conferir dados →</button><button data-go="caixa">Planejar o caixa →</button></div>`,false);
  return h;
 }

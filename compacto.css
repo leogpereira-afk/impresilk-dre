@@ -204,3 +204,21 @@
 @media (max-width:700px){.dfc-tabela thead th:first-child,.dfc-tabela tbody th,.dre-simples-meses thead th:first-child,.dre-simples-meses tbody th{min-width:140px;max-width:42vw}}
 /* A rolagem do "Ver os valores" recorta o que passa da borda: o anel de foco fica por dentro do resumo. */
 .g-tabela>summary:focus-visible{outline-offset:-3px}
+
+/* Comparativos anuais (Dashboard, Fase 12): tabelas de % das vendas, a leitura em texto e o rótulo dentro das barras 100% */
+.cmp-h3{font-size:14px;color:var(--text);margin:18px 0 4px}
+.cmp-tabela caption{caption-side:top;text-align:left;font-size:11px;color:var(--muted);padding:8px 10px 4px}
+.cmp-tabela thead th{white-space:nowrap;vertical-align:bottom}
+.cmp-tabela thead th small{font-size:10px;font-weight:500;text-transform:none;letter-spacing:0}
+.cmp-tabela tbody th{text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);background:none;min-width:220px}
+.cmp-tabela tr.dre-l-subtotal>*{background:var(--selected)}
+.cmp-tabela tr.cmp-destaque>*{background:color-mix(in srgb,var(--selected) 50%,transparent)}
+.cmp-lista{margin:6px 0 14px;padding-left:20px;font-size:13px;line-height:1.6;max-width:110ch}
+.cmp-lista li{margin:0 0 8px}
+.cmp-lista b{color:var(--text)}
+.g-cmp-cem .g-rot-dentro{pointer-events:none}
+.cmp-tinta-1,.cmp-tinta-2{color:#1b2333}.cmp-tinta-3,.cmp-tinta-4{color:#fff}
+body.dark .cmp-tinta-1{color:#fff}body.dark .cmp-tinta-2,body.dark .cmp-tinta-3,body.dark .cmp-tinta-4{color:#1b2333}
+@media (max-width:700px){.cmp-tabela tbody th{min-width:150px;max-width:46vw;white-space:normal}}
+/* valor em cima de cada barra a partir de 400px (a biblioteca só mostra acima de 520px) */
+@container (min-width:400px){.g-cmp-var .g-rot.g-opcional,.g-cmp-grupos .g-rot.g-opcional{display:block}}
