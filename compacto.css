@@ -248,3 +248,14 @@ body.dark .cmp-tinta-1{color:#fff}body.dark .cmp-tinta-2,body.dark .cmp-tinta-3,
 .precos-anos-tabela th small{font-weight:400;color:var(--muted)}
 .precos-anos-tabela td.num{white-space:nowrap}
 @media (forced-colors:active){.aval-faixa{border:1px solid CanvasText}.aval-marca{background:CanvasText}}
+/* Glossário (Fase 12.4): seções por assunto com índice, o grupo "Como este painel calcula" em destaque e o link para a tela */
+.glossary-indice{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 14px}
+.glossary-indice a{display:inline-flex;align-items:center;min-height:36px;padding:5px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface);font-size:12px;font-weight:600;text-decoration:none;color:var(--blue)}
+.glossary-indice a:hover{background:var(--selected)}
+.glossary-secao{margin:18px 0 6px;scroll-margin-top:80px}
+.glossary-secao h3{font-size:15px;color:var(--blue);margin:0 0 10px}
+.glossary-secao h3 small{margin-left:6px;font-size:12px;font-weight:400;color:var(--muted)}
+#glossario-painel .glossary-item{border-left:3px solid var(--blue)}
+.glossary-tela{margin:10px 0 0}
+.glossary-tela .text-button{min-height:36px;padding:4px 0;font-weight:650}
+@media (max-width:900px),(pointer:coarse){.glossary-indice a,.glossary-tela .text-button{min-height:44px}}
