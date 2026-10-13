@@ -36,6 +36,22 @@ function tomDoValor(id,v){const s=SENTIDO_DA_LINHA[id],n=Number(v);if(!s||v==nul
 function tomDelta(dir,d){const n=Number(d);return !dir||d==null||!Number.isFinite(n)||n===0?'':((n>0)===(dir>0)?'delta-bom':'delta-ruim');}
 // Direção de uma conta do plano: entradas sobem bem, saídas sobem mal; dívida, sócios e empréstimos ficam neutros.
 function dirConta(code){code=String(code??'');if(code==='1')return 1;if(code==='2')return -1;if(typeof DRESimples==='undefined'||typeof DIRECAO_SIMPLES==='undefined')return code.startsWith('1')?1:code.startsWith('2')?-1:0;return DIRECAO_SIMPLES[DRESimples.classificar(code).linha]??0;}
+// Seta da variação: ▲/▼/■, valor sem sinal (Math.abs) e a cor pela direção (tomDelta).
+function setaDelta(v,dir,formato=money,unidade='',vazio='<b>Não informado</b>'){
+ if(v==null||!Number.isFinite(Number(v)))return vazio;
+ const s=v>0?'▲':v<0?'▼':'■';
+ return `<b class="${tomDelta(dir,v)||'delta-neutro'}">${s} ${esc(formato(Math.abs(v)))}${esc(unidade)}${v>0?' a mais':v<0?' a menos':''}</b>`;
+}
+/* Ano (chip "Ano"): as funções do contrato (telaNoAno, anoDaTela, rotuloAno, registroDoAno,
+   comparacaoDoAno, anoComparado) são do app.js; sem elas, a tela é a do mês. */
+const grafNoAno=()=>typeof telaNoAno==='function'&&!!telaNoAno();
+const textoSemAnoComparado=()=>typeof TEXTO_SEM_ANO_COMPARADO==='string'?TEXTO_SEM_ANO_COMPARADO:'Sem comparação: escolha um ano em “Comparar com”, no topo.';
+// Linha de comparação com o outro ano, depois do </small> do cartão (nunca dentro dele).
+function compLinhaAno(rotulo,anterior,delta,dir,{tomAnterior='',tomAtual='',motivo='',atual=null,rotuloAtual='',formato=money,formatoDelta=formato,unidade=''}={}){
+ if(anterior==null)return `<span class="comp-ano">${esc(rotulo)}: ${esc(motivo)}</span>`;
+ const agora=rotuloAtual?` · ${esc(rotuloAtual)}: ${tomAtual?`<span class="${esc(tomAtual)}">${esc(formato(atual))}</span>`:esc(formato(atual))}`:'';
+ return `<span class="comp-ano">${esc(rotulo)}: <span class="${esc(tomAnterior)}">${esc(formato(anterior))}</span>${agora} · ${setaDelta(delta,dir,formatoDelta,unidade,'<b class="delta-neutro">sem diferença apurada</b>')}</span>`;
+}
 // sinal de menos tipográfico (U+2212) na tela; o PDF volta ao hífen em pdfTexto (D37)
 const compacto=v=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(v===0?0:v).replace('-','−');
 const nomeConta=(reg,code)=>reg?.cells?.find(c=>c.code===code)?.name;
@@ -80,13 +96,29 @@ function rankingCustos(reg,code='2',limite=6){
 }
 function atalhosCustos(){
  const atalhos=[['⚡','Energia','2.5.3'],['💧','Água','2.5.1'],['📡','Telefone e internet','2.5.4'],['🏠','Aluguel','2.5.2']];
- return `<div class="cost-shortcuts">${atalhos.map(([icon,nome,code])=>`<button data-cost="${code}" class="cost-shortcut ${state.view==='custos'&&custoUI.conta===code?'active':''}"><span class="cost-emoji">${icon}</span><span><span class="label">${nome}</span><strong class="${tomDoValor('saidas',F.valorConta(regAtual(),code))}">${valorTexto(F.valorConta(regAtual(),code))}</strong><small>${esc(contaConhecida(code))}</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></button>`).join('')}</div>`;
+ // No Ano, o valor é o do ano somado; sem o ano somado, "Não apurado".
+ const ra=grafNoAno()?registroDoAno(anoDaTela()):null,base=ra?(ra.disponivel?ra.reg:null):regAtual(),texto=v=>ra&&!ra.disponivel?'Não apurado':valorTexto(v);
+ return `<div class="cost-shortcuts">${atalhos.map(([icon,nome,code])=>`<button data-cost="${code}" class="cost-shortcut ${state.view==='custos'&&custoUI.conta===code?'active':''}"><span class="cost-emoji">${icon}</span><span><span class="label">${nome}</span><strong class="${tomDoValor('saidas',F.valorConta(base,code))}">${texto(F.valorConta(base,code))}</strong><small>${esc(contaConhecida(code))}</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></button>`).join('')}</div>`;
 }
 function resumoMovimento(reg){
+ if(grafNoAno()){
+  // Ano: de janeiro ao último mês com dados, somado em centavos (registroDoAno).
+  const ano=anoDaTela(),r=registroDoAno(ano),rot=rotuloAno(ano),ra=r.disponivel?r.reg:null;
+  const entrada=F.valorConta(ra,'1'),saida=F.valorConta(ra,'2'),delta=entrada!=null&&saida!=null?Math.round((entrada-saida)*100)/100:null,nota=t=>r.disponivel?t:(r.motivo||'Não apurado');
+  return `<div class="cards finance-kpis">${metric('O que entrou',entrada,nota(`Recebimentos registrados em ${rot}`),'1',tomDoValor('entradas',entrada))}${metric('O que saiu',saida,nota(`Pagamentos registrados em ${rot}`),'2',tomDoValor('saidas',saida))}${metric('Entradas menos saídas',delta,nota('Variação do ano · não é lucro nem saldo bancário'),'variacao',tomDoValor('variacao',delta))}</div>`;
+ }
  const entrada=F.valorConta(reg,'1'),saida=F.valorConta(reg,'2'),delta=entrada!=null&&saida!=null?Math.round((entrada-saida)*100)/100:null;
  return `<div class="cards finance-kpis">${metric('O que entrou',entrada,'Recebimentos registrados no período','1',tomDoValor('entradas',entrada))}${metric('O que saiu',saida,'Pagamentos registrados no período','2',tomDoValor('saidas',saida))}${metric('Entradas menos saídas',delta,'Variação do mês · não é lucro nem saldo bancário','variacao',tomDoValor('variacao',delta))}</div>`;
 }
 function comparativoMovimento(reg){
+ const dirVariacao=typeof DIRECAO_DA_LINHA!=='undefined'?DIRECAO_DA_LINHA.variacao:1;
+ if(grafNoAno()){
+  // Ano: contra o ano escolhido em "Comparar com", só nos meses completos dos dois anos.
+  const anoComp=anoComparado();if(anoComp==null)return '';
+  const c=comparacaoDoAno(anoDaTela(),anoComp),cmp=c.motivo||!c.atual||!c.anterior?null:F.comparacao(c.atual,c.anterior);
+  if(!cmp||!cmp.permitida)return `<div class="comparison-strip"><span>Sem comparação com <b>${esc(anoComp)}</b>: ${esc(c.motivo||cmp?.motivo||'')}</span><button data-go="conferencia">Conferir →</button></div>`;
+  return `<div class="comparison-strip"><span>Diferença para <b>${esc(anoComp)}</b> nos mesmos meses (${esc(c.meses)})${marca(c.ressalva||cmp.ressalva,cmp.ressalva?cmp.motivo:'')}</span><span>Entradas ${setaDelta(F.compararConta(c.atual,c.anterior,'1').delta,dirConta('1'))}</span><span>Saídas ${setaDelta(F.compararConta(c.atual,c.anterior,'2').delta,dirConta('2'))}</span><span>Variação ${setaDelta(cmp.delta,dirVariacao)}</span></div>`;
+ }
  if(!state.comparar)return '';
  const other=state.records.find(r=>r.label===state.comparar),cmp=F.comparacao(reg,other);
  if(!cmp.permitida)return `<div class="comparison-strip"><span>Sem comparação com <b>${esc(state.comparar)}</b>: ${esc(cmp.motivo)}</span><button data-go="conferencia">Conferir →</button></div>`;
@@ -94,13 +126,7 @@ function comparativoMovimento(reg){
  // se aquilo é boa notícia (entrada subindo é bom; saída subindo, não). Sem sinal
  // de menos (v133): "▼ R$ 2.300,00 a menos" ao lado de Saídas não se lê como saída azul.
  // A direção da variação do caixa vem do mesmo mapa da DRE (subir é bom, decisão de 13/10).
- const seta=(v,dir)=>{
-  if(v==null)return '<b>Não informado</b>';
-  const s=v>0?'▲':v<0?'▼':'■';
-  return `<b class="${tomDelta(dir,v)||'delta-neutro'}">${s} ${esc(money(Math.abs(v)))}${v>0?' a mais':v<0?' a menos':''}</b>`;
- };
- const dirVariacao=typeof DIRECAO_DA_LINHA!=='undefined'?DIRECAO_DA_LINHA.variacao:1;
- return `<div class="comparison-strip"><span>Diferença para <b>${esc(state.comparar)}</b>${marca(cmp.ressalva,cmp.motivo)}</span><span>Entradas ${seta(F.compararConta(reg,other,'1').delta,dirConta('1'))}</span><span>Saídas ${seta(F.compararConta(reg,other,'2').delta,dirConta('2'))}</span><span>Variação ${seta(cmp.delta,dirVariacao)}</span></div>`;
+ return `<div class="comparison-strip"><span>Diferença para <b>${esc(state.comparar)}</b>${marca(cmp.ressalva,cmp.motivo)}</span><span>Entradas ${setaDelta(F.compararConta(reg,other,'1').delta,dirConta('1'))}</span><span>Saídas ${setaDelta(F.compararConta(reg,other,'2').delta,dirConta('2'))}</span><span>Variação ${setaDelta(cmp.delta,dirVariacao)}</span></div>`;
 }
 function graficoPonte(reg){
  const e=F.valorConta(reg,'1'),s=F.valorConta(reg,'2');
@@ -116,7 +142,7 @@ function graficoPonte(reg){
  steps.push({name:'Variação',value:cursor/100,from:0,to:cursor/100,kind:'net',code:'variacao'});
  const hi=Math.max(0,...steps.flatMap(x=>[x.from,x.to])),lo=Math.min(0,...steps.flatMap(x=>[x.from,x.to])),span=hi-lo||1;
  const y=v=>30+(hi-v)/span*205,w=steps.length*120;
- return painelGrafico('Do recebimento à variação do caixa',reg.label+' · cada saída reduz o movimento líquido',`<div class="waterfall-scroll" tabindex="0" role="region" aria-label="Gráfico em cascata. Valores disponíveis na tabela abaixo."><svg viewBox="0 0 ${w} 310" role="img" aria-label="Entradas, grupos de saídas e variação do período"><line x1="0" x2="${w}" y1="${y(0)}" y2="${y(0)}" class="svg-zero"/>${steps.map((x,i)=>{const xx=i*120+12;return `<g><title>${esc(x.name)}: ${money(x.value)}</title><rect x="${xx}" y="${Math.min(y(x.from),y(x.to))}" width="88" height="${Math.max(2,Math.abs(y(x.from)-y(x.to)))}" rx="5" class="water-${x.kind}"/>${i<steps.length-1?`<line x1="${xx+88}" x2="${xx+120}" y1="${y(x.to)}" y2="${y(x.to)}" class="svg-connector"/>`:''}<text x="${xx+44}" y="${Math.min(y(x.from),y(x.to))-8}" text-anchor="middle" class="svg-value">${esc(compacto(x.value))}</text><foreignObject x="${xx-5}" y="251" width="99" height="58"><div xmlns="http://www.w3.org/1999/xhtml" class="water-label">${esc(x.name)}</div></foreignObject></g>`;}).join('')}</svg></div><details class="chart-data"><summary>Ver os valores do gráfico</summary>${steps.map(x=>linha(x.name,x.value,x.kind==='net',x.code?.includes('~')?'':x.code,tomDoValor('variacao',x.value))).join('')}</details><p class="hint">Valores em R$. A cascata reconcilia os totais desta base. Não representa lucro por competência.</p>`);
+ return painelGrafico('Do recebimento à variação do caixa',(reg.rotulo||reg.label)+' · cada saída reduz o movimento líquido',`<div class="waterfall-scroll" tabindex="0" role="region" aria-label="Gráfico em cascata. Valores disponíveis na tabela abaixo."><svg viewBox="0 0 ${w} 310" role="img" aria-label="Entradas, grupos de saídas e variação do período"><line x1="0" x2="${w}" y1="${y(0)}" y2="${y(0)}" class="svg-zero"/>${steps.map((x,i)=>{const xx=i*120+12;return `<g><title>${esc(x.name)}: ${money(x.value)}</title><rect x="${xx}" y="${Math.min(y(x.from),y(x.to))}" width="88" height="${Math.max(2,Math.abs(y(x.from)-y(x.to)))}" rx="5" class="water-${x.kind}"/>${i<steps.length-1?`<line x1="${xx+88}" x2="${xx+120}" y1="${y(x.to)}" y2="${y(x.to)}" class="svg-connector"/>`:''}<text x="${xx+44}" y="${Math.min(y(x.from),y(x.to))-8}" text-anchor="middle" class="svg-value">${esc(compacto(x.value))}</text><foreignObject x="${xx-5}" y="251" width="99" height="58"><div xmlns="http://www.w3.org/1999/xhtml" class="water-label">${esc(x.name)}</div></foreignObject></g>`;}).join('')}</svg></div><details class="chart-data"><summary>Ver os valores do gráfico</summary>${steps.map(x=>linha(x.name,x.value,x.kind==='net',x.code?.includes('~')?'':x.code,tomDoValor('variacao',x.value))).join('')}</details><p class="hint">Valores em R$. A cascata reconcilia os totais desta base. Não representa lucro por competência.</p>`);
 }
 function catalogoCustos(){
  const cat=new Map();
@@ -129,19 +155,60 @@ function linhasCustos(){
  const descendants=cat.filter(c=>c.code.startsWith(custoUI.grupo+'.'));
  return descendants.filter(c=>!descendants.some(p=>c.code.startsWith(p.code+'.')));
 }
+/* Despesas e categorias no Ano: o total do ano (registroDoAno) no lugar da coluna
+   Variação e, com um ano em "Comparar com", o ano comparado e o Δ nos mesmos meses. */
+function custosAno(){
+ if(!grafNoAno())return null;
+ const ano=anoDaTela(),total=registroDoAno(ano),anoComp=anoComparado(),c=anoComp==null?null:comparacaoDoAno(ano,anoComp);
+ const comparaveis=!!(c&&!c.motivo&&c.atual&&c.anterior);
+ return {ano,total,anoComp,c,comparaveis,rotTotal:`Total ${ano}`,rotComp:anoComp==null?'':`${anoComp}${c?.meses?' · '+c.meses:''}`,rotDelta:anoComp==null?'':`Δ ${ano} × ${anoComp}`,
+  valorTotal:code=>total.disponivel?F.valorConta(total.reg,code):null,
+  valorComp:code=>comparaveis?F.valorConta(c.anterior,code):null,
+  cmp:code=>comparaveis?F.compararConta(c.atual,c.anterior,code):{permitida:false,motivo:c?.motivo||''}};
+}
+const pctCusto=p=>p==null?'Sem base percentual':(p>0?'+':'')+(Math.round(p*10)/10+0).toFixed(1).replace('.',',').replace('-','−')+'%';
+function celulasCustosAno(a,code){
+ const v=a.valorTotal(code),tt=a.total.disponivel?'Esta conta não tem movimento registrado no ano':a.total.motivo;
+ let h=`<td class="num ${tomDoValor('saidas',v)}">${v==null?`<span class="muted" title="${esc(tt||'')}">—</span>`:esc(money(v))}</td>`;
+ if(a.anoComp==null)return h;
+ const vc=a.valorComp(code),cmp=a.cmp(code);
+ h+=`<td class="num ${tomDoValor('saidas',vc)}">${vc==null?`<span class="muted" title="${esc(a.comparaveis?'Esta conta não tem movimento registrado nesses meses':a.c?.motivo||'')}">—</span>`:esc(money(vc))}</td>`;
+ h+=`<td class="num">${cmp.permitida?`<span class="${tomDelta(dirConta(code),cmp.delta)||'delta-neutro'}">${cmp.delta>0?'▲':cmp.delta<0?'▼':'■'} ${esc(money(Math.abs(cmp.delta)))}</span>${marca(cmp.ressalva||a.c.ressalva)}<small>${pctCusto(cmp.percentual)}</small>`:`<span class="muted" title="${esc(cmp.motivo||'')}">—</span>`}</td>`;
+ return h;
+}
 function tabelaCustos(){
+ const a=custosAno();if(a)return tabelaCustosAno(a);
  const cols=F.serieAnual(state.records,state.periodo,'2').filter(r=>r.reg||r.label===state.periodo).sort((a,b)=>monthSortKey(a.label)-monthSortKey(b.label)),rows=linhasCustos(),reg=regAtual(),other=state.records.find(r=>r.label===state.comparar);
  return `<div class="cost-table-wrap"><table class="cost-table"><caption>Despesas por mês · ${esc(state.periodo.split('/')[1])} · de janeiro a dezembro, como nos gráficos · — = conta ausente · * = mês em andamento ou incompleto · <b class="marca-conferir">°</b> = cobertura da coleta ainda não validada</caption><thead><tr><th scope="col">Despesa</th>${cols.map(c=>`<th scope="col" class="num ${c.label===state.periodo?'selected-month':''}">${esc(c.label)}${c.qualidade.parcial?'*':marca(!c.qualidade.comparavel,c.qualidade.rotulo)}</th>`).join('')}${other?`<th scope="col" class="num">Variação<br><small>${esc(state.periodo)} / ${esc(other.label)}</small></th>`:''}</tr></thead><tbody>${rows.map(c=>`<tr class="${custoUI.conta===c.code?'selected-cost':''}"><th scope="row"><button data-cost="${esc(c.code)}">${esc(c.name)}</button><small>${esc(c.code)}</small></th>${cols.map(x=>{const name=nomeConta(x.reg,c.code),changed=name&&name!==c.name,v=F.valorConta(x.reg,c.code);return `<td class="num ${x.label===state.periodo?'selected-month':''} ${tomDoValor('saidas',v)}">${v==null?'<span class="muted" title="Esta conta não consta na base deste mês">—</span>':botaoConta(c.code,money(v),x.label)}${changed?`<small class="old-account-name">Nome neste mês: ${esc(name)}</small>`:''}</td>`;}).join('')}${other?`<td class="num">${(()=>{const cmp=F.compararConta(reg,other,c.code);return cmp.permitida?`<span class="${tomDelta(dirConta(c.code),cmp.delta)}">${cmp.delta>0?'▲ ':cmp.delta<0?'▼ ':''}${money(Math.abs(cmp.delta))}</span>${marca(cmp.ressalva)}<small>${cmp.percentual==null?'Sem base percentual':(cmp.percentual>0?'+':'')+(Math.round(cmp.percentual*10)/10+0).toFixed(1).replace('.',',').replace('-','−')+'%'}</small>`:`<small title="${esc(cmp.motivo||'')}">sem comparação</small>`;})()}</td>`:''}</tr>`).join('')||`<tr><td colspan="${cols.length+2}">Nenhuma despesa encontrada. Tente outro nome ou categoria.</td></tr>`}</tbody></table></div>`;
 }
+function tabelaCustosAno(a){
+ const cols=F.serieAnual(state.records,state.periodo,'2').filter(r=>r.reg||r.label===state.periodo).sort((x,y)=>monthSortKey(x.label)-monthSortKey(y.label)),rows=linhasCustos();
+ const extra=a.anoComp==null?1:3,nota=a.anoComp==null?` · ${textoSemAnoComparado()}`:a.comparaveis?` · ${a.anoComp} e Δ: só os meses completos nos dois anos (${a.c.meses})`:` · ${a.c?.motivo||''}`;
+ return `<div class="cost-table-wrap"><table class="cost-table"><caption>Despesas por mês · ${esc(a.ano)} · de janeiro a dezembro, como nos gráficos · ${esc(a.rotTotal)}: soma de janeiro ao último mês com dados${esc(nota)} · — = conta ausente · * = mês em andamento ou incompleto · <b class="marca-conferir">°</b> = cobertura da coleta ainda não validada</caption><thead><tr><th scope="col">Despesa</th>${cols.map(c=>`<th scope="col" class="num">${esc(c.label)}${c.qualidade.parcial?'*':marca(!c.qualidade.comparavel,c.qualidade.rotulo)}</th>`).join('')}<th scope="col" class="num">${esc(a.rotTotal)}${a.total.parcial||a.total.reg&&F.qualidade(a.total.reg).parcial?'*':''}</th>${a.anoComp==null?'':`<th scope="col" class="num">${esc(a.rotComp)}</th><th scope="col" class="num">${esc(a.rotDelta)}</th>`}</tr></thead><tbody>${rows.map(c=>`<tr class="${custoUI.conta===c.code?'selected-cost':''}"><th scope="row"><button data-cost="${esc(c.code)}">${esc(c.name)}</button><small>${esc(c.code)}</small></th>${cols.map(x=>{const name=nomeConta(x.reg,c.code),changed=name&&name!==c.name,v=F.valorConta(x.reg,c.code);return `<td class="num ${tomDoValor('saidas',v)}">${v==null?'<span class="muted" title="Esta conta não consta na base deste mês">—</span>':botaoConta(c.code,money(v),x.label)}${changed?`<small class="old-account-name">Nome neste mês: ${esc(name)}</small>`:''}</td>`;}).join('')}${celulasCustosAno(a,c.code)}</tr>`).join('')||`<tr><td colspan="${cols.length+1+extra}">Nenhuma despesa encontrada. Tente outro nome ou categoria.</td></tr>`}</tbody></table></div>`;
+}
 function renderCustos(reg){
  const grupos=catalogoCustos().filter(c=>c.code.split('.').length===2);
- return atalhosCustos()+painelGrafico('Todas as despesas, mês a mês','Compare os valores registrados e abra qualquer conta para aprofundar.',`<div class="cost-controls"><label>Categoria<select id="costGroup"><option value="2">Todas as categorias</option>${grupos.map(c=>`<option value="${esc(c.code)}" ${custoUI.grupo===c.code?'selected':''}>${esc(F.nomeDoGrupo(c.code,c.name))}</option>`).join('')}</select></label><label>Buscar despesa<input id="costSearch" type="search" value="${esc(custoUI.busca)}" placeholder="Copasa, Cemig, materiais, pessoal…"></label><button id="exportCosts">↓ Baixar comparação</button></div>${tabelaCustos()}<p class="hint">As linhas mostram um nível por vez para evitar duplicidade. Nomes antigos são exibidos quando mudam. Variações automáticas exigem meses e classificações compatíveis.</p>`)+renderCustoSelecionado(reg)+painelGrafico('Onde estão concentradas as saídas',state.periodo+' · categorias da base',rankingCustos(reg,'2',12));
+ return atalhosCustos()+painelGrafico('Todas as despesas, mês a mês','Compare os valores registrados e abra qualquer conta para aprofundar.',`<div class="cost-controls"><label>Categoria<select id="costGroup"><option value="2">Todas as categorias</option>${grupos.map(c=>`<option value="${esc(c.code)}" ${custoUI.grupo===c.code?'selected':''}>${esc(F.nomeDoGrupo(c.code,c.name))}</option>`).join('')}</select></label><label>Buscar despesa<input id="costSearch" type="search" value="${esc(custoUI.busca)}" placeholder="Copasa, Cemig, materiais, pessoal…"></label><button id="exportCosts">↓ Baixar comparação</button></div>${tabelaCustos()}<p class="hint">As linhas mostram um nível por vez para evitar duplicidade. Nomes antigos são exibidos quando mudam. Variações automáticas exigem meses e classificações compatíveis.</p>`)+renderCustoSelecionado(reg)+rankingCustosTela(reg);
+}
+function rankingCustosTela(reg){
+ if(!grafNoAno())return painelGrafico('Onde estão concentradas as saídas',state.periodo+' · categorias da base',rankingCustos(reg,'2',12));
+ const ano=anoDaTela(),r=registroDoAno(ano);
+ return painelGrafico('Onde estão concentradas as saídas',rotuloAno(ano)+' · categorias da base',r.disponivel?rankingCustos(r.reg,'2',12):`<p class="empty">${esc(r.motivo||'Não apurado')}</p>`);
 }
 function renderCustoSelecionado(reg){
+ const a=custosAno();if(a)return custoSelecionadoAno(a);
  const code=custoUI.conta,name=F.nomeDoGrupo(code,contaConhecida(code)),rows=F.serieAnual(state.records,state.periodo,code);
  const other=state.records.find(r=>r.label===state.comparar),cmp=F.compararConta(reg,other,code);
  const comp=F.composicao(reg,code);
  return painelGrafico(name+' · histórico',code+' · valores de cada período, com a nomenclatura original',`<div class="cost-selected-header"><div><span class="label">${esc(state.periodo)}</span><strong class="${tomDoValor('saidas',F.valorConta(reg,code))}">${valorTexto(F.valorConta(reg,code))}</strong></div><div class="cost-comparison">${cmp.permitida?`<span>Diferença para ${esc(other.label)}${marca(cmp.ressalva)}</span><b class="${tomDelta(dirConta(code),cmp.delta)}">${cmp.delta>0?'▲ ':cmp.delta<0?'▼ ':''}${money(Math.abs(cmp.delta))}</b><small>${cmp.percentual==null?'Sem base percentual':(Math.round(cmp.percentual*10)/10+0).toFixed(1).replace('.',',').replace('-','−')+'%'}</small>`:`<span>${other?'Sem comparação com '+esc(other.label):'Selecione “Comparar com” para analisar a diferença'}</span>`}</div></div>${graficoBarras(rows,[{chave:'value',nome:name,cor:'var(--chart-cost)',sentido:-1}],'Histórico da despesa '+name)}<p class="hint">${other&&!cmp.permitida?esc(cmp.motivo||'')+' ':''}Valores históricos são mostrados como foram registrados.</p>${comp.itens.filter(x=>!x.residuo).length?`<details class="chart-data"><summary>Composição de ${esc(name)} no mês</summary>${comp.itens.map(c=>`<div class="line"><span>${esc(c.name)}</span><b class="${tomDoValor('saidas',c.value)}">${valorTexto(c.value)}</b></div>`).join('')}</details>`:''}`,`<button data-account="${esc(code)}">Ver detalhes ↗</button>`).replace('<section class="chart-card">','<section id="costHistory" class="chart-card" tabindex="-1">');
+}
+function custoSelecionadoAno(a){
+ const code=custoUI.conta,name=F.nomeDoGrupo(code,contaConhecida(code)),rows=F.serieAnual(state.records,state.periodo,code),rot=rotuloAno(a.ano);
+ const v=a.valorTotal(code),cmp=a.cmp(code),comp=a.total.disponivel?F.composicao(a.total.reg,code):{itens:[]};
+ const valor=a.total.disponivel?valorTexto(v):'Não apurado';
+ const lado=a.anoComp==null?`<span>${esc(textoSemAnoComparado())}</span>`:cmp.permitida?`<span>Diferença para ${esc(a.anoComp)} nos mesmos meses (${esc(a.c.meses)})${marca(cmp.ressalva||a.c.ressalva)}</span><b class="${tomDelta(dirConta(code),cmp.delta)||'delta-neutro'}">${cmp.delta>0?'▲ ':cmp.delta<0?'▼ ':'■ '}${money(Math.abs(cmp.delta))}</b><small>${cmp.percentual==null?'Sem base percentual':(Math.round(cmp.percentual*10)/10+0).toFixed(1).replace('.',',').replace('-','−')+'%'}</small>`:`<span>Sem comparação com ${esc(a.anoComp)}</span>`;
+ const motivo=a.anoComp!=null&&!cmp.permitida?esc(cmp.motivo||'')+' ':!a.total.disponivel?esc(a.total.motivo||'')+' ':'';
+ return painelGrafico(name+' · histórico',code+' · valores de cada período, com a nomenclatura original',`<div class="cost-selected-header"><div><span class="label">${esc(rot)}</span><strong class="${tomDoValor('saidas',v)}">${valor}</strong></div><div class="cost-comparison">${lado}</div></div>${graficoBarras(rows,[{chave:'value',nome:name,cor:'var(--chart-cost)',sentido:-1}],'Histórico da despesa '+name)}<p class="hint">${motivo}Valores históricos são mostrados como foram registrados.</p>${comp.itens.filter(x=>!x.residuo).length?`<details class="chart-data"><summary>Composição de ${esc(name)} em ${esc(rot)}</summary>${comp.itens.map(c=>`<div class="line"><span>${esc(c.name)}</span><b class="${tomDoValor('saidas',c.value)}">${valorTexto(c.value)}</b></div>`).join('')}</details>`:''}`,`<button data-account="${esc(code)}">Ver detalhes ↗</button>`).replace('<section class="chart-card">','<section id="costHistory" class="chart-card" tabindex="-1">');
 }
 function wireGraficos(){
  ligarDicasGraficos();
@@ -152,7 +219,13 @@ function wireGraficos(){
  if($$('exportCosts'))$$('exportCosts').onclick=()=>{
   const cols=F.serieAnual(state.records,state.periodo,'2').filter(x=>x.reg||x.label===state.periodo);
   const csvCell=celulaCSV;
-  const out=[['Conta','Despesa',...cols.map(c=>c.label)],['','Cobertura',...cols.map(c=>c.qualidade.rotulo)],...linhasCustos().flatMap(c=>[[c.code,c.name,...cols.map(x=>{const v=F.valorConta(x.reg,c.code);return v==null?'Não informado':v.toFixed(2).replace('.',',');})],[c.code,'Nome original',...cols.map(x=>nomeConta(x.reg,c.code)||'Não informado')]])];
+  // No Ano, vão junto o total do ano, o ano comparado e o Δ (nos mesmos meses).
+  const a=custosAno(),num=v=>v==null?'Não informado':v.toFixed(2).replace('.',',');
+  const cab=a?[a.rotTotal+(a.total.parcial?'*':''),...(a.anoComp==null?[]:[a.rotComp,a.rotDelta])]:[];
+  const cob=a?[a.total.disponivel?F.qualidade(a.total.reg).rotulo:'Não apurado',...(a.anoComp==null?[]:[a.comparaveis?'Meses completos nos dois anos':'Sem comparação',''])]:[];
+  const doAno=code=>{if(!a)return [];const t=a.total.disponivel?num(a.valorTotal(code)):'Não apurado';if(a.anoComp==null)return [t];const cmp=a.cmp(code);return [t,a.comparaveis?num(a.valorComp(code)):'Sem comparação',cmp.permitida?num(cmp.delta):'Sem comparação'];};
+  const vazio=a?cab.map(()=>''):[];
+  const out=[['Conta','Despesa',...cols.map(c=>c.label),...cab],['','Cobertura',...cols.map(c=>c.qualidade.rotulo),...cob],...linhasCustos().flatMap(c=>[[c.code,c.name,...cols.map(x=>{const v=F.valorConta(x.reg,c.code);return v==null?'Não informado':v.toFixed(2).replace('.',',');}),...doAno(c.code)],[c.code,'Nome original',...cols.map(x=>nomeConta(x.reg,c.code)||'Não informado'),...vazio]])];
   download('despesas-'+state.periodo.split('/')[1]+'.csv','\ufeff'+out.map(row=>row.map(csvCell).join(';')).join('\n'),'text/csv');
  };
 }

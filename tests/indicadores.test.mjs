@@ -189,3 +189,72 @@ test('v135 (N7, N27, M10): foco volta ao controle depois de repintar; ROE e ROA 
  assert.match(src,/<b>ROA<\/b><span>\$\{esc\(base\)\} ÷ ativo médio <button type="button" class="term-help" data-term="ROA \(retorno sobre o ativo\)" aria-label="Entender ROA">\?<\/button><\/span>/);
  assert.match(src,/<img src="logo\.webp" alt="Impresilk">/);assert.doesNotMatch(src,/logo\.png/);
 });
+
+// Ano com seleção do ano comparado (PLANO-ANO, IND-1 e IND-2).
+const MESES_T=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const anoFix=(ano,valor,ate=9,parcial=null)=>Array.from({length:ate},(_,i)=>{const fim=new Date(Date.UTC(ano,i+1,0)).toISOString().slice(0,10);return mesConta(`${MESES_T[i]}/${ano}`,parcial&&i===ate-1?parcial:fim,[C('1','Receitas',valor),C('1.1','CV',valor),C('2','Despesas',valor/2),C('2.1','Pessoal',valor/2)]);});
+test('IND-1: periodoNoAno leva o intervalo ao ano dado; compararAno com {ano} usa esse ano; sem ele, um ano antes',()=>{
+ assert.deepEqual(M.periodoNoAno({de:'2024-02-01',ate:'2024-02-29'},2023),{de:'2023-02-01',ate:'2023-02-28'});
+ assert.deepEqual(M.periodoNoAno({de:'2023-02-01',ate:'2023-02-28'},2024),{de:'2024-02-01',ate:'2024-02-29'},'fim de fevereiro continua fim');
+ assert.deepEqual(M.periodoNoAno({de:'2026-01-01',ate:'2026-08-31'},2024),{de:'2024-01-01',ate:'2024-08-31'});
+ assert.deepEqual(M.periodoNoAno({de:'2026-03-10',ate:'2026-03-20'},'2025'),{de:'2025-03-10',ate:'2025-03-20'});
+ assert.deepEqual(M.periodoNoAno({de:'2025-10-01',ate:'2026-09-30'},2023),{de:'2023-10-01',ate:'2024-09-30'},'intervalo que cruza o ano anda inteiro');
+ assert.deepEqual(M.periodoNoAno({de:'2027-01-01',ate:'2027-01-31'},2026),{de:'2026-01-01',ate:'2026-01-31'},'ano novo, sem ano escrito no código');
+ assert.deepEqual(M.periodoAnterior({de:'2024-02-01',ate:'2024-02-29'}),M.periodoNoAno({de:'2024-02-01',ate:'2024-02-29'},2023));
+ const recs=[...anoFix(2024,100),...anoFix(2025,200),...anoFix(2026,300)],p={de:'2026-01-01',ate:'2026-08-31'};
+ const c=M.compararAno(recs,p,'recebimentos',{},{ano:2024});assert.deepEqual([c.disponivel,c.atual,c.anterior,c.delta,c.percentual,c.periodo.de,c.periodo.ate],[true,2400,800,1600,200,'2024-01-01','2024-08-31']);
+ const d=M.compararAno(recs,p,'recebimentos');assert.deepEqual([d.anterior,d.periodo.de],[1600,'2025-01-01'],'sem {ano}: um ano antes, como na v135');
+ assert.deepEqual(M.compararAno(recs,p,'recebimentos',{},{}),d);assert.deepEqual(M.compararAno(recs,p,'recebimentos',{},{ano:null}),d);
+ const sem=M.compararAno(anoFix(2026,300),p,'recebimentos',{},{ano:2024});assert.equal(sem.disponivel,false);assert.match(sem.motivo,/^O mesmo período de 2024 não compara \(/);
+});
+const ctxAno=(c,extra)=>{c.ctx={records:[...anoFix(2024,100),...anoFix(2025,200),...anoFix(2026,300,9,'2026-09-20')],...extra};vm.runInContext('ui.ctx=ctx;ui.area="Receita";ui.fonte="recebimentos";ui.anoApp=true;ui.periodo={de:"2026-01-01",ate:"2026-09-30"};ui.query="";ui.grupo="";ui.dimensao="grupo";ui.pagina=0',c);return vm.runInContext('resultado(montarLocal())',c);};
+const cartao=(html,i)=>[...html.matchAll(/<button type="button" class="ind-metric[^"]*"[^>]*><span>([^<]*)<\/span><strong[^>]*>([^<]*)<\/strong><small>([\s\S]*?)<\/small><\/button>/g)][i];
+test('IND-2: no Ano, o cartão e o gráfico usam o ano escolhido, só nos meses comparáveis desde janeiro',()=>{
+ const c=telaInd();
+ // Set/2026 em andamento: compara Jan a Ago com 2024.
+ let html=ctxAno(c,{anoComparado:2024,mesesComparaveis:[0,1,2,3,4,5,6,7]}),k=cartao(html,1);
+ assert.equal(k[1],'Jan a Ago de 2024');assert.match(k[2],/800,00/);assert.match(k[3],/nos mesmos meses \(Jan a Ago\)/);assert.match(k[3],/01\/01\/2024 a 31\/08\/2024/);assert.match(k[3],/\+200,0%/);
+ assert.match(html,/Janeiro a dezembro de 2026, com 2024 ao lado \(barra cinza\)/);assert.match(html,/ind-chave-anterior"><\/i>2024</);assert.doesNotMatch(html,/2025 ao lado|Mesmo período de 2025|de 2025</);
+ assert.match(html,/<th>2024<\/th>/);assert.match(html,/mês pela metade/,'Set/2026 fica sem variação mês a mês');assert.doesNotMatch(html,/fora dos meses comparáveis/);
+ // Julho fora da base comparável: o cartão para em junho e o gráfico tira a variação de julho.
+ html=ctxAno(c,{anoComparado:2024,mesesComparaveis:[0,1,2,3,4,5,7]});k=cartao(html,1);
+ assert.equal(k[1],'Jan a Jun de 2024');assert.match(k[2],/600,00/);assert.match(k[3],/nos mesmos meses \(Jan a Jun\)/);assert.match(html,/<td>Jul\/2026<\/td>[\s\S]*?fora dos meses comparáveis/);
+ // Ano até agosto, todos os meses comparáveis: "Mesmo período de 2024", sem a nota dos mesmos meses.
+ vm.runInContext('ctx.mesesComparaveis=[0,1,2,3,4,5,6,7];ui.periodo={de:"2026-01-01",ate:"2026-08-31"}',c);html=vm.runInContext('resultado(montarLocal())',c);k=cartao(html,1);
+ assert.equal(k[1],'Mesmo período de 2024');assert.doesNotMatch(k[3],/nos mesmos meses/);
+ // Sem janeiro comparável: sem comparação, com o motivo.
+ html=ctxAno(c,{anoComparado:2025,mesesComparaveis:[1,2,3]});k=cartao(html,1);
+ assert.equal(k[1],'Mesmo período de 2025');assert.equal(k[2],'Sem comparação');assert.equal(k[3],'Sem meses completos, da mesma base, desde janeiro em 2026 e 2025.');
+ // "Sem comparação" no topo: cartão Comparação e gráfico sem a série cinza.
+ html=ctxAno(c,{anoComparado:null,mesesComparaveis:[]});k=cartao(html,1);
+ assert.deepEqual([k[1],k[2],k[3]],['Comparação','Sem comparação','Escolha um ano em “Comparar com”, no topo.']);
+ assert.doesNotMatch(html,/ao lado|ind-chave-anterior|ind-fill-anterior|<th>Variação<\/th>/);assert.match(html,/Janeiro a dezembro de 2026 · mesmos filtros/);
+ // App sem o contrato (campo ausente) ou fora do Ano: como na v135, o ano anterior.
+ html=ctxAno(c,{});assert.equal(cartao(html,1)[1],'Mesmo período de 2025');assert.match(html,/com 2025 ao lado/);
+ vm.runInContext('ui.anoApp=false;ui.periodo={de:"2026-08-01",ate:"2026-08-31"};ctx.anoComparado=2024;ctx.mesesComparaveis=[0,1,2,3,4,5,6,7]',c);html=vm.runInContext('resultado(montarLocal())',c);
+ assert.equal(cartao(html,1)[1],'Mesmo período de 2025');assert.match(cartao(html,1)[2],/200,00/);assert.match(html,/com 2025 ao lado/);
+});
+test('IND-2: "Aplicar" do filtro no Ano mantém o ano de "Comparar com"; outro intervalo sai do Ano e voltar ao ano religa (v136, RC-1)',()=>{
+ const c=telaInd(),run=x=>vm.runInContext(x,c);
+ const form={elements:{preset:{},de:{},ate:{}}};c.form=form;c.intervalos=[];
+ // onIntervalo faz o papel do app (atualizarChipsPeriodo): diz se o intervalo é o ano do app.
+ c.ctx={records:[...anoFix(2024,100),...anoFix(2025,200),...anoFix(2026,300,9,'2026-09-20')],anoComparado:2024,mesesComparaveis:[0,1,2,3,4,5,6,7],onIntervalo:p=>{c.intervalos.push(p.de+'|'+p.ate);return p.de==='2026-01-01'&&p.ate==='2026-09-30';}};
+ run('ui.container={isConnected:false,querySelectorAll:()=>[],querySelector:s=>s==="#indFilters"?form:{}};ui.ctx=ctx;ui.area="Receita";ui.fonte="recebimentos";ui.anoApp=true;ui.periodo={de:"2026-01-01",ate:"2026-09-30"};ui.query="";ui.grupo="";ui.dimensao="grupo";ui.pagina=0;ligar()');
+ const aplicar=(de,ate,preset,query='')=>{Object.assign(form.elements,{de:{value:de},ate:{value:ate},preset:{value:preset},query:{value:query},dimensao:{value:'grupo'}});form.onsubmit({preventDefault(){}});return run('resultado(ui.modelo)');};
+ let html=aplicar('2026-01-01','2026-09-30','ano');
+ assert.equal(run('ui.anoApp'),true,'Aplicar sem mudar o intervalo continua no Ano');assert.equal(cartao(html,1)[1],'Jan a Ago de 2024');assert.match(html,/com 2024 ao lado/);assert.doesNotMatch(html,/2025 ao lado|de 2025</);
+ html=aplicar('2026-01-01','2026-09-30','ano','CV');assert.equal(run('ui.anoApp'),true,'a busca também');assert.match(html,/com 2024 ao lado/);
+ html=aplicar('2026-07-01','2026-09-30','trimestre');assert.equal(run('ui.anoApp'),false,'trimestre sai do Ano');assert.match(html,/com 2025 ao lado/,'fora do Ano, o ano anterior, como na v135');
+ html=aplicar('2026-01-01','2026-09-30','ano');assert.equal(run('ui.anoApp'),true,'voltar ao ano pelo filtro religa');assert.equal(cartao(html,1)[1],'Jan a Ago de 2024');assert.match(html,/com 2024 ao lado/);
+ assert.deepEqual(c.intervalos,['2026-01-01|2026-09-30','2026-01-01|2026-09-30','2026-07-01|2026-09-30','2026-01-01|2026-09-30'],'o app decide o Ano antes da conta');
+ // Sem o app (onIntervalo ausente): só o mesmo intervalo mantém o vínculo.
+ run('ctx.onIntervalo=undefined');aplicar('2026-01-01','2026-09-30','ano');assert.equal(run('ui.anoApp'),true);aplicar('2026-01-01','2026-06-30','personalizado');assert.equal(run('ui.anoApp'),false);
+});
+test('IND-2: virada para 2027 (Jan/2027 em andamento) compara com o ano escolhido, sem ano escrito no código',()=>{
+ const c=telaInd();c.ctx={records:[...anoFix(2025,200,12),...anoFix(2026,300,12),...anoFix(2027,400,1,'2027-01-15')],anoComparado:2026,mesesComparaveis:[]};
+ vm.runInContext('ui.ctx=ctx;ui.area="Receita";ui.fonte="recebimentos";ui.anoApp=true;ui.periodo={de:"2027-01-01",ate:"2027-01-31"}',c);let html=vm.runInContext('resultado(montarLocal())',c);
+ assert.equal(cartao(html,1)[3],'Sem meses completos, da mesma base, desde janeiro em 2027 e 2026.');assert.match(html,/Janeiro a dezembro de 2027, com 2026 ao lado/);assert.match(html,/class="ind-value">400\*</,'Jan/2027 marcado *');
+ c.ctx.anoComparado=2025;html=vm.runInContext('resultado(montarLocal())',c);assert.match(html,/com 2025 ao lado/);assert.doesNotMatch(html,/2026 ao lado/);
+ const src=fs.readFileSync(new URL('../indicadores.js',import.meta.url),'utf8'),corpo=src.slice(src.indexOf('const anoComparadoTela'),src.indexOf('async function consultarIndicadores'));
+ assert.doesNotMatch(corpo,/\b(19|20)\d\d\b/);const mod=fs.readFileSync(new URL('../indicadores-modelo.mjs',import.meta.url),'utf8');assert.doesNotMatch(mod.slice(mod.indexOf('export function periodoNoAno'),mod.indexOf('export function caixa(')),/\b(19|20)\d\d\b/);
+});

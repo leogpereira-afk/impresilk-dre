@@ -255,3 +255,97 @@ test('rolagem até o mês: vale para qualquer details.card com o mês no cabeça
  c.__a=card(11);c.__b=card(0);obs.fn();assert.equal(c.__a.wrap.scrollLeft,960,'cartão que nasce aberto rola depois do render');assert.equal(c.__b.wrap.scrollLeft,0);
  assert.equal(c.run('typeof rolarAteMesSelecionado'),'function');
 });
+
+// Contrato do Ano (PLANO-ANO §2), só quando o app ou graficos.js ainda não o trazem.
+const STUB_ANO=`(()=>{const g=globalThis,T=['inicio','cfo','dre','caixa','resultado','custos','detalhe','conferencia','dfc','balanco','precos','parametros','indicadores'];
+if(typeof telaNoAno!=='function')g.telaNoAno=()=>!!state.anoTodo&&T.includes(state.view);
+if(typeof anoDaTela!=='function')g.anoDaTela=()=>Number(String(state.periodo).split('/')[1])||null;
+if(typeof TEXTO_SEM_ANO_COMPARADO==='undefined')g.TEXTO_SEM_ANO_COMPARADO='Sem comparação: escolha um ano em “Comparar com”, no topo.';
+if(typeof textoSemMesesComparaveis!=='function')g.textoSemMesesComparaveis=(a,b)=>'Sem meses completos, da mesma base e com plano de contas em '+a+' e '+b+' para comparar.';
+if(typeof rotuloMesesAno!=='function')g.rotuloMesesAno=ix=>{if(ix.length===12)return 'ano inteiro';const f=[];for(const i of ix){const u=f[f.length-1];if(u&&i===u[1]+1)u[1]=i;else f.push([i,i]);}const t=f.map(([a,b])=>a===b?PT_MON[a]:PT_MON[a]+' a '+PT_MON[b]);return t.length>1?t.slice(0,-1).join(', ')+' e '+t[t.length-1]:t[0]||'';};
+const regDe=l=>state.records.find(r=>monthSortKey(r.label)===monthSortKey(l))||null;
+if(typeof rotuloAno!=='function')g.rotuloAno=(ano=anoDaTela())=>{const f=fimDoAno(ano),m=String(f).split('/')[0],r=regDe(f);return ano+' · '+(m==='Jan'?'Jan':'Jan a '+m)+(r&&F.qualidade(r).parcial?'*':'');};
+if(typeof anosComparaveis!=='function')g.anosComparaveis=(ano=anoDaTela())=>[...new Set(state.records.map(r=>Number(String(r.label).split('/')[1])).filter(Boolean))].filter(y=>y!==Number(ano)).sort((a,b)=>b-a);
+if(typeof anoPadraoComparado!=='function')g.anoPadraoComparado=(ano=anoDaTela())=>{const l=anosComparaveis(ano);return l.includes(ano-1)?ano-1:l.find(y=>y<ano)??null;};
+if(typeof anoComparado!=='function')g.anoComparado=()=>{const v=state.anoComparar||'';if(v==='nenhum')return null;if(/^\\d{4}$/.test(v)&&anosComparaveis().includes(Number(v)))return Number(v);return anoPadraoComparado();};
+if(typeof mesesComparaveisAno!=='function')g.mesesComparaveisAno=(a,b)=>PT_MON.map((m,i)=>i).filter(i=>{const x=regDe(PT_MON[i]+'/'+a),y=regDe(PT_MON[i]+'/'+b);if(!x||!y)return false;const ok=r=>F.periodo(r.label).ate<dfcHoje()&&!F.qualidade(r).parcial&&!((DRESimples.apurar(r)?.pctSemConta??0)>10);return ok(x)&&ok(y)&&F.comparavelComRessalva(x,y).pode;});
+if(typeof registroDoAno!=='function')g.registroDoAno=(ano,ix=null)=>{const f=fimDoAno(ano),ate=PT_MON.indexOf(String(f).split('/')[0]),idx=ix||PT_MON.slice(0,ate+1).map((m,i)=>i),ls=idx.map(i=>PT_MON[i]+'/'+ano),regs=ls.map(regDe),faltam=ls.filter((l,i)=>!regs[i]);
+ if(faltam.length)return {disponivel:false,faltam,motivo:faltam.join(', ')+' sem dados coletados: sem todos os meses, o acumulado de '+ano+' não é somado.',meses:ls,parcial:false};
+ const cod=new Map();for(const r of regs)for(const c of r.cells||[]){const k=cod.get(c.code)||{code:c.code,name:c.name,v:0};k.v+=Math.round(Number(c.value)*100);k.name=c.name;cod.set(c.code,k);}
+ const parcial=regs.some(r=>F.qualidade(r).parcial),r0=regs[regs.length-1];
+ const reg={id:'ano_'+ano,label:String(ano),rotulo:ix?ano+' · '+rotuloMesesAno(ix):rotuloAno(ano),ano:{meses:ls,parcial,ressalva:false},company:r0.company,basis:r0.basis,origem:r0.origem,qualidade:{...r0.qualidade,estado:'ano'},cells:[...cod.values()].sort((a,b)=>a.code.localeCompare(b.code,undefined,{numeric:true})).map(k=>({code:k.code,name:k.name,value:k.v/100})),pendencias:regs.flatMap(r=>(r.pendencias||[]).map(p=>({...p,mes:r.label}))),eventos:[]};
+ return {disponivel:true,reg,motivo:'',faltam:[],meses:ls,parcial};};
+if(typeof comparacaoDoAno!=='function')g.comparacaoDoAno=(ano=anoDaTela(),anoComp=anoComparado())=>{if(anoComp==null)return {ano,anoComp,indices:[],meses:'',atual:null,anterior:null,ressalva:false,motivo:TEXTO_SEM_ANO_COMPARADO};const indices=mesesComparaveisAno(ano,anoComp);if(!indices.length)return {ano,anoComp,indices,meses:'',atual:null,anterior:null,ressalva:false,motivo:textoSemMesesComparaveis(ano,anoComp)};return {ano,anoComp,indices,meses:rotuloMesesAno(indices),atual:registroDoAno(ano,indices).reg,anterior:registroDoAno(anoComp,indices).reg,ressalva:false,motivo:''};};
+if(typeof compLinhaAno!=='function')g.compLinhaAno=(rotulo,anterior,delta,dir,{tomAnterior='',motivo='',atual=null,rotuloAtual='',formato=money,unidade=''}={})=>anterior==null?'<span class="comp-ano">'+esc(rotulo)+': '+esc(motivo)+'</span>':'<span class="comp-ano">'+esc(rotulo)+': <span class="'+tomAnterior+'">'+formato(anterior)+'</span>'+(rotuloAtual?' · '+esc(rotuloAtual)+': '+formato(atual):'')+' · <b class="'+(tomDelta(dir,delta)||'delta-neutro')+'">'+(delta>0?'▲':delta<0?'▼':'■')+' '+formato(Math.abs(delta))+unidade+(delta>0?' a mais':delta<0?' a menos':'')+'</b></span>';
+})()`;
+// Ano contra ano (PLANO-ANO §2.6 e §4.4): 2024 e 2025 completos, 2026 de Jan a Ago fechados e Set em andamento, hoje 22/09/2026.
+function contextoAno({registros,saldos={},view='dfc',anoComparar=''}={}){
+ const regs=registros||[...seq(12,[2024,0],SET),...seq(12,[2025,0],TODAS),...seq(8,[2026,0]),reg('Set/2026','2026-09-15',OUT)];
+ const c=context({registros:regs,saldos,periodo:'Set/2026'});
+ c.run(`dfcHoje=()=>'2026-09-22';state.view=${JSON.stringify(view)};state.anoTodo=true;state.anoComparar=${JSON.stringify(anoComparar)};`);c.run(STUB_ANO);return c;
+}
+const centavos=v=>Math.round(v*100);
+test('Ano: dfcComparacaoAno soma em centavos os mesmos meses dos dois anos; mês sem dados deixa a linha sem valor',()=>{
+ const c=contextoAno({saldos:{'2025-01':1000,'2026-01':5000}}),ix=[0,1,2,3,4,5,6,7];
+ const r=c.json(`dfcComparacaoAno(2026,2025,${JSON.stringify(ix)})`);
+ assert.deepEqual(Object.keys(r.linhas),c.json(`DFC_LINHAS.filter(l=>!['saldoInicial','ajustes','saldoFinal'].includes(l.id)).map(l=>l.id)`),'todas as linhas menos os saldos');
+ for(const id of Object.keys(r.linhas)){
+  const soma=y=>c.json(`${JSON.stringify(ix)}.reduce((t,i)=>t+Math.round(dfcValorLinha(dfcMes(PT_MON[i]+'/${y}'),null,'${id}')*100),0)`);
+  assert.equal(centavos(r.linhas[id].atual),soma(2026),id+' 2026');assert.equal(centavos(r.linhas[id].anterior),soma(2025),id+' 2025');
+  assert.equal(centavos(r.linhas[id].delta),soma(2026)-soma(2025),id+' Δ');
+ }
+ assert.equal(r.linhas.vendas.atual,80000);assert.equal(r.linhas.das.atual,-6400,'saída com o sinal do caixa');
+ for(const k of ['atual','anterior'])assert.equal(centavos(r.linhas.geracao[k]),centavos(r.linhas.fco[k])+centavos(r.linhas.fci[k])+centavos(r.linhas.fcf[k]),'geração = FCO + FCI + FCF ('+k+')');
+ assert.deepEqual(r.saldo,{mes:'Ago',atual:5000+8*1370,anterior:1000+8*2205,delta:5000+8*1370-(1000+8*2205)},'saldo final no fim de Ago dos dois anos');
+ assert.deepEqual(c.json('dfcComparacaoAno(2026,2025,[])').saldo,null);
+ // Mar/2025 sem registro: as linhas de 2025 ficam sem valor (nunca zero) e sem Δ
+ const sem=contextoAno({registros:[...seq(2,[2025,0],TODAS),...seq(9,[2025,3],TODAS),...seq(8,[2026,0])]}),s=sem.json(`dfcComparacaoAno(2026,2025,${JSON.stringify(ix)})`);
+ assert.equal(s.linhas.fco.anterior,null);assert.equal(s.linhas.fco.delta,null);assert.equal(s.linhas.fco.atual,8*3140);
+ assert.equal(sem.json(`dfcComparacaoAno(2026,null,[0])`).linhas.fco.anterior,null,'sem ano comparado, sem valor anterior');
+ assert.deepEqual(c.json('DFC_DIR_ANO'),{fco:1,vendas:1,receitasFinanceiras:1,aIdentificar:1,foraOutras:1,das:1,impostosVendas:1,devolucoes:1,variaveis:1,fixas:1,despesasFinanceiras:1,semDetalhamento:1,fci:0,investimentos:0,fcf:0,emprestimos:0,parcelamentoDAS:0,dividasOutras:0,socios:0,transferencias:0,geracao:1});
+});
+test('Ano: dfcBlocosAno soma os blocos de janeiro ao último mês, marca o mês em andamento e para quando falta mês',()=>{
+ const c=contextoAno(),b=c.json('dfcBlocosAno(2026)'),h=b.operacao+b.outros;
+ assert.equal(b.andamento,' · inclui Set/2026 (mês em andamento)');assert.equal(b.m.label,'Set/2026');
+ const tela=id=>{const m=h.match(new RegExp(`data-dfc-linha="${id}"><span>([^<]*)</span><b class="([^"]*)">([^<]*)</b>`));return m&&{nome:m[1],tom:m[2],texto:m[3]};};
+ for(const id of [...c.json('DFC_ITENS.map(i=>i.id)'),'fco','fci','fcf','geracao'])assert.equal(tela(id).texto,c.run(`money(dfcAcumulado(PT_MON.map(x=>dfcMes(x+'/2026')),[],8,'${id}'))`),id);
+ assert.equal(tela('geracao').nome,'(=) Geração de caixa do ano');assert.equal(tela('geracao').texto,c.run(`money(${8*1370+1500})`));assert.equal(tela('fcf').tom,'tom-sai');assert.equal(tela('vendas').tom,'tom-entra');
+ const g=c.json(`['fco','fci','fcf','geracao'].map(id=>dfcAcumulado(PT_MON.map(x=>dfcMes(x+'/2026')),[],8,id))`);assert.equal(centavos(g[3]),centavos(g[0])+centavos(g[1])+centavos(g[2]),'geração = FCO + FCI + FCF');
+ assert.equal(b.vendas,8*10000+3000);assert.match(b.rodape,/igual a entradas menos saídas do ERP de janeiro a Set de 2026\./);assert.match(b.rodape,/data-go="dfc"/);
+ const f=contextoAno({registros:[...seq(2,[2026,0]),...seq(4,[2026,3])]}).json('dfcBlocosAno(2026)');
+ assert.deepEqual(f.faltam,['Mar/2026']);assert.equal(f.motivo,'Mar/2026 sem dados coletados: sem todos os meses, o acumulado de 2026 não é somado.');assert.equal(f.operacao,undefined);
+});
+test('Ano no Fluxo de caixa: cada cartão com o ano comparado nos mesmos meses e a tabela ano contra ano sem saldos',()=>{
+ const c=contextoAno({saldos:{'2025-01':1000,'2026-01':5000}}),h=c.run('renderDFC()');
+ const cards=[...h.matchAll(/<div class="metric metric-param"><span class="label">([^<]*)<\/span><strong[^>]*>[^<]*<\/strong><small>[^<]*<\/small>(<span class="comp-ano">[\s\S]*?<\/span>)?<\/div>/g)].map(m=>[m[1],m[2]||'']);
+ assert.deepEqual(cards.map(x=>x[0]),['Caixa da operação (FCO) · 2026','Investimentos (FCI) · 2026','Financiamentos (FCF) · 2026','Saldo final · Set/2026'],'o que o cartão mostrava continua');
+ assert.ok(cards.every(x=>x[1].startsWith('<span class="comp-ano">')),'linha de comparação depois do </small> em cada cartão');
+ assert.match(cards[0][1],/^<span class="comp-ano">2025 · Jan a Ago: <span class="tom-entra">R\$\s26\.440,00<\/span> · 2026 nesses meses: <span class=\"tom-entra\">R\$\s25\.120,00<\/span> · <b class="delta-ruim">▼ R\$\s1\.320,00 a menos<\/b><\/span>$/,'FCO caiu: ruim');
+ assert.match(cards[1][1],/<b class="delta-neutro">■ R\$\s0,00<\/b>/,'investimento sem cor de bom ou ruim');assert.match(cards[2][1],/<b class="delta-neutro">▼ R\$\s5\.360,00 a menos<\/b>/);
+ assert.match(cards[3][1],/^<span class="comp-ano">Fim de Ago\/2025: <span class="tom-entra">R\$\s18\.640,00<\/span> · Fim de Ago\/2026: <span class=\"tom-entra\">R\$\s15\.960,00<\/span> · <b class="delta-ruim">▼ R\$\s2\.680,00 a menos<\/b><\/span>$/);
+ const t=h.slice(h.indexOf('Fluxo de caixa · 2026 contra 2025 nos mesmos meses (Jan a Ago)'));assert.ok(t.length>0&&h.indexOf('Quanto sobrou')<h.indexOf('Fluxo de caixa · 2026 contra 2025'),'cartão depois dos gráficos');
+ const tab=t.slice(0,t.indexOf('</table>'));assert.match(tab,/<table class="tabela-controle tabela-ano">/);assert.match(tab,/<th scope="col">Linha<\/th><th scope="col" class="num">2026<\/th><th scope="col" class="num">2025<\/th><th scope="col" class="num">Δ<\/th>/);
+ assert.doesNotMatch(tab,/Saldo inicial|Saldo final|Ajuste de saldo/,'sem as linhas de saldo');
+ const col=(n,i)=>num(td(linha(tab,n),i)[2]);assert.equal(centavos(col('(=) Geração de caixa do mês',0)),centavos(col('Caixa da operação (FCO)',0))+centavos(col('Investimentos (FCI)',0))+centavos(col('Financiamentos (FCF)',0)),'geração 2026 = FCO + FCI + FCF');
+ assert.equal(td(linha(tab,'(−) Simples do mês (DAS e DARF)'),2)[1],'num delta-neutro','DAS igual nos dois anos: ■');assert.equal(td(linha(tab,'(+) Recebimentos de vendas'),0)[1],'num tom-entra');assert.equal(td(linha(tab,'(−) Retiradas e arrendamento'),1)[1],'num tom-sai');
+ assert.equal(td(linha(tab,'Caixa da operação (FCO)'),2)[1],'num delta-ruim');assert.equal(td(linha(tab,'(−) Retiradas e arrendamento'),2)[1],'num delta-neutro','sócios: sem bom nem ruim');
+ // outro ano escolhido em "Comparar com": todo rótulo diz 2024
+ const c24=contextoAno({anoComparar:'2024'}).run('renderDFC()');assert.match(c24,/2024 · Jan a Ago: /);assert.match(c24,/Fluxo de caixa · 2026 contra 2024 nos mesmos meses \(Jan a Ago\)/);assert.doesNotMatch(c24,/2025 · Jan a Ago|contra 2025/);
+ // Sem comparação: uma linha só, no primeiro cartão, e o cartão da tabela com o motivo
+ const n=contextoAno({anoComparar:'nenhum'}).run('renderDFC()');
+ assert.equal((n.match(/class="comp-ano"/g)||[]).length,1);assert.match(n,/Caixa da operação \(FCO\) · 2026[\s\S]*?<\/small><span class="comp-ano">Comparação: escolha um ano em “Comparar com”, no topo\.<\/span><\/div>/);
+ assert.match(n,/<h2 class="card-titulo">Comparação · 2026<\/h2><\/summary><div class="card-body"><p class="hint">Sem comparação: escolha um ano em “Comparar com”, no topo\.<\/p>/);assert.doesNotMatch(n,/tabela-ano/);
+ // Ano comparado sem meses completos em comum: o motivo do contrato
+ const s=contextoAno({registros:[...seq(3,[2025,9],TODAS),...seq(8,[2026,0])]}).run('renderDFC()');assert.match(s,/Comparação: Sem meses completos, da mesma base e com plano de contas em 2026 e 2025 para comparar\./);
+ // fora do Ano, nada muda
+ const m=context({saldos:{'2026-08':5000}}).run('renderDFC()');assert.doesNotMatch(m,/comp-ano|tabela-ano/);
+});
+// Anos futuros entram sozinhos: na virada (15/01/2027, Jan/2027 parcial), o Ano de 2027 funciona e compara com 2026.
+test('Ano na virada: 2027 com Jan em andamento, sem ano escrito no código',()=>{
+ const c=contextoAno({registros:[...seq(12,[2025,0],TODAS),...seq(12,[2026,0]),reg('Jan/2027','2027-01-14',OUT)]});c.run("dfcHoje=()=>'2027-01-15';state.periodo='Jan/2027'");
+ const b=c.json('dfcBlocosAno(2027)');assert.equal(b.andamento,' · inclui Jan/2027 (mês em andamento)');assert.match(b.outros,/data-dfc-linha="geracao"><span>\(=\) Geração de caixa do ano<\/span><b class="tom-entra">R\$\s1\.500,00<\/b>/);
+ const h=c.run('renderDFC()');assert.match(h,/Caixa da operação \(FCO\) · 2027/);assert.match(h,/Comparação: Sem meses completos, da mesma base e com plano de contas em 2027 e 2026 para comparar\./,'Jan/2027 ainda corre: nada a comparar');
+ c.run("dfcHoje=()=>'2027-02-10';state.records.find(r=>r.label==='Jan/2027').qualidade.ate='2027-01-31'");
+ assert.match(c.run('renderDFC()'),/2026 · Jan: <span class="tom-entra">R\$\s3\.140,00<\/span> · <b class="delta-ruim">▼ R\$\s940,00 a menos<\/b>/,'Jan/2027 fechado: compara com Jan/2026');
+ for(const f of ['dfcComparacaoAno','dfcBlocosAno','dfcCartoesAno','dfcTabelaAno','dfcComparacaoDoAno'])assert.doesNotMatch(c.run(`String(${f})`),/\b(19|20)\d\d\b/,f+' sem ano escrito');
+});

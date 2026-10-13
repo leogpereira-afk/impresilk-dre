@@ -54,3 +54,26 @@ test('menu: Parâmetros com ícone próprio, Configurações e Ajuda marcam a te
  assert.match(h,/<button id="settingsBtn" data-view="config">/);assert.match(h,/<button id="helpBtn" data-view="ajuda">/);
  assert.match(h,/<dialog id="detailDialog" aria-labelledby="detailTitle">/);
 });
+// Ano em todas as telas com meses: as classes novas existem e nenhuma pinta com a cor do dinheiro;
+// azul e vermelho só chegam pela regra de delta-* (o Δ da comparação) ou de tom-* (o valor).
+test('classes do Ano: existem e não definem azul nem vermelho fora de delta-* e tom-*',()=>{
+ const semCom=t=>t.replace(/\/\*[\s\S]*?\*\//g,'');
+ // regras folha (seletor e corpo), também as de dentro de @media
+ const regras=[];for(const f of ['styles.css','compacto.css','cfo.css','graficos.css','indicadores.css'])for(const m of semCom(ler(f)).matchAll(/([^{}]+)\{([^{}]*)\}/g))if(!m[1].trim().startsWith('@'))regras.push({f,sel:m[1].trim().replace(/^.*\}\s*/,''),corpo:m[2]});
+ const s=ler('styles.css'),tok=(bl,n)=>s.match(new RegExp(bl+'\\{[^}]*--'+n+':(#[0-9a-fA-F]{3,8})'))?.[1];
+ // os valores de --blue e --red dos dois temas também contam (cor escrita direto)
+ const hex=[tok(':root','blue'),tok(':root','red'),tok('body\\.dark','blue'),tok('body\\.dark','red')].filter(Boolean);
+ assert.ok(hex.length>=2,'tokens --blue e --red no styles.css');
+ const DINHEIRO=new RegExp(`var\\(--(blue|red|chart-in|chart-out|chart-cost|g-entrada|g-saida)\\b|${hex.join('|')}`,'i');
+ const SELS={'comp-ano':/\.comp-ano(?![\w-])/,'tabela-ano':/\.tabela-ano(?![\w-])/,'param-ano-tabela':/\.param-ano-tabela(?![\w-])/,'conf-ano-mes':/\.conf-ano-mes(?![\w-])/,'tr.ano-comparado':/tr\.ano-comparado(?![\w-])/};
+ for(const [k,re] of Object.entries(SELS))assert.ok(regras.some(r=>re.test(r.sel)),'sem regra para .'+k);
+ const ruins=[];
+ for(const r of regras)for(const parte of r.sel.split(',')){
+  if(!Object.values(SELS).some(re=>re.test(parte))&&!/\.ano-comparado(?![\w-])/.test(parte))continue;
+  if(/\.(delta|tom)-[\w-]+/.test(parte))continue;
+  if(DINHEIRO.test(r.corpo))ruins.push(`${r.f}: ${parte.trim()} { ${r.corpo.trim().slice(0,80)} }`);
+ }
+ assert.deepEqual(ruins,[],'cor do dinheiro numa classe do Ano');
+ // o b da linha de comparação não ganha cor própria: herda a de delta-bom/delta-ruim/delta-neutro
+ for(const r of regras)for(const parte of r.sel.split(','))if(/\.comp-ano[^,]*\s(b|strong)(?![\w-])/.test(parte)&&!/\.delta-/.test(parte))assert.doesNotMatch(r.corpo,/(^|;)\s*color\s*:/,parte.trim());
+});

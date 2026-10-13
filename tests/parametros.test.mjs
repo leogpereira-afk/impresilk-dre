@@ -337,3 +337,42 @@ test('Prazos, estoque e metas: diz onde cada valor entra e leva às telas (I32, 
  const menu=ler('app.js');for(const [v,t] of [['balanco','Balanço gerencial'],['giro','Capital de giro'],['recebiveis','Recebíveis e aging'],['dfc','Fluxo de caixa DFC'],['precos','Preço e equilíbrio']])assert.ok(menu.includes(`['${v}','${t}']`),t);
 });
 test('alíquota de Parâmetros continua com duas casas (D16)',()=>{const c=context();assert.equal(c.run('paramPct(6.5)'),'6,50%');assert.equal(c.run('paramPct(6.5,4)'),'6,50%');});
+
+// ── Ano: visão do ano mês a mês, sem formulário (GES-6) ─────────────────────────
+const CONTRATO_ANO="if(typeof telaNoAno==='undefined')globalThis.telaNoAno=()=>anoAtivo()&&!anoCompetencia();";
+// Jan a Out/2026 coletados (Out em andamento): DAS 0,10 (Impresilk) + 0,20 (Universo) por mês e 0,15 fora do Simples.
+const MESES_ANO=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out'].map((m,i)=>({id:m+'_2026',label:m+'/2026',origem:'erp',qualidade:{ate:m==='Out'?'2026-10-08':new Date(Date.UTC(2026,i+1,0)).toISOString().slice(0,10)},cells:[...base,cel('2.4','Despesas Impostos',0.45),cel('2.4.1','DAS',0.3),cel('2.4.1.2','Impresilk',0.1),cel('2.4.1.3','Universo',0.2),cel('2.4.8','ISSQN',0.15)]}));
+const contextAno=(o={})=>{const c=context({periodo:'Out/2026',registros:MESES_ANO,...o});c.run(CONTRATO_ANO);c.run("state.view='parametros';state.anoTodo=true");return c;};
+test('Parâmetros no Ano: cartões do ano em centavos, tabela mês a mês sem herança e nenhum formulário (GES-6)',()=>{
+ const cfg={parametros:{simples:{'2026-02':{impresilk:{aliquota:7.5,revisadoEm:'x'}}},operacao:{'2026-03':{estoque:5000,prazoRecebimento:30,saldoInicial:-200}},balanco:{'2026-04':{emprestimos:9000,imobilizado:1000}}}};
+ const c=contextAno({cfg}),h=tela(c);
+ assert.doesNotMatch(h,/<form|param-form/,'no Ano nada se grava: sem formulário');
+ const s=c.json("paramSomaAno('Out/2026')");assert.deepEqual([s.guias,s.fora,s.parcial,s.faltam],[3,1.5,'Out/2026',[]],'10 × 0,30 e 10 × 0,15 somados em centavos');
+ assert.match(h,/<span class="label">Simples pago em 2026<\/span><strong class="tom-sai">R\$\s3,00<\/strong><small>DAS e DARF pagos de Jan\/2026 a Out\/2026, cada guia da competência anterior; inclui Out\/2026 \(mês em andamento\)\. Parcelamento à parte: sem parcela no ano\.<\/small>/);
+ assert.match(h,/<span class="label">Impostos e taxas fora do Simples · 2026<\/span><strong class="tom-sai">R\$\s1,50<\/strong><small>[^<]*inclui Out\/2026 \(mês em andamento\)\.<\/small>/);
+ assert.match(h,/<span class="label">Alíquota efetiva · Impresilk · Out\/2026<\/span>/);assert.match(h,/<span class="label">Alíquota efetiva · Universo · Out\/2026<\/span>/);
+ // Tabela: 12 meses, cada um leva ao mês.
+ assert.match(h,/<h2 class="card-titulo">Parâmetros de 2026 mês a mês<\/h2>/);assert.match(h,/<table class="tabela-controle param-ano-tabela">/);
+ const bot=[...h.matchAll(/<button type="button" data-period="([^"]*)" aria-label="Editar os parâmetros de ([^"]*)">([^<]*)<\/button>/g)];
+ assert.equal(bot.length,12);assert.deepEqual(bot.map(b=>b[3]),['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']);assert.ok(bot.every(b=>b[1]===b[2]&&b[1].endsWith('/2026')));
+ assert.match(h,/<p class="hint">Para editar, toque no mês: o app sai do Ano e abre os parâmetros daquele mês\.<\/p>/);
+ const linha=n=>{const m=new RegExp(`<tr><th scope="row">${n.replace(/[()]/g,'\\$&')}</th>((?:<td[^>]*>(?:(?!</td>).)*</td>){12})</tr>`).exec(h);assert.ok(m,n);return [...m[1].matchAll(/<td([^>]*)>((?:(?!<\/td>).)*)<\/td>/g)].map(x=>({cls:x[1],txt:x[2].replace(/\s/g,' ')}));};
+ const est=linha('Estoque no fim do mês');assert.equal(est[2].txt,'R$ 5.000,00');assert.match(est[2].cls,/tom-entra/);assert.ok(est.filter((_,i)=>i!==2).every(x=>x.txt==='—'),'Abr em diante não herda o estoque de Mar');
+ const imp=linha('Alíquota efetiva Impresilk');assert.equal(imp[1].txt,'7,50%');assert.equal(imp[0].txt,'6,00% <small>(padrão)</small>');assert.equal(imp[2].txt,'6,00% <small>(padrão)</small>','Mar não herda a de Fev');assert.equal(imp[10].txt,'—','mês que ainda não chegou: sem padrão');
+ assert.equal(linha('Alíquota efetiva Universo')[0].txt,'6,00% <small>(padrão)</small>');
+ const saldo=linha('Saldo bancário no início do mês');assert.match(saldo[2].txt,/^[−-]R\$ 200,00$/);assert.match(saldo[2].cls,/tom-sai/);
+ assert.equal(linha('Prazo médio de recebimento (dias)')[2].txt,'30');assert.equal(linha('Prazo médio de pagamento (dias)')[2].txt,'—');
+ const emp=linha('Saldo devedor de empréstimos');assert.match(emp[3].cls,/tom-sai/);assert.equal(emp[4].txt,'—');assert.match(linha('Imobilizado')[3].cls,/tom-entra/);
+ const das=linha('Simples pago');assert.equal(das[0].txt,'R$ 0,30');assert.equal(das[9].txt,'R$ 0,30 *','Out em andamento');assert.equal(das[10].txt,'—');
+ assert.equal(linha('Impostos e taxas fora do Simples')[0].txt,'R$ 0,15');
+ for(const n of ['Meta de resultado do mês','Saldo do parcelamento do DAS'])assert.ok(linha(n).every(x=>x.txt==='—'),n);
+ assert.match(h,/id="secao-param-simples"/);assert.match(h,/Histórico de alterações/);assert.doesNotMatch(h,/NaN|undefined|Infinity/);
+});
+test('Parâmetros no Ano: mês sem dados não deixa somar o ano; fora do Ano, os formulários de sempre (GES-6)',()=>{
+ const h=tela(contextAno({registros:REGISTROS}));
+ assert.match(h,/<span class="label">Simples pago em 2026<\/span><strong class="">Não apurado<\/strong><small>Jan\/2026 a Jul\/2026 sem dados coletados: o total de 2026 não é somado\.<\/small>/);
+ assert.match(h,/<span class="label">Impostos e taxas fora do Simples · 2026<\/span><strong class="">Não apurado<\/strong>/);
+ const furo=MESES_ANO.filter(r=>!['Mar/2026','Jun/2026','Jul/2026'].includes(r.label));
+ assert.match(tela(contextAno({registros:furo})),/Mar\/2026 e Jun\/2026 a Jul\/2026 sem dados coletados/);
+ const c=contextAno();c.run('state.anoTodo=false');const m=tela(c);assert.match(m,/class="param-form"/);assert.doesNotMatch(m,/param-ano-tabela/);
+});

@@ -6,45 +6,74 @@ const cfoValor=(v,ratio=false)=>v==null?'Não apurado':ratio?(Math.round(Number(
 const cfoPct=v=>(Math.round(Number(v)*10)/10+0).toFixed(1).replace('.',',').replace('-','−')+'%';
 const cfoTom=(code,v)=>{code=String(code??'');return tomDoValor(code.startsWith('1')?'entradas':code.startsWith('2')?'saidas':code,v);};
 function botaoConta(code,label,periodo=state.periodo){return `<button class="cfo-link" data-cfo-account="${esc(code)}" data-cfo-period="${esc(periodo)}">${esc(label)}</button>`;}
+// Ano (chip "Ano"): a leitura usa o registro do ano somado (registroDoAno, de app.js).
+const cfoNoAno=()=>typeof telaNoAno==='function'&&!!telaNoAno()&&typeof registroDoAno==='function';
+function cfoAno(){
+ const ano=typeof anoDaTela==='function'?anoDaTela():Number(String(state.periodo).split('/')[1]),r=registroDoAno(ano)||{},rot=typeof rotuloAno==='function'?rotuloAno(ano):String(ano);
+ return {ano,r,reg:r.disponivel?r.reg:null,rot,parcial:!!(r.parcial??r.reg?.ano?.parcial)};
+}
 function cfoResumo(reg){
- const a=DRECFO.analise(reg,state.records.find(x=>x.label===state.comparar));
+ const y=cfoNoAno()?cfoAno():null;
+ const a=y?DRECFO.analise(y.reg,null):DRECFO.analise(reg,state.records.find(x=>x.label===state.comparar));
  const frase=a.variacao==null?'Primeiro, complete a leitura do período.':a.variacao<0?'As saídas registradas superaram as entradas.':'As entradas registradas cobriram as saídas.';
  // As pendências do mês ficavam atrás de um "+" no rodapé da Visão geral.
  // Pagamento em duplicidade não pode depender de alguém abrir um acordeão.
- const pend=reg?.pendencias||[];
+ const pend=(y?y.reg:reg)?.pendencias||[];
 
- const aviso=pend.length?`<button class="cfo-pendencias" data-go="conferencia"><b>${pend.length} ${pend.length===1?'pendência':'pendências'} a conferir</b><span class="hint"> · uma pode repetir outra</span> <span>Ver na Conferência →</span></button>`:'';
- return `<section class="cfo-intro"><div><p class="eyebrow">LEITURA CFO · ${esc(state.periodo)}</p><h2>${frase}</h2><p>${a.variacao==null?'Abra um mês disponível ou confira a atualização da base.':`Diferença de <b class="${tomDoValor('variacao',a.variacao)}">${money(a.variacao)}</b> no caixa considerado. ${a.q.comparavel?'Consulte a composição antes de decidir.':'Este período exige conferência; a leitura não representa um mês completo.'}`}</p>${aviso}</div>${state.view==='cfo'?'<button class="primary" data-account="2">Abrir composição das saídas →</button>':'<button class="primary" data-go="cfo">Investigar os números →</button>'}</section>`;
+ const aviso=pend.length?`<button class="cfo-pendencias" data-go="conferencia"><b>${pend.length} ${pend.length===1?'pendência':'pendências'} a conferir${y?' no ano':''}</b><span class="hint"> · uma pode repetir outra</span> <span>Ver na Conferência →</span></button>`:'';
+ const texto=y?(a.variacao==null?esc(y.r.motivo||'Abra um mês disponível ou confira a atualização da base.'):`Diferença de <b class="${tomDoValor('variacao',a.variacao)}">${money(a.variacao)}</b> no caixa considerado em ${esc(y.rot)}.${y.parcial?' O ano inclui o mês em andamento: a leitura ainda muda.':' Consulte a composição antes de decidir.'}`)
+  :a.variacao==null?'Abra um mês disponível ou confira a atualização da base.':`Diferença de <b class="${tomDoValor('variacao',a.variacao)}">${money(a.variacao)}</b> no caixa considerado. ${a.q.comparavel?'Consulte a composição antes de decidir.':'Este período exige conferência; a leitura não representa um mês completo.'}`;
+ return `<section class="cfo-intro"><div><p class="eyebrow">LEITURA CFO · ${esc(y?y.rot:state.periodo)}</p><h2>${frase}</h2><p>${texto}</p>${aviso}</div>${state.view==='cfo'?'<button class="primary" data-account="2">Abrir composição das saídas →</button>':'<button class="primary" data-go="cfo">Investigar os números →</button>'}</section>`;
 }
-function renderCFO(reg){
- const a=DRECFO.analise(reg,state.records.find(x=>x.label===state.comparar));
- const cobertura=`<div class="cfo-alert"><b>${esc(a.q.rotulo)}</b><p>${esc(a.q.mensagem)}</p><button data-go="conferencia">Conferir cobertura e origem →</button></div>`;
- // 17 linhas sem corte: as sete abaixo de 1% pesavam o mesmo, na tela, que a
- // de 28,7%. A cauda vira UMA linha somada, que continua clicável na tabela de
- // detalhamento — nada some, só para de disputar atenção com o que decide.
- const CORTE=1.0;
- const grandes=a.ranking.filter(x=>x.peso==null||x.peso>=CORTE||x.residuo);
- const cauda=a.ranking.filter(x=>!(x.peso==null||x.peso>=CORTE||x.residuo));
- const somaCauda=cauda.reduce((n,x)=>n+Math.round((x.value||0)*100),0)/100;
- const pesoCauda=cauda.reduce((n,x)=>n+(x.peso||0),0);
- const linhaCauda=cauda.length?`<tr class="cfo-cauda"><th scope="row">Demais grupos (${cauda.length})<small>cada um abaixo de ${CORTE.toFixed(1).replace('.',',')}% das saídas</small></th><td class="num ${tomDoValor('saidas',somaCauda)}">${money(somaCauda)}</td><td class="num">${cfoPct(pesoCauda)}</td><td>Somados porque, isolados, nenhum muda a decisão do mês. Abra cada um no Plano de contas se precisar.</td></tr>`:'';
- const rows=grandes.map(x=>`<tr><th scope="row">${x.residuo?esc(x.name):botaoConta(x.code,x.name)}<small>${esc(x.code)}${typeof dreMubisys==='function'?dreMubisys(x.code,reg):''}</small></th><td class="num ${tomDoValor('saidas',x.value)}">${x.residuo?money(x.value):botaoConta(x.code,money(x.value))}</td><td class="num">${x.peso==null?'—':cfoPct(x.peso)}</td><td>${esc(x.residuo?'Conferir a diferença entre total e detalhamento; não distribuir automaticamente.':x.pergunta)}</td></tr>`).join('')+linhaCauda;
- const totalMov=a.variacoes.reduce((n,x)=>n+Math.abs(x.delta||0),0);
- let acc=0,corte=a.variacoes.length;
- a.variacoes.forEach((x,i)=>{if(acc<totalMov*0.8||i<3){acc+=Math.abs(x.delta||0);}else if(corte===a.variacoes.length){corte=i;}});
+// Linhas das variações por grupo (mês contra mês ou ano contra ano), com a cauda somada.
+function cfoVariacoes(variacoes,rotA,rotB,quando){
+ const totalMov=variacoes.reduce((n,x)=>n+Math.abs(x.delta||0),0);
+ let acc=0,corte=variacoes.length;
+ variacoes.forEach((x,i)=>{if(acc<totalMov*0.8||i<3){acc+=Math.abs(x.delta||0);}else if(corte===variacoes.length){corte=i;}});
  corte=Math.min(corte,8);
- const mostra=a.variacoes.slice(0,corte),resto=a.variacoes.slice(corte);
- const linhas=mostra.map(x=>`<div class="cfo-decision"><div><b>${esc(x.name)}</b><p>${esc(state.comparar)}: <span class="${tomDoValor('saidas',x.anterior)}">${money(x.anterior)}</span> → ${esc(state.periodo)}: <span class="${tomDoValor('saidas',x.atual)}">${money(x.atual)}</span></p><small>Variação <span class="${tomDelta(dirConta(x.code),x.delta)}">${x.delta>0?'▲ ':x.delta<0?'▼ ':''}${money(Math.abs(x.delta))}</span>${x.percentual==null?' · sem base percentual':' · '+cfoPct(x.percentual)}</small></div>${botaoConta(x.code,'Investigar →')}</div>`).join('');
+ const mostra=variacoes.slice(0,corte),resto=variacoes.slice(corte);
+ const linhas=mostra.map(x=>`<div class="cfo-decision"><div><b>${esc(x.name)}</b><p>${esc(rotB)}: <span class="${tomDoValor('saidas',x.anterior)}">${money(x.anterior)}</span> → ${esc(rotA)}: <span class="${tomDoValor('saidas',x.atual)}">${money(x.atual)}</span></p><small>Variação <span class="${tomDelta(dirConta(x.code),x.delta)}">${x.delta>0?'▲ ':x.delta<0?'▼ ':''}${money(Math.abs(x.delta))}</span>${x.percentual==null?' · sem base percentual':' · '+cfoPct(x.percentual)}</small></div>${botaoConta(x.code,'Investigar →')}</div>`).join('');
  const soma=arr=>arr.reduce((n,x)=>n+Math.round((x.delta||0)*100),0)/100;
  const sobem=resto.filter(x=>x.delta>0),caem=resto.filter(x=>x.delta<0);
  const saldoResto=sobem.length&&caem.length
   ? `${money(soma(sobem))} para cima e ${money(Math.abs(soma(caem)))} para baixo`
   : `Somados: ${money(soma(resto))}`;
- const delta=linhas+(resto.length?`<div class="cfo-decision cfo-cauda"><div><b>Mais ${resto.length} ${resto.length===1?'grupo':'grupos'}</b><p>${resto.length===1?`${esc(resto[0].name)}, sozinho, não muda a decisão do mês.`:'Nenhum deles, sozinho, muda a decisão do mês.'}</p><small>${saldoResto}</small></div>${resto.length===1?`<button data-account="${esc(resto[0].code)}">Investigar →</button>`:'<button data-go="detalhe">Ver no Plano de contas →</button>'}</div>`:'');
- return cfoResumo(reg)+resumoMovimento(reg)+(a.q.comparavel?'':cobertura)+
- card('1. Onde concentrar a investigação',`<p>Grupos de saídas, em ordem de valor absoluto. Cada linha abre sua composição; os grupos não são somados às subcontas.</p>${a.incompleta?'<p class="note">Há valores inválidos na composição. Os pesos estão suspensos; confira o detalhamento.</p>':''}${a.concentracao==null?'':`<p>Os três maiores grupos positivos representam <b>${cfoPct(a.concentracao)}</b> das saídas líquidas registradas${a.concentracao>100?'; há compensações negativas na composição':''}.</p>`}<div class="table-scroll cfo-table"><table><thead><tr><th scope="col">Grupo</th><th scope="col" class="num">Registrado</th><th scope="col" class="num">Peso nas saídas</th><th scope="col">O que conferir antes de decidir</th></tr></thead><tbody>${rows||'<tr><td colspan="4">Sem composição disponível neste período.</td></tr>'}</tbody></table></div>`)+
- card('2. O que mudou em relação ao outro mês','<p class="hint">Somente grupos presentes e com significado compatível nos dois meses recebem diferenças automáticas. Contas novas ou renomeadas continuam no Plano de contas.</p>'+(state.comparar?(a.comparavel?(a.comp?.ressalva?'<p class="hint">A cobertura da coleta ainda não foi validada nos dois meses: o cálculo está feito, falta conferir se a base está completa antes de decidir.</p>':'')+(delta||'<p>Não há diferenças comparáveis nos grupos presentes. Contas novas ou renomeadas precisam de revisão no Plano de contas.</p>'):`<p>Sem comparação com ${esc(state.comparar)}: ${esc(a.comp?.motivo||'períodos, empresas ou critérios ainda não são compatíveis.')} Os valores originais continuam disponíveis no Plano de contas.</p><button data-go="detalhe">Conferir contas e critérios →</button>`):'<p>Escolha “Comparar com” no topo para investigar diferenças por grupo.</p>'))+
- card('3. Receita necessária para cobrir a operação',`<p>Cenário independente do realizado, com premissas informadas por você. Pode ser salvo na nuvem após a conferência. Separe gastos variáveis de fixos a partir da apuração por competência. Não usamos pagamentos de materiais como consumo automaticamente.</p><form id="cfoCenario"><div class="form-grid"><label>Receita líquida de referência (R$)<input name="receita" type="number" step="0.01" min="0.01" required></label><label>Custos e despesas variáveis dessa receita (R$)<input name="custoVariavel" type="number" step="0.01" min="0" required></label><label>Gastos fixos no mesmo período (R$)<input name="fixos" type="number" step="0.01" min="0" required></label><label>Meta de resultado operacional (R$)<input name="meta" type="number" step="0.01" min="0" value="0" required></label></div><div class="actions"><button class="primary" type="submit">Calcular cenário</button></div></form><div id="cfoCenarioResultado" aria-live="polite"></div><p class="hint">Supõe mix, preços e percentual variável constantes. Não inclui automaticamente juros, tributos sobre o lucro ou capacidade adicional de produção.</p>`,false)+
+ return linhas+(resto.length?`<div class="cfo-decision cfo-cauda"><div><b>Mais ${resto.length} ${resto.length===1?'grupo':'grupos'}</b><p>${resto.length===1?`${esc(resto[0].name)}, sozinho, não muda a decisão ${quando}.`:`Nenhum deles, sozinho, muda a decisão ${quando}.`}</p><small>${saldoResto}</small></div>${resto.length===1?`<button data-account="${esc(resto[0].code)}">Investigar →</button>`:'<button data-go="detalhe">Ver no Plano de contas →</button>'}</div>`:'');
+}
+// Card 2 no Ano: o ano contra o ano escolhido em "Comparar com", nos mesmos meses completos.
+function cfoMudouAno(y){
+ const c=typeof comparacaoDoAno==='function'?comparacaoDoAno(y.ano):null;
+ const corpo=!c?'<p>Sem comparação entre anos nesta versão do painel.</p>':c.motivo?`<p>${esc(c.motivo)}</p>`:(()=>{
+  const a=DRECFO.analise(c.atual,c.anterior),rA=`${c.ano} (${c.meses})`,rB=`${c.anoComp} (${c.meses})`;
+  if(!a.comparavel)return `<p>Sem comparação com ${esc(c.anoComp)}: ${esc(a.comp?.motivo||'empresas ou critérios ainda não são compatíveis.')} Os valores originais continuam disponíveis no Plano de contas.</p><button data-go="detalhe">Conferir contas e critérios →</button>`;
+  const v=cfoVariacoes(a.variacoes,rA,rB,'do ano');
+  return `<p class="hint">${esc(`${c.anoComp} → ${c.ano} nos mesmos meses (${c.meses}): só os meses completos nos dois anos, da mesma base e com plano de contas.`)}</p>${c.ressalva||a.comp?.ressalva?'<p class="hint">A cobertura da coleta ainda não foi validada em algum desses meses: o cálculo está feito, falta conferir se a base está completa antes de decidir.</p>':''}${v||'<p>Não há diferenças comparáveis nos grupos presentes. Contas novas ou renomeadas precisam de revisão no Plano de contas.</p>'}`;
+ })();
+ return card('2. O que mudou em relação ao outro ano','<p class="hint">Somente grupos presentes e com significado compatível nos dois anos recebem diferenças automáticas. Contas novas ou renomeadas continuam no Plano de contas.</p>'+corpo);
+}
+function renderCFO(reg){
+ const y=cfoNoAno()?cfoAno():null;
+ const a=y?DRECFO.analise(y.reg,null):DRECFO.analise(reg,state.records.find(x=>x.label===state.comparar));
+ const cobertura=y&&!y.reg?`<div class="cfo-alert"><b>Ano não somado</b><p>${esc(y.r.motivo||'Sem meses com dados no ano.')}</p><button data-go="conferencia">Conferir cobertura e origem →</button></div>`:`<div class="cfo-alert"><b>${esc(a.q.rotulo)}</b><p>${esc(a.q.mensagem)}</p><button data-go="conferencia">Conferir cobertura e origem →</button></div>`;
+ // 17 linhas sem corte: as sete abaixo de 1% pesavam o mesmo, na tela, que a
+ // de 28,7%. A cauda vira UMA linha somada, que continua clicável na tabela de
+ // detalhamento — nada some, só para de disputar atenção com o que decide.
+ const CORTE=1.0,quando=y?'do ano':'do mês';
+ const grandes=a.ranking.filter(x=>x.peso==null||x.peso>=CORTE||x.residuo);
+ const cauda=a.ranking.filter(x=>!(x.peso==null||x.peso>=CORTE||x.residuo));
+ const somaCauda=cauda.reduce((n,x)=>n+Math.round((x.value||0)*100),0)/100;
+ const pesoCauda=cauda.reduce((n,x)=>n+(x.peso||0),0);
+ const linhaCauda=cauda.length?`<tr class="cfo-cauda"><th scope="row">Demais grupos (${cauda.length})<small>cada um abaixo de ${CORTE.toFixed(1).replace('.',',')}% das saídas</small></th><td class="num ${tomDoValor('saidas',somaCauda)}">${money(somaCauda)}</td><td class="num">${cfoPct(pesoCauda)}</td><td>Somados porque, isolados, nenhum muda a decisão ${quando}. Abra cada um no Plano de contas se precisar.</td></tr>`:'';
+ const rows=grandes.map(x=>`<tr><th scope="row">${x.residuo?esc(x.name):botaoConta(x.code,x.name)}<small>${esc(x.code)}${typeof dreMubisys==='function'?dreMubisys(x.code,reg):''}</small></th><td class="num ${tomDoValor('saidas',x.value)}">${x.residuo?money(x.value):botaoConta(x.code,money(x.value))}</td><td class="num">${x.peso==null?'—':cfoPct(x.peso)}</td><td>${esc(x.residuo?'Conferir a diferença entre total e detalhamento; não distribuir automaticamente.':x.pergunta)}</td></tr>`).join('')+linhaCauda;
+ const delta=y?'':cfoVariacoes(a.variacoes,state.periodo,state.comparar,quando);
+ const intro1=y?`Grupos de saídas somados em ${esc(y.rot)}, em ordem de valor absoluto. Cada linha abre sua composição; os grupos não são somados às subcontas.`:'Grupos de saídas, em ordem de valor absoluto. Cada linha abre sua composição; os grupos não são somados às subcontas.';
+ const card2=y?cfoMudouAno(y):card('2. O que mudou em relação ao outro mês','<p class="hint">Somente grupos presentes e com significado compatível nos dois meses recebem diferenças automáticas. Contas novas ou renomeadas continuam no Plano de contas.</p>'+(state.comparar?(a.comparavel?(a.comp?.ressalva?'<p class="hint">A cobertura da coleta ainda não foi validada nos dois meses: o cálculo está feito, falta conferir se a base está completa antes de decidir.</p>':'')+(delta||'<p>Não há diferenças comparáveis nos grupos presentes. Contas novas ou renomeadas precisam de revisão no Plano de contas.</p>'):`<p>Sem comparação com ${esc(state.comparar)}: ${esc(a.comp?.motivo||'períodos, empresas ou critérios ainda não são compatíveis.')} Os valores originais continuam disponíveis no Plano de contas.</p><button data-go="detalhe">Conferir contas e critérios →</button>`):'<p>Escolha “Comparar com” no topo para investigar diferenças por grupo.</p>'));
+ // O cenário grava por mês: no Ano o formulário não aparece.
+ const card3=y?'<p>O cenário é por mês: escolha um mês na barra para simular e salvar.</p>':`<p>Cenário independente do realizado, com premissas informadas por você. Pode ser salvo na nuvem após a conferência. Separe gastos variáveis de fixos a partir da apuração por competência. Não usamos pagamentos de materiais como consumo automaticamente.</p><form id="cfoCenario"><div class="form-grid"><label>Receita líquida de referência (R$)<input name="receita" type="number" step="0.01" min="0.01" required></label><label>Custos e despesas variáveis dessa receita (R$)<input name="custoVariavel" type="number" step="0.01" min="0" required></label><label>Gastos fixos no mesmo período (R$)<input name="fixos" type="number" step="0.01" min="0" required></label><label>Meta de resultado operacional (R$)<input name="meta" type="number" step="0.01" min="0" value="0" required></label></div><div class="actions"><button class="primary" type="submit">Calcular cenário</button></div></form><div id="cfoCenarioResultado" aria-live="polite"></div><p class="hint">Supõe mix, preços e percentual variável constantes. Não inclui automaticamente juros, tributos sobre o lucro ou capacidade adicional de produção.</p>`;
+ return cfoResumo(reg)+resumoMovimento(reg)+(y?(y.reg&&a.q.comparavel?'':cobertura):(a.q.comparavel?'':cobertura))+
+ card('1. Onde concentrar a investigação',`<p>${intro1}</p>${a.incompleta?'<p class="note">Há valores inválidos na composição. Os pesos estão suspensos; confira o detalhamento.</p>':''}${a.concentracao==null?'':`<p>Os três maiores grupos positivos representam <b>${cfoPct(a.concentracao)}</b> das saídas líquidas registradas${a.concentracao>100?'; há compensações negativas na composição':''}.</p>`}<div class="table-scroll cfo-table"><table><thead><tr><th scope="col">Grupo</th><th scope="col" class="num">Registrado</th><th scope="col" class="num">Peso nas saídas</th><th scope="col">O que conferir antes de decidir</th></tr></thead><tbody>${rows||`<tr><td colspan="4">Sem composição disponível neste período.</td></tr>`}</tbody></table></div>`)+
+ card2+
+ card('3. Receita necessária para cobrir a operação',card3,false)+
  card('4. Para conhecer a margem de cada O.S.',`<p>O caixa agregado ainda não fornece lucro por serviço. Para calcular sem distorção, cada O.S. precisa ligar:</p><ol><li>Receita reconhecida, descontos e tributos da venda.</li><li>Materiais efetivamente consumidos: lona, vinil, ACM, acrílico, tintas e perdas.</li><li>Horas de produção e instalação, terceiros e deslocamentos.</li><li>Retrabalho e critérios documentados de rateio da estrutura.</li></ol><p>Estes são requisitos de informação, não custos já apurados nesta tela.</p><p>Uma margem parcial por O.S., com o custo informado no Painel, já está em Indicadores › Margem.</p><div class="actions"><button data-go="indicadores" data-ind-area="Margem">Ver em Indicadores › Margem →</button><button data-go="dre">Abrir DRE e competência →</button></div>`,false);
 }
 function abrirAnaliseConta(code,periodo=state.periodo,voltar=false){
@@ -82,7 +111,7 @@ function wireCFO(root=document){
  root.querySelectorAll('[data-cfo-acumulado]').forEach(b=>b.onclick=()=>abrirAcumuladoCFO(b.dataset.cfoAcumulado));
  root.querySelectorAll('[data-cfo-rubrica]').forEach(b=>b.onclick=()=>abrirRubricaCFO(b.dataset.cfoRubrica,b.dataset.cfoPeriod,b.dataset.cfoBase));
  if(root!==document)return;
- if($$('cfoPDF'))$$('cfoPDF').onclick=()=>exportarCFO({tipo:state.view==='dre'?(typeof gestaoUI!=='undefined'&&gestaoUI.dre==='mes'?'mensal':'anual'):state.view==='custos'?'custos':state.view==='detalhe'?'contas':'executivo',periodo:state.periodo,base:state.view==='dre'?dreUI.base:'caixa'},$$('cfoPDF'));
+ if($$('cfoPDF'))$$('cfoPDF').onclick=()=>exportarCFO({tipo:state.view==='dre'?(typeof gestaoUI!=='undefined'&&gestaoUI.dre==='mes'?'mensal':'anual'):state.view==='custos'?'custos':state.view==='detalhe'?'contas':'executivo',periodo:state.periodo,base:state.view==='dre'?dreUI.base:'caixa',ano:typeof telaNoAno==='function'&&!!telaNoAno()},$$('cfoPDF'));
  if($$('cfoCenario'))$$('cfoCenario').onsubmit=e=>{e.preventDefault();let original=structuredClone(state.cfg.gestao?.['cenario:'+safeId(state.periodo)]??null);const p=Object.fromEntries([...new FormData(e.target)].map(([k,v])=>[k,Number(v)])),s=DRECFO.sensibilidade(p);$$('cfoCenarioResultado').innerHTML=s.valido?`<div class="note"><b>Cenário informado · não é projeção automática</b>${linha('Margem de contribuição',cfoValor(s.mc*100,true))}${linha('Receita para cobrir os gastos fixos',s.equilibrio)}${linha('Receita para a meta operacional',s.vendaMeta,true)}<p>Fórmula: (gastos fixos + meta) ÷ margem de contribuição.</p><button id="cenarioPDF">Baixar cenário em PDF</button><button id="cenarioSalvar" ${state.permissoes.admin?'':'disabled'}>Salvar premissas na nuvem</button><p id="cenarioEstado" role="status"></p></div>`:`<p class="note">${esc(s.motivo)}</p>`;if(s.valido&&typeof salvarGestao==='function')$$('cenarioSalvar').onclick=async()=>{try{original=await salvarGestao('cenario:'+safeId(state.periodo),{premissas:p},original);$$('cenarioEstado').textContent='Premissas confirmadas na nuvem.';}catch(err){$$('cenarioEstado').textContent=err.message;}};if(s.valido)$$('cenarioPDF').onclick=()=>exportarCFO({tipo:'cenario',periodo:state.periodo,premissas:p,cenario:s},$$('cenarioPDF'));};
 }
 

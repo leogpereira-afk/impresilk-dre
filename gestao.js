@@ -21,6 +21,8 @@ function restaurarRota(){
  state.contaSelecionada=q.get('conta')||'';state.consulta=q.get('busca')||'';state.tipo=q.get('tipo')||'todos';state.grupo=q.get('grupo')||'todos';
  // Ano (Fase 9.1): uma fonte só; a rota da DRE antiga (visao=ano) também liga.
  const ano=q.get('ano')==='1'||q.get('visao')==='ano';state.anoTodo=ano;gestaoUI.dre=ano?'ano':'mes';
+ // Ano de comparação (anocomp=AAAA ou nenhum): guardado como veio; quem confere com os dados é anoComparado().
+ const ac=q.get('anocomp')||'';state.anoComparar=/^(\d{4}|nenhum)$/.test(ac)?ac:'';
  // Aba e "juntas" do Plano, área e fonte dos Indicadores e seção do Glossário (N3, N22).
  if(typeof planoUI!=='undefined'){planoUI.aba=q.get('aba')==='planilha'?'planilha':'dashboard';planoUI.juntas=q.get('juntas')==='1'?true:q.get('juntas')==='0'?false:null;}
  state.indicadoresRota=q.get('area')?{area:q.get('area'),fonte:q.get('fonte')||''}:null;
@@ -39,7 +41,8 @@ function gravarRota(){
  if(state.view==='dre')p.set('visao',gestaoUI.dre);
  // Seção ainda não alcançada fica no link (quem copiar cai no mesmo lugar); depois de rolar, sai.
  if(state.secaoAlvo?.tela===state.view)p.set('secao',state.secaoAlvo.chave);
- if(typeof ANO_TELAS!=='undefined'&&ANO_TELAS.includes(state.view)&&state.anoTodo)p.set('ano','1');
+ // Ano de comparação só fora do padrão (ano anterior): '' não vai ao link.
+ if(typeof ANO_TELAS!=='undefined'&&ANO_TELAS.includes(state.view)&&state.anoTodo){p.set('ano','1');if(state.anoComparar)p.set('anocomp',state.anoComparar);}
  const hash='#'+p.toString();if(hash===rotaAtual)return;
  const anterior=new URLSearchParams(rotaAtual.slice(1)).get('tela');
  // N2: a entrada do diálogo vira a da tela nova, e o fechamento não volta no histórico.
@@ -98,7 +101,42 @@ function alertasPeriodo(reg){
 }
 // Seta da variação: a cor diz bom ou ruim, a seta diz se subiu ou caiu.
 const gestaoSeta=d=>d>0?'▲ ':d<0?'▼ ':'';
+// Chip Ano (contrato do app): a tela está no Ano? Sem o app novo, nunca.
+const gestaoNoAno=()=>typeof telaNoAno==='function'&&!!telaNoAno();
+const gestaoAnoDaTela=()=>{const y=Number(String(state.periodo).split('/')[1]);return Number.isFinite(y)&&y>0?y:null;};
+// Meses do Ano: de janeiro ao último mês com dados até hoje (fimDoAno).
+function gestaoMesesDoAno(ano){
+ const fim=typeof fimDoAno==='function'?fimDoAno(String(ano)):state.periodo,ate=PT_MON.indexOf(String(fim).split('/')[0]);
+ return String(fim).split('/')[1]===String(ano)&&ate>=0?PT_MON.slice(0,ate+1).map(m=>m+'/'+ano):[];
+}
+// "Fev/2026" ou "Fev/2026 a Mar/2026", em lista.
+const gestaoFaixas=labels=>balLista(precoFaixasDeMeses(labels.map(label=>({label}))).map(precoFaixaTxt));
+// Ano comparado e o motivo de não comparar, pelo contrato do app; sem ele, o ano anterior.
+function gestaoAnoComparado(ano){return typeof anoComparado==='function'?anoComparado():ano-1;}
+const gestaoSemAno=()=>typeof TEXTO_SEM_ANO_COMPARADO!=='undefined'?TEXTO_SEM_ANO_COMPARADO:'Sem comparação: escolha um ano em “Comparar com”, no topo.';
+// Chips de alerta do Ano: pendências de todos os meses, mês em andamento e meses sem coleta.
+function alertasDoAno(ano){
+ const meses=gestaoMesesDoAno(ano),regs=meses.map(l=>state.records.find(r=>r.label===l)||null),a=[];
+ const pend=regs.map(r=>r?.pendencias?.length||0),n=pend.reduce((t,x)=>t+x,0),k=pend.filter(Boolean).length;
+ if(n)a.push(`${n} ${n===1?'pendência':'pendências'} a conferir em ${k} ${k===1?'mês':'meses'}`);
+ const fim=meses[meses.length-1],rf=regs[regs.length-1];if(rf&&F.qualidade(rf).parcial)a.push(`${fim} em andamento`);
+ const faltam=meses.filter((_,i)=>!regs[i]);if(faltam.length)a.push(`Sem coleta: ${gestaoFaixas(faltam)}`);
+ if(state.cacheOk===false)a.push('Sem cópia offline');return a;
+}
+// "O que mudou" no Ano: os grupos de saídas somados nos mesmos meses completos dos dois anos.
+function resumoGestaoAno(){
+ const cmp=typeof comparacaoDoAno==='function'?comparacaoDoAno():{ano:gestaoAnoDaTela(),motivo:gestaoSemAno()};
+ const {ano,anoComp,meses,atual,anterior}=cmp,motivo=cmp.motivo||(!atual||!anterior?'Os mesmos meses dos dois anos não se somam: confira a cobertura na Conferência.':'');
+ let corpo=`<p>${esc(motivo)}</p>`;
+ if(!motivo){
+  const rows=F.composicao(atual,'2').itens.filter(x=>!x.residuo).map(x=>({...x,cmp:F.compararConta(atual,anterior,x.code)})).filter(x=>x.cmp.permitida&&x.cmp.delta!==0).sort((a,b)=>Math.abs(b.cmp.delta)-Math.abs(a.cmp.delta));
+  const lim=state.cfg.gestao?.alertas?.variacao??0,mostradas=rows.filter(x=>Math.abs(x.cmp.delta)>=lim).slice(0,5),resto=rows.filter(x=>!mostradas.includes(x));
+  corpo=`<p class="hint">${esc(`${anoComp} → ${ano} nos mesmos meses (${meses}) · variações dos grupos de saídas.${cmp.ressalva?' Cobertura a conferir.':''}`)}</p><div class="table-scroll"><table><thead><tr><th scope="col">Grupo</th><th scope="col" class="num">Diferença</th><th scope="col" class="num">${esc(ano)}</th><th scope="col" class="num">${esc(anoComp)}</th></tr></thead><tbody>${mostradas.map(x=>`<tr><td>${botaoConta(x.code,x.name)}</td><td class="num ${tomDelta(dirConta(x.code),x.cmp.delta)}">${gestaoSeta(x.cmp.delta)}<span class="nowrap">${money(Math.abs(x.cmp.delta))}</span></td><td class="num ${tomDoValor('saidas',x.value)}">${money(x.value)}</td><td class="num ${tomDoValor('saidas',x.cmp.anterior)}">${money(x.cmp.anterior)}</td></tr>`).join('')}${resto.length?`<tr><td title="${esc(resto.map(x=>x.name).join(', '))}">Demais ${resto.length} ${resto.length===1?'grupo':'grupos'}</td><td class="num">${(d=>`${gestaoSeta(d)}<span class="nowrap">${money(Math.abs(d))}</span>`)(resto.reduce((s,x)=>s+Math.round(x.cmp.delta*100),0)/100)}</td><td colspan="2"></td></tr>`:''}</tbody></table></div><small>Somente grupos comparáveis. Novos códigos, mudanças de nome e resíduos permanecem no Plano de contas. A variação não comprova sua causa.</small>`;
+ }
+ return `<section class="management-panel"><div class="section-row"><h2>O que mudou</h2><button id="gestaoPlanejamento">Orçamento e alertas</button></div>${corpo}<div class="management-chips">${alertasDoAno(ano).map(t=>`<button class="chip-warn" data-go="conferencia">${esc(t)}</button>`).join('')}<button data-go="detalhe">Investigar contas</button></div><details><summary>Orçamento</summary><p>O orçamento é mensal: escolha um mês na barra para ver o desvio.</p></details></section>`;
+}
 function resumoGestao(reg){
+ if(gestaoNoAno())return resumoGestaoAno();
  const anterior=state.records.find(r=>r.label===state.comparar),cmp=F.comparacao(reg,anterior);
  const rows=F.composicao(reg,'2').itens.filter(x=>!x.residuo).map(x=>({...x,cmp:F.compararConta(reg,anterior,x.code)})).filter(x=>x.cmp.permitida).filter(x=>x.cmp.delta!==0).sort((a,b)=>Math.abs(b.cmp.delta)-Math.abs(a.cmp.delta));
  const lim=state.cfg.gestao?.alertas?.variacao??0,mostradas=rows.filter(x=>Math.abs(x.cmp.delta)>=lim).slice(0,5),resto=rows.filter(x=>!mostradas.includes(x));
@@ -127,11 +165,29 @@ function tabelaDRECompacta(d){
  return controls+`<div class="table-scroll"><table class="dre-compact"><caption>${d.competencia?'Competência':'Caixa gerencial'} · ${esc(state.periodo)} · valores em R$${d.competencia?' · AV sobre receita líquida':''}</caption><thead><tr><th scope="col">Rubrica</th><th scope="col" class="num">${esc(state.periodo)}</th>${d.competencia?'<th scope="col" class="num">AV %</th>':''}<th scope="col" class="num">${esc(state.comparar||'Comparação')}</th><th scope="col" class="num">Δ R$ / p.p.</th><th scope="col" class="num">Acumulado até ${esc(state.periodo)}</th></tr></thead><tbody>${d.linhas.map(r=>{const v=a[r.id],old=b[r.id],base=baseDoPeso(d,i,r),av=r.tipo==='ratio'||r.tipo==='total'||['entradas','saidas','variacao','bruta','liquida'].includes(r.id)||v==null||!base?null:v/base*100;return `<tr class="dre-row-${r.tipo}"><th scope="row">${esc(r.nome)}</th><td class="num ${tomDoValor(r.id,v)}"><button data-cfo-rubrica="${r.id}" data-cfo-period="${esc(state.periodo)}" data-cfo-base="${dreUI.base}">${valorDRE(v,r.tipo==='ratio')}</button></td>${d.competencia?`<td class="num">${av==null?'—':(Math.round(av*10)/10+0).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}).replace('-','−')+'%'}</td>`:''}<td class="num ${tomDoValor(r.id,old)}">${valorDRE(old,r.tipo==='ratio')}</td>${same&&v!=null&&old!=null?(dv=>`<td class="num ${tomDelta(DIRECAO_DA_LINHA[r.id]??(typeof DIRECAO_SIMPLES!=='undefined'?DIRECAO_SIMPLES[r.id]:0),dv)}">${gestaoSeta(dv)}${r.tipo==='ratio'?Math.abs(dv).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+' p.p.':valorDRE(Math.abs(dv))}</td>`)(r.tipo==='ratio'?Math.round((v-old)*10)/10:Math.round((v-old)*100)/100):'<td class="num">—</td>'}<td class="num ${tomDoValor(r.id,d.soma[r.id])}">${valorDRE(d.soma[r.id],r.tipo==='ratio')}</td></tr>`;}).join('')}</tbody></table></div><p class="hint">Comparações exigem mesmo escopo; caixa parcial não se compara a mês completo. Ausências permanecem não apuradas. Percentuais e margens preservam o sinal.</p>`;
 }
 function chavePendencia(reg,p){return 'acao:'+safeId(reg.label)+':'+encodeURIComponent([p.tipo,p.conta,p.texto,p.tituloId,p.pagamentoId].join('|'));}
+// Uma linha da fila: a chave da revisão é sempre do mês da pendência.
+function pendLinha(reg,p){const key=chavePendencia(reg,p),v=state.cfg.gestao?.[key];return `<div class="review-row"><div><b>${esc(p.texto||p.tipo)}</b><small>${esc(p.conta||'')}${p.conta&&typeof dreMubisys==='function'?dreMubisys(String(p.conta),reg):''} · ${esc(v?.situacao||'A conferir')}${v?.responsavel?' · '+esc(v.responsavel):''}${v?.prazo?' · '+esc(v.prazo):''}</small></div><b class="${typeof planoTom==='function'?planoTom(String(p.conta||''),p.valor):''}">${money(p.valor)}</b><button data-pend-key="${esc(key)}" data-pend-title="${esc(p.texto||p.tipo)}">Revisar</button></div>`;}
+const pendFiltra=todas=>todas.filter(p=>(gestaoUI.pendTipo==='todos'||(p.tipo||'Sem tipo')===gestaoUI.pendTipo)&&normalizarBusca([p.texto,p.conta,p.tipo].join(' ')).includes(normalizarBusca(gestaoUI.pendBusca)));
+const pendFiltros=(tipos,acao)=>`<div class="filterbar"><input id="pendBusca" aria-label="Buscar pendência" placeholder="Texto ou conta" value="${esc(gestaoUI.pendBusca)}"><select id="pendTipo" aria-label="Tipo de pendência"><option value="todos">Todos os tipos</option>${tipos.map(t=>`<option ${gestaoUI.pendTipo===t?'selected':''}>${esc(t)}</option>`).join('')}</select>${acao?'<button id="novaAcao">+ Ação de revisão</button>':''}</div>`;
+// Fila no Ano: busca e tipo valem para o ano; um grupo por mês com pendência, até 20 linhas cada.
+// A ação de revisão nova é de um mês: no Ano não aparece.
+function painelPendenciasAno(){
+ // Grupo do mês: a escolha da pessoa (aberto ou fechado) vale a cada render; com busca, os grupos com resultado abrem (escolha guardada à parte).
+ const busca=!!String(gestaoUI.pendBusca||'').trim(),abre=l=>typeof cardAttrs==='function'?' '+cardAttrs(`Fila de conferência${busca?' · busca':''} · ${String(l).split('/')[0]}`,busca):busca?' open':'';
+ const ano=gestaoAnoDaTela(),meses=gestaoMesesDoAno(ano).map(l=>({l,reg:state.records.find(r=>r.label===l)||null})).filter(x=>x.reg);
+ const todas=meses.flatMap(x=>x.reg.pendencias||[]),tipos=[...new Set(todas.map(p=>p.tipo||'Sem tipo'))];
+ const grupos=meses.map(x=>({...x,rows:pendFiltra(x.reg.pendencias||[])})).filter(x=>x.rows.length),n=grupos.reduce((t,x)=>t+x.rows.length,0);
+ const corpo=!todas.length?`<p class="hint">${esc(`Nenhuma pendência a conferir em ${ano}.`)}</p>`
+  :`<p class="hint">${n} pendência(s) a conferir em ${esc(ano)}. A mesma movimentação pode aparecer em mais de um alerta; os valores não são somados como perda. Resolver uma ação não reclassifica o ERP.</p>${grupos.map(x=>`<details class="conf-ano-mes"${abre(x.l)}><summary>${esc(x.l)} · ${x.rows.length} pendência(s) a conferir</summary>${x.rows.slice(0,20).map(p=>pendLinha(x.reg,p)).join('')}${x.rows.length>20?`<button type="button" data-period="${esc(x.l)}">Ver todas de ${esc(x.l)} →</button>`:''}</details>`).join('')||'<p>Nenhuma pendência a conferir neste filtro. Isso não comprova conciliação.</p>'}`;
+ const acoes=Object.entries(state.cfg.gestao||{}).filter(([k])=>meses.some(x=>k.startsWith('acao:'+safeId(x.l)+':')));
+ return card('Fila de conferência',`${pendFiltros(tipos,false)}${corpo}<details><summary>Ações e decisões registradas</summary>${acoes.map(([k,v])=>`<button class="action-line" data-acao-key="${esc(k)}">${esc(v.titulo)} · ${esc(v.situacao)} · ${esc(v.responsavel||'Sem responsável')} · ${esc(v.prazo||'Sem prazo')}</button>`).join('')||'<p>Nenhuma ação registrada.</p>'}</details>`);
+}
 function painelPendencias(reg){
+ if(gestaoNoAno())return painelPendenciasAno();
  const todas=reg?.pendencias||[],tipos=[...new Set(todas.map(p=>p.tipo||'Sem tipo'))];
- const rows=todas.filter(p=>(gestaoUI.pendTipo==='todos'||(p.tipo||'Sem tipo')===gestaoUI.pendTipo)&&normalizarBusca([p.texto,p.conta,p.tipo].join(' ')).includes(normalizarBusca(gestaoUI.pendBusca)));
+ const rows=pendFiltra(todas);
  const pagina=Math.min(gestaoUI.pendPagina,Math.max(0,Math.ceil(rows.length/20)-1));
- return card('Fila de conferência',`<div class="filterbar"><input id="pendBusca" aria-label="Buscar pendência" placeholder="Texto ou conta" value="${esc(gestaoUI.pendBusca)}"><select id="pendTipo" aria-label="Tipo de pendência"><option value="todos">Todos os tipos</option>${tipos.map(t=>`<option ${gestaoUI.pendTipo===t?'selected':''}>${esc(t)}</option>`).join('')}</select><button id="novaAcao">+ Ação de revisão</button></div><p class="hint">${rows.length} pendência(s) a conferir. A mesma movimentação pode aparecer em mais de um alerta; os valores não são somados como perda. Resolver uma ação não reclassifica o ERP.</p>${rows.slice(pagina*20,pagina*20+20).map(p=>{const key=chavePendencia(reg,p),v=state.cfg.gestao?.[key];return `<div class="review-row"><div><b>${esc(p.texto||p.tipo)}</b><small>${esc(p.conta||'')}${p.conta&&typeof dreMubisys==='function'?dreMubisys(String(p.conta),reg):''} · ${esc(v?.situacao||'A conferir')}${v?.responsavel?' · '+esc(v.responsavel):''}${v?.prazo?' · '+esc(v.prazo):''}</small></div><b class="${typeof planoTom==='function'?planoTom(String(p.conta||''),p.valor):''}">${money(p.valor)}</b><button data-pend-key="${esc(key)}" data-pend-title="${esc(p.texto||p.tipo)}">Revisar</button></div>`;}).join('')||'<p>Nenhuma pendência a conferir neste filtro. Isso não comprova conciliação.</p>'}<div class="management-chips"><button data-pend-page="${pagina-1}" ${pagina===0?'disabled':''}>Anterior</button><span>${pagina+1} / ${Math.max(1,Math.ceil(rows.length/20))}</span><button data-pend-page="${pagina+1}" ${(pagina+1)*20>=rows.length?'disabled':''}>Próxima</button></div><details><summary>Ações e decisões registradas</summary>${Object.entries(state.cfg.gestao||{}).filter(([k])=>k.startsWith('acao:'+safeId(state.periodo)+':')).map(([k,v])=>`<button class="action-line" data-acao-key="${esc(k)}">${esc(v.titulo)} · ${esc(v.situacao)} · ${esc(v.responsavel||'Sem responsável')} · ${esc(v.prazo||'Sem prazo')}</button>`).join('')||'<p>Nenhuma ação registrada.</p>'}</details>`);
+ return card('Fila de conferência',`${pendFiltros(tipos,true)}<p class="hint">${rows.length} pendência(s) a conferir. A mesma movimentação pode aparecer em mais de um alerta; os valores não são somados como perda. Resolver uma ação não reclassifica o ERP.</p>${rows.slice(pagina*20,pagina*20+20).map(p=>pendLinha(reg,p)).join('')||'<p>Nenhuma pendência a conferir neste filtro. Isso não comprova conciliação.</p>'}<div class="management-chips"><button data-pend-page="${pagina-1}" ${pagina===0?'disabled':''}>Anterior</button><span>${pagina+1} / ${Math.max(1,Math.ceil(rows.length/20))}</span><button data-pend-page="${pagina+1}" ${(pagina+1)*20>=rows.length?'disabled':''}>Próxima</button></div><details><summary>Ações e decisões registradas</summary>${Object.entries(state.cfg.gestao||{}).filter(([k])=>k.startsWith('acao:'+safeId(state.periodo)+':')).map(([k,v])=>`<button class="action-line" data-acao-key="${esc(k)}">${esc(v.titulo)} · ${esc(v.situacao)} · ${esc(v.responsavel||'Sem responsável')} · ${esc(v.prazo||'Sem prazo')}</button>`).join('')||'<p>Nenhuma ação registrada.</p>'}</details>`);
 }
 function abrirAcao(key='acao:'+safeId(state.periodo)+':'+crypto.randomUUID(),titulo=''){
  const orig=structuredClone(state.cfg.gestao?.[key]??null),v=orig||{titulo,situacao:'A conferir'};
@@ -531,12 +587,14 @@ function precoBaseAno(label){
  const [mm,ano]=String(label).split('/'),ate=PT_MON.indexOf(mm)+1;if(!ate)return null;
  const b=precoBaseLista(PT_MON.slice(0,ate).map(x=>x+'/'+ano));if(b)b.ano=ano;return b;
 }
-const precoAno=()=>typeof anoAtivo==='function'&&anoAtivo();
+const precoAno=()=>typeof telaNoAno==='function'?!!telaNoAno():typeof anoAtivo==='function'&&anoAtivo();
 const precoBaseTela=label=>precoAno()?precoBaseAno(label):precoBase(label);
-// Comparação: os mesmos meses um ano antes (só os que fecharam lá).
-function precoComparacao(b){
- if(!b||typeof dfcMesDesloca!=='function')return null;
- const ls=b.meses.map(l=>dfcMesDesloca(l,-12)).filter(Boolean);return ls.length?precoBaseLista(ls):null;
+// Comparação: os meses da base levados ao ano anoComp (só os que fecharam lá). Sem ano: nada.
+const precoDesloc=(b,anoComp)=>12*(Number(b.meses[b.meses.length-1].split('/')[1])-Number(anoComp));
+function precoComparacao(b,anoComp){
+ if(!b||anoComp==null||typeof dfcMesDesloca!=='function')return null;
+ const k=precoDesloc(b,anoComp);if(!k)return null;
+ const ls=b.meses.map(l=>dfcMesDesloca(l,-k)).filter(Boolean);return ls.length?precoBaseLista(ls):null;
 }
 function precoCalcular(meses,pulados){
  if(!meses.length)return null;
@@ -639,10 +697,13 @@ function renderPrecos(){
  // O mesmo período um ano antes, para cada cartão (e a distância do mesmo mês, no modo mês).
  // Ano da comparação pelo último mês da base: em janeiro, a base Nov a Jan compara com Nov a Jan de um ano antes.
  const anoFim=Number(b.meses[b.meses.length-1].split('/')[1]),cruza=b.meses[0].split('/')[1]!==b.meses[b.meses.length-1].split('/')[1];
- const bc0=precoComparacao(b);
+ // No Ano, o ano escolhido em "Comparar com" (ou nenhum); no mês, o ano anterior.
+ const anoComp=modoAno?gestaoAnoComparado(anoFim):anoFim-1,semComp=anoComp==null,bc0=precoComparacao(b,anoComp);
  // Comparar só os mesmos meses: se lá fecharam menos, o lado de hoje também usa só esses.
- const bcMes=bc0?new Set(bc0.meses):null,bh=bc0&&bc0.n<b.n?precoBaseLista(b.meses.filter(l=>bcMes.has(dfcMesDesloca(l,-12)))):b,bc=bh?bc0:null;
- const rotAnt=`${modoAno?'Mesmos meses de':'Mesmo período de'} ${cruza&&bc?`${bc.meses[0]} a ${bc.meses[bc.meses.length-1]}`:anoFim-1}${bc&&bc.n<b.n?` (só ${bc.n} de ${b.n} meses, comparados com os mesmos meses de hoje)`:''}`;
+ const bcMes=bc0?new Set(bc0.meses):null,bh=bc0&&bc0.n<b.n?precoBaseLista(b.meses.filter(l=>bcMes.has(dfcMesDesloca(l,-precoDesloc(b,anoComp))))):b,bc=bh?bc0:null;
+ const rotAnt=`${modoAno?'Mesmos meses de':'Mesmo período de'} ${cruza&&bc?`${bc.meses[0]} a ${bc.meses[bc.meses.length-1]}`:anoComp}${bc&&bc.n<b.n?` (só ${bc.n} de ${b.n} meses, comparados com os mesmos meses de hoje)`:''}`;
+ // Sem ano de comparação: nenhuma linha de comparação nem traço vazado nos cartões.
+ const compHtml=(...a)=>semComp?'':precoCompHtml(...a);
  const mAnt=!modoAno&&typeof dfcMesDesloca==='function'?precoMes(dfcMesDesloca(label,-12)):null,bAnt=mAnt&&precoUsavel(mAnt)?precoBase(mAnt.label):null;
  const distAnt=modoAno?(bc&&bc.pe!=null?bc.vendas-bc.pe:null):(bAnt&&bAnt.pe!=null?mAnt.dado.vendas-bAnt.pe:null),vendasAnt=modoAno?bc?.vendas:mAnt?.dado?.vendas;
  const semEq='sem ponto de equilíbrio (margem de contribuição não positiva)',semDistAnt=modoAno?(bc?semEq:null):!mAnt?.dado?'sem dados':!precoUsavel(mAnt)?precoMotivo(mAnt):bAnt&&bAnt.pe==null?semEq:null;
@@ -655,14 +716,14 @@ function renderPrecos(){
  const extra=(html,bloco)=>html.replace(/<\/div>$/,bloco+'</div>');
  const pp=(a,b2)=>a!=null&&b2!=null?a-b2:null,pr=(a,b2)=>a!=null&&b2>0?(a/b2-1)*100:null;
  const cMc=extra(recCartao('Margem de contribuição',precoPct(b.pct.mc),`${money(b.mc)} por mês sobre ${money(b.vendas)} de vendas, ${media}`,b.mc>0?'tom-entra':b.mc<0?'tom-sai':''),
-  precoAvalHtml('mc',b.pct.mc,bc?.pct?.mc,rotAnt)+precoCompHtml(rotAnt,bc?precoPct(bc.pct.mc):null,pp(bh?.pct?.mc,bc?.pct?.mc),pp(bh?.pct?.mc,bc?.pct?.mc)>0,' p.p.'));
+  precoAvalHtml('mc',b.pct.mc,bc?.pct?.mc,rotAnt)+compHtml(rotAnt,bc?precoPct(bc.pct.mc):null,pp(bh?.pct?.mc,bc?.pct?.mc),pp(bh?.pct?.mc,bc?.pct?.mc)>0,' p.p.'));
  const cPe=extra(recCartao('Ponto de equilíbrio',b.pe==null?'Sem equilíbrio':money(b.pe),b.pe==null?'A margem de contribuição não é positiva: nenhum volume de vendas cobre as despesas fixas.':`Vendas por mês que pagam ${money(b.fixas)} de despesas fixas com ${precoPct(b.pct.mc)} de margem`),
-  b.pe==null?'':`<span class="aval-comp">${esc(precoPct(pePct(b)))} das vendas médias (${esc(money(b.vendas))} por mês)</span>`+precoAvalHtml('pe',pePct(b),pePct(bc),rotAnt)+precoCompHtml(rotAnt,bc&&bc.pe!=null?`${money(bc.pe)} (${precoPct(pePct(bc))} das vendas)`:null,pp(pePct(bh),pePct(bc)),pp(pePct(bh),pePct(bc))<0,' p.p. nas vendas',bc&&bc.pe==null?semEq:null));
+  b.pe==null?'':`<span class="aval-comp">${esc(precoPct(pePct(b)))} das vendas médias (${esc(money(b.vendas))} por mês)</span>`+precoAvalHtml('pe',pePct(b),pePct(bc),rotAnt)+compHtml(rotAnt,bc&&bc.pe!=null?`${money(bc.pe)} (${precoPct(pePct(bc))} das vendas)`:null,pp(pePct(bh),pePct(bc)),pp(pePct(bh),pePct(bc))<0,' p.p. nas vendas',bc&&bc.pe==null?semEq:null));
  const cDist=dist!=null?extra(recCartao('Distância do equilíbrio',money(dist),modoAno?`Vendas por mês (${money(b.vendas)}, ${media}) ${dist>=0?'acima':'abaixo'} do ponto de equilíbrio`:`Vendas de ${label} (${money(m.dado.vendas)}) ${dist>=0?'acima':'abaixo'} do ponto de equilíbrio`,dist>0?'tom-entra':dist<0?'tom-sai':''),
-  `<span class="aval-comp">Margem de segurança: ${esc(precoPct(seg))} das vendas${modoAno?'':' do mês'}</span>`+precoAvalHtml('seguranca',seg,segAnt,rotDistAnt)+precoCompHtml(rotDistAnt,distAnt!=null?`${money(distAnt)} (${precoPct(segAnt)})`:null,pp(modoAno?segPct(bh.pe!=null?bh.vendas-bh.pe:null,bh.vendas):seg,segAnt),pp(modoAno?segPct(bh.pe!=null?bh.vendas-bh.pe:null,bh.vendas):seg,segAnt)>0,' p.p.',semDistAnt))
+  `<span class="aval-comp">Margem de segurança: ${esc(precoPct(seg))} das vendas${modoAno?'':' do mês'}</span>`+precoAvalHtml('seguranca',seg,segAnt,rotDistAnt)+compHtml(rotDistAnt,distAnt!=null?`${money(distAnt)} (${precoPct(segAnt)})`:null,pp(modoAno?segPct(bh.pe!=null?bh.vendas-bh.pe:null,bh.vendas):seg,segAnt),pp(modoAno?segPct(bh.pe!=null?bh.vendas-bh.pe:null,bh.vendas):seg,segAnt)>0,' p.p.',semDistAnt))
   :recCartao('Distância do equilíbrio','Não apurado',semDist);
  const cFix=extra(recCartao(modoAno?'Despesas fixas por mês (média do ano)':'Despesas fixas por mês (média)',money(b.fixas),`${precoPct(b.pct.fixas)} das vendas, ${media}`,b.fixas>0?'tom-sai':''),
-  precoAvalHtml('fixas',b.pct.fixas,bc?.pct?.fixas,rotAnt)+precoCompHtml(rotAnt,bc?`${money(bc.fixas)} (${precoPct(bc.pct.fixas)} das vendas)`:null,pp(bh?.pct?.fixas,bc?.pct?.fixas),pp(bh?.pct?.fixas,bc?.pct?.fixas)<0,' p.p. nas vendas'));
+  precoAvalHtml('fixas',b.pct.fixas,bc?.pct?.fixas,rotAnt)+compHtml(rotAnt,bc?`${money(bc.fixas)} (${precoPct(bc.pct.fixas)} das vendas)`:null,pp(bh?.pct?.fixas,bc?.pct?.fixas),pp(bh?.pct?.fixas,bc?.pct?.fixas)<0,' p.p. nas vendas'));
  const cards=`<div class="cards cards-controle precos-cards">${cMc}${cPe}${cDist}${cFix}</div>`;
  const nota=`<p class="hint precos-base">Base caixa: vendas recebidas e custos pagos, das linhas da DRE Simples, na ${esc(media)}. ${!modoAno&&b.n<3?'Com menos de três meses completos, a média oscila mais. ':''}Mês com mais de ${PRECO_SEM_CONTA_MAX}% das saídas sem plano de contas fica de fora. As faixas de excelente, boa e ruim são de referência para comunicação visual no Simples; o Glossário explica cada uma. O Simples entra pelo que foi pago (alíquota observada de ${esc(precoPct(b.pct.das))}); a alíquota do PGDAS de cada empresa fica no simulador.${paraMeta!=null?(paraMeta>0?` Para a meta de resultado do mês de ${esc(money(metaN))} em ${esc(label)} (Parâmetros; depois de juros e tarifas), as vendas precisam chegar a ${esc(money(paraMeta))} por mês.`:` A meta de resultado do mês de ${esc(money(metaN))} em ${esc(label)} (Parâmetros) é atingida com qualquer venda.`):''}</p>`;
  const anoMeses=PT_MON.map(x=>x+'/'+ano),serie=anoMeses.map(l=>{const pm=precoMes(l),pb=pm.dado?precoBase(l):null;return {l,pm,pe:pb?.pe??null};}),sel=modoAno?-1:anoMeses.findIndex(l=>monthSortKey(l)===monthSortKey(label));
@@ -673,7 +734,8 @@ function renderPrecos(){
  const linhas=serie.map(x=>{const d=x.pm.dado,dm=d&&!x.pm.parcial&&x.pe!=null?Math.round((d.vendas-x.pe)*100)/100:null,t=(id,v)=>x.pm.parcial?'':tomDoValor(id,v),imp=d?d.das+d.impostosVendas+d.devolucoes:null;return `<tr${!modoAno&&monthSortKey(x.l)===monthSortKey(label)?' class="selected-month"':''}><th scope="row">${esc(x.l)}${x.pm.parcial&&d?' *':''}</th>${cel(d?.vendas,t('entradas',d?.vendas))}${cel(imp,t('saidas',imp))}${cel(d?.variaveis,t('saidas',d?.variaveis))}${cel(d?.mc,t('variacao',d?.mc))}<td class="num">${d&&d.vendas>0?esc(precoPct(Math.round(d.mc/d.vendas*10000)/100)):'—'}</td>${cel(d?.fixas,t('saidas',d?.fixas))}${cel(x.pe)}<td class="num ${x.pm.parcial||dm==null?'':dm>0?'tom-entra':dm<0?'tom-sai':''}">${dm==null?'<span class="muted" title="Não apurado">—</span>':esc(money(dm))}</td></tr>`;}).join('');
  const tabela=`<details class="card precos-mensal" ${gestaoCard('Margem e equilíbrio mês a mês',false)}><summary><h2 class="card-titulo">Margem e equilíbrio mês a mês · ${esc(ano)}</h2></summary><div class="card-body"><div class="table-scroll" role="region" tabindex="0" aria-label="Margem e equilíbrio mês a mês"><table class="tabela-controle precos-tabela"><caption>Base caixa · ponto de equilíbrio pela média dos três meses completos até cada mês · * = mês em andamento ou incompleto</caption><thead><tr><th scope="col">Mês</th><th scope="col" class="num">Vendas</th><th scope="col" class="num">Impostos e devoluções</th><th scope="col" class="num">Custos variáveis</th><th scope="col" class="num">Margem de contribuição</th><th scope="col" class="num">Margem %</th><th scope="col" class="num">Despesas fixas</th><th scope="col" class="num">Ponto de equilíbrio</th><th scope="col" class="num">Distância</th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
  // A planilha sai pelo "↓ Planilha" do topo (precosCSV, N25).
- return cards+nota+precoComparativoHtml(b,modoAno)+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+tabela;
+ const avisoSem=modoAno&&semComp?`<p class="hint precos-sem-comparacao">${esc(gestaoSemAno())}</p>`:'';
+ return cards+nota+avisoSem+precoComparativoHtml(b,modoAno,anoComp)+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+tabela;
 }
 // Meses seguidos com o mesmo motivo viram faixa: "Jan/2026 a Mai/2026 sem dados".
 function precoFaixasDeMeses(itens){
@@ -689,12 +751,14 @@ function precoAnos(b){
  const out=[];for(let k=0;k<10;k++){const ls=b.meses.map(l=>dfcMesDesloca(l,-12*k)).filter(Boolean);if(!ls.length)break;const x=k?precoBaseLista(ls):b;if(!x){if(k>1&&!out.length)break;continue;}out.unshift({ano:anoFim-k,b:x,pe:x.pe!=null&&x.vendas>0?x.pe/x.vendas*100:null,seg:x.pe!=null&&x.vendas>0?(x.vendas-x.pe)/x.vendas*100:null});}
  return out;
 }
-function precoComparativoHtml(b,modoAno){
+function precoComparativoHtml(b,modoAno,anoComp=null){
  const anos=precoAnos(b);if(anos.length<2)return '';
  const ms=b.meses.map(l=>l.split('/')[0]),seguidos=precoFaixasDeMeses(b.meses.map(l=>({label:l}))).length===1,mesesTxt=ms.length===1?ms[0]:seguidos?`${ms[0]} a ${ms[ms.length-1]}`:ms.slice(0,-1).join(', ')+' e '+ms[ms.length-1];
  const selo=(chave,v)=>{const a=precoAvaliar(chave,v);return a?` <span class="aval-selo aval-${a.nivel}">${esc(a.rotulo)}</span>`:'';};
  const cel=(chave,v)=>`<td class="num">${v==null?'<span class="muted" title="Não apurado">—</span>':esc(precoPct(Math.round(v*10)/10))+selo(chave,v)}</td>`;
- const linhas=anos.map((x,i)=>`<tr${i===anos.length-1?' class="selected-month"':''}><th scope="row">${x.ano}${x.b.n<b.n?` <small>(${x.b.n} ${x.b.n===1?'mês':'meses'})</small>`:''}</th><td class="num">${esc(money(x.b.vendas))}</td>${cel('mc',x.b.pct.mc)}${cel('fixas',x.b.pct.fixas)}${cel('pe',x.pe)}${cel('seguranca',x.seg)}</tr>`).join('');
+ // No Ano, o ano de "Comparar com" fica marcado.
+ const comparado=x=>modoAno&&anoComp!=null&&x.ano===Number(anoComp);
+ const linhas=anos.map((x,i)=>`<tr${i===anos.length-1?' class="selected-month"':comparado(x)?' class="ano-comparado"':''}><th scope="row">${x.ano}${comparado(x)?' <small>(comparado)</small>':''}${x.b.n<b.n?` <small>(${x.b.n} ${x.b.n===1?'mês':'meses'})</small>`:''}</th><td class="num">${esc(money(x.b.vendas))}</td>${cel('mc',x.b.pct.mc)}${cel('fixas',x.b.pct.fixas)}${cel('pe',x.pe)}${cel('seguranca',x.seg)}</tr>`).join('');
  return `<details class="card precos-anos" ${gestaoCard('Comparativo ano a ano',true)}><summary><h2 class="card-titulo">Comparativo ano a ano · ${esc(mesesTxt)}</h2></summary><div class="card-body"><p class="hint">${modoAno?'Os meses completos do ano escolhido':'Os mesmos meses da média'} em cada ano: ${esc(mesesTxt)}. Ano com menos meses completos mostra quantos entraram. Mês sem plano de contas fica de fora.</p><div class="table-scroll"><table class="tabela-controle precos-anos-tabela"><caption>Base caixa · média por mês · avaliação pelas faixas de referência</caption><thead><tr><th scope="col">Ano</th><th scope="col" class="num">Vendas por mês</th><th scope="col" class="num">Margem de contribuição</th><th scope="col" class="num">Despesas fixas</th><th scope="col" class="num">Ponto de equilíbrio</th><th scope="col" class="num">Margem de segurança</th></tr></thead><tbody>${linhas}</tbody></table></div></div></details>`;
 }
 // Planilha da tela (Fase 11.5): base da média, os quatro números, o mês a mês do ano e o
@@ -865,15 +929,41 @@ function balOrigem(x){
 }
 // Marca de uma célula: ≈ aproximado, † saldo de um mês anterior.
 const balSinal=x=>x?.valor==null?'':(x.aproximado?' ≈':'')+(x.cadastro&&!x.cadastro.proprio?' †':'');
-function balCartoes(b){
+// Chip Ano: a linha "Fim de <mesmo mês>/<ano comparado>" de cada cartão (compLinhaAno, do graficos.js).
+// Ativo sobe bom, passivo sobe ruim, patrimônio sobe bom, endividamento sobe ruim (em pontos).
+function balCompAno(b,b0){
+ if(!b0||!b.apurado||typeof compLinhaAno!=='function')return {};
+ const rot=`Fim de ${b0.label}`,mot=b0.apurado?'':'não apurado ('+balNaoSomado(b0)+')',dif=k=>balReais(Math.round(b[k]*100)-Math.round(b0[k]*100));
+ const linha=(k,dir,tomAnterior)=>b0.apurado?compLinhaAno(rot,b0[k],dif(k),dir,{tomAnterior}):compLinhaAno(rot,null,null,dir,{motivo:mot});
+ return {ativo:linha('ativo',1,saldoTom('receber',b0.ativo)),passivo:linha('passivo',-1,saldoTom('pagar',b0.passivo)),pl:linha('pl',1,b0.pl>0?'tom-entra':b0.pl<0?'tom-sai':''),
+  endiv:b.endiv==null?'':!b0.apurado?compLinhaAno(rot,null,null,-1,{motivo:mot}):b0.endiv==null?compLinhaAno(rot,null,null,-1,{motivo:'sem endividamento (ativo zero)'}):compLinhaAno(rot,b0.endiv,Math.round((b.endiv-b0.endiv)*10)/10,-1,{formato:precoPct,formatoDelta:v=>precoPct(v).replace('%',''),unidade:' p.p.'})};
+}
+function balCartoes(b,b0=null){
  if(!b.apurado)return `<div class="cards cards-controle">${['Ativo total','Passivo total','Patrimônio líquido','Endividamento'].map(t=>recCartao(t,'Não apurado',balNaoSomado(b))).join('')}</div>`;
  const L=b.linhas,v=id=>L[id].valor==null?'não informado':money(L[id].valor),m=balMarca(b);
  const contas=balReais(['fornecedores','impostos','socios','semClasse'].reduce((t,id)=>t+Math.round(L[id].valor*100),0));
  const endivNota=b.endiv==null?'Ativo zero: não há como dividir.':b.endiv<=100?`De cada R$ 100,00 do ativo, ${money(Math.round(b.passivo/b.ativo*10000)/100)} são de terceiros${m}`:`As dívidas passam do que a empresa tem: são ${(b.endiv/100).toLocaleString('pt-BR',{maximumFractionDigits:1})} vezes o ativo e o patrimônio está negativo${m}`;
- return `<div class="cards cards-controle">${recCartao('Ativo total',money(b.ativo),`Caixa ${v('caixa')}, a receber ${v('receber')}, estoque ${v('estoque')} e imobilizado ${v('imobilizado')}${balMarca(b,'ativo')}`,saldoTom('receber',b.ativo))}${recCartao('Passivo total',money(b.passivo),`Contas a pagar no Mubisys ${money(contas)}, empréstimos ${v('emprestimos')} e parcelamento do DAS ${v('parcelamento')}${L.bancoNegativo.valor>0?`, mais ${money(L.bancoNegativo.valor)} de banco no vermelho`:''}${balMarca(b,'passivo')}`,saldoTom('pagar',b.passivo))}${recCartao('Patrimônio líquido',money(b.pl),`Ativo − passivo no fim de ${b.label}: gerencial, não é o balanço do contador${m}`,b.pl>0?'tom-entra':b.pl<0?'tom-sai':'')}${recCartao('Endividamento',b.endiv==null?'Não apurado':precoPct(b.endiv),endivNota)}</div>`;
+ const cmp=balCompAno(b,b0),extra=(html,bloco)=>bloco?html.replace(/<\/div>$/,bloco+'</div>'):html;
+ return `<div class="cards cards-controle">${extra(recCartao('Ativo total',money(b.ativo),`Caixa ${v('caixa')}, a receber ${v('receber')}, estoque ${v('estoque')} e imobilizado ${v('imobilizado')}${balMarca(b,'ativo')}`,saldoTom('receber',b.ativo)),cmp.ativo)}${extra(recCartao('Passivo total',money(b.passivo),`Contas a pagar no Mubisys ${money(contas)}, empréstimos ${v('emprestimos')} e parcelamento do DAS ${v('parcelamento')}${L.bancoNegativo.valor>0?`, mais ${money(L.bancoNegativo.valor)} de banco no vermelho`:''}${balMarca(b,'passivo')}`,saldoTom('pagar',b.passivo)),cmp.passivo)}${extra(recCartao('Patrimônio líquido',money(b.pl),`Ativo − passivo no fim de ${b.label}: gerencial, não é o balanço do contador${m}`,b.pl>0?'tom-entra':b.pl<0?'tom-sai':''),cmp.pl)}${extra(recCartao('Endividamento',b.endiv==null?'Não apurado':precoPct(b.endiv),endivNota),cmp.endiv)}</div>`;
 }
 // "Banco no vermelho" só aparece quando existe (ou falta o caixa para saber).
 const balVisivel=(l,b)=>l.id!=='bancoNegativo'||b.linhas.bancoNegativo.valor!==0;
+// Chip Ano: o último mês de janeiro a fimDoAno(ano) com a posição do fim do mês gravada; nenhum, null.
+function balMesDoAno(ano,hist,saldos){
+ const meses=gestaoMesesDoAno(ano);
+ for(let i=meses.length-1;i>=0;i--)if(balApurar(meses[i],hist,saldos).pos)return meses[i];
+ return null;
+}
+// Chip Ano: fim do mês do balanço contra o fim do mesmo mês no ano comparado, linha a linha.
+function balComparacaoAno(b,b0){
+ const nada='<td class="num"><span class="muted" title="Não apurado">—</span></td>';
+ const cel=(v,lado,x)=>v==null?nada:`<td class="num${lado?saldoCls(lado,v):''}">${esc((lado?money(v):precoPct(v))+balSinal(x))}</td>`;
+ const dCel=(a,c,dir,pct)=>{if(a==null||c==null)return nada;const d=pct?Math.round((a-c)*10)/10:balReais(Math.round(a*100)-Math.round(c*100));return `<td class="num ${tomDelta(dir,d)||'delta-neutro'}">${d>0?'▲ ':d<0?'▼ ':'■ '}${esc(pct?precoPct(Math.abs(d)).replace('%',' p.p.'):money(Math.abs(d)))}</td>`;};
+ const linhas=BAL_LINHAS.filter(l=>balVisivel(l,b)||balVisivel(l,b0)).map(l=>{const lado=l.lado==='passivo'?'pagar':'receber',x=b.linhas[l.id],y=b0.linhas[l.id];return `<tr class="dre-l-detalhe"><th scope="row">${esc(l.nome)}</th>${cel(x.valor,lado,x)}${cel(y.valor,lado,y)}${dCel(x.valor,y.valor,l.lado==='ativo'?1:-1)}</tr>`;}).join('');
+ const totais=BAL_TOTAIS.map(([k,n])=>{const lado=k==='endiv'?'':k==='passivo'?'pagar':'receber',dir=k==='passivo'||k==='endiv'?-1:1;return `<tr class="dre-l-${k==='pl'?'resultado':'subtotal'}"><th scope="row">${esc(n)}</th>${cel(b[k],lado)}${cel(b0[k],lado)}${dCel(b[k],b0[k],dir,k==='endiv')}</tr>`;}).join('');
+ const titulo=`Balanço · fim de ${b.label} contra fim de ${b0.label}`;
+ return card(titulo,`${b0.apurado?'':`<p class="hint">${esc(`Fim de ${b0.label}: ${balNaoSomado(b0)}`)}</p>`}<div class="table-scroll" role="region" tabindex="0" aria-label="${esc(titulo)}"><table class="tabela-controle tabela-ano bal-ano"><caption>${esc(`Fim do mês · R$ · — = sem dados · ≈ = aproximado · † = saldo de um mês anterior · Δ: ativo e patrimônio subindo é bom; passivo e endividamento subindo é ruim`)}</caption><thead><tr><th scope="col">Conta</th><th scope="col" class="num">${esc(b.label)}</th><th scope="col" class="num">${esc(b0.label)}</th><th scope="col" class="num">Δ</th></tr></thead><tbody>${linhas}${totais}</tbody></table></div>`,true);
+}
 function balTabela(b){
  const L=b.linhas,cel=v=>v==null?'<span class="nao-apurado">Não apurado</span>':esc(money(v)),tom=(lado,v)=>saldoCls(lado==='passivo'?'pagar':'receber',v);
  // Valor de Parâmetros leva ao mês de onde veio: o do cadastro (inclusive o herdado) ou o do saldo bancário informado (N14).
@@ -909,14 +999,17 @@ function balCSV(){
  return rows;
 }
 function renderBalanco(){
- const label=state.periodo;if(!label||!F.periodo(label))return '<p class="hint">Escolha um mês para ver o balanço.</p>';
+ const mes=state.periodo;if(!mes||!F.periodo(mes))return '<p class="hint">Escolha um mês para ver o balanço.</p>';
  carregarGiro();
  const d=giroUI.dados,hist=Array.isArray(d?.historico?.meses)?d.historico.meses:[],saldos=typeof dfcSaldos==='function'?dfcSaldos():new Map(),perm={admin:!!state.permissoes?.admin};
+ // Chip Ano: o balanço é o do último mês do ano com a posição gravada.
+ const noAno=gestaoNoAno(),anoTela=mes.split('/')[1],mesAno=noAno?balMesDoAno(anoTela,hist,saldos):null,label=mesAno||mes;
  const b=balApurar(label,hist,saldos),ult=hist.length?hist[hist.length-1]:null;
  const acoes=`<div class="actions"><button type="button" data-giro-recarregar aria-disabled="${giroUI.busy}">Ler de novo</button><span class="hint" role="status">${giroUI.busy?'Lendo o histórico de posições…':''}</span></div>`;
  const erro=giroUI.erro?`<p class="param-avisos">${esc(giroUI.erro)} ${d?'Mostrando a última leitura.':'Nenhum zero foi assumido.'}</p>`:'';
  const vazio=(titulo,texto,botao='')=>`<section class="estado-vazio bal-sem-dados"><div><h2>${esc(titulo)}</h2><p>${esc(texto)}</p></div>${botao}</section>`;
  const irUlt=ult&&ult.id!==b.id&&typeof ult.mes==='string'?`<button type="button" data-go="balanco" data-rec-mes="${esc(ult.mes)}">Ver ${esc(ult.mes)}</button>`:'';
+ if(noAno&&!mesAno&&d?.historico&&hist.length)return balCartoes(b)+erro+vazio(`Sem a posição de fim de mês em ${anoTela}`,`O histórico de posições vai de ${hist[0].mes} a ${ult.mes}${b.id>ult.id?': a remontagem de domingo inclui os meses que fecharem até lá':''}.`,irUlt)+acoes;
  // Sem a posição do mês: diz por quê e leva ao último fechamento.
  if(!b.pos){
   let estado;const aberto=(F.periodo(label)?.ate||'')>=dfcHoje(),semDados=!b.dm?.reg?` ${label} também não tem dados coletados: colete no Mubisys ou importe a planilha do mês.`:'';
@@ -933,13 +1026,16 @@ function renderBalanco(){
  const faltam=b.apurado&&b.semCadastro.length?vazio('Faltam saldos em Parâmetros',`Sem ${balLista(b.semCadastro.map(balCurto))} em ${label}, o balanço sai marcado como parcial. ${perm.admin?`Informe em Parâmetros: ${onde}.`:'Peça a um administrador para informar em Parâmetros.'}`,`<button type="button" data-go="parametros" data-rec-mes="${esc(label)}">${perm.admin?'Informar em Parâmetros':'Ver Parâmetros'}</button>`):'';
  const avisos=b.avisos.length?`<div class="param-avisos bal-avisos"><ul>${b.avisos.map(a=>`<li>${esc(a)}</li>`).join('')}</ul></div>`:'';
  const anteriores=b.anteriores.length?` Vale o último saldo informado para ${balLista(b.anteriores.map(id=>`${balCurto(id)} (${b.linhas[id].cadastro.mes})`))}: revise em Parâmetros.`:'';
- const nota=`<p class="hint bal-nota">${esc(`Fim de ${label}, as duas empresas juntas. Contas a receber e a pagar remontadas em ${recHora(b.pos.gravadoEm||b.pos.geradoEm)} com os títulos como estavam no Mubisys nessa data: título cancelado ou renegociado depois do fechamento não aparece. Não é o balanço do contador: sem depreciação, provisões nem capital social.${anteriores}`)}</p>`;
+ // No Ano: o fim do mesmo mês no ano de "Comparar com" (nenhum: sem comparação).
+ const anoComp=noAno?gestaoAnoComparado(Number(anoTela)):null,b0=anoComp!=null?balApurar(label.split('/')[0]+'/'+anoComp,hist,saldos):null;
+ const nota=`<p class="hint bal-nota">${esc(`${noAno?`No Ano, o balanço é a posição no fim de ${label}, o último mês de ${anoTela} com a posição gravada. `:''}Fim de ${label}, as duas empresas juntas. Contas a receber e a pagar remontadas em ${recHora(b.pos.gravadoEm||b.pos.geradoEm)} com os títulos como estavam no Mubisys nessa data: título cancelado ou renegociado depois do fechamento não aparece. Não é o balanço do contador: sem depreciação, provisões nem capital social.${anteriores}`)}</p>`;
  const itens=lado=>BAL_LINHAS.filter(l=>l.lado===lado&&balVisivel(l,b)).map(l=>({rotulo:l.nome+balSinal(b.linhas[l.id]),valor:b.linhas[l.id].valor}));
  const sub=t=>`<h3 style="margin:0 0 2px;font-size:13px">${t}</h3>`;
  const g1=recPainel('Do que é feito o balanço?',`O que a empresa tem (ativo, em azul) e o que deve (passivo, em vermelho) no fim de ${label}, do maior para o menor. ≈ = aproximado · † = saldo de um mês anterior.`,`<div class="param-aliq-grade"><div class="param-aliq">${sub('Tem · ativo')}${gBarrasOrdenadas(itens('ativo'),{cor:'entrada',limite:4,titulo:`Ativo no fim de ${label}`})}</div><div class="param-aliq">${sub('Deve · passivo')}${gBarrasOrdenadas(itens('passivo'),{cor:'saida',limite:7,titulo:`Passivo no fim de ${label}`})}</div></div>`,true,'secao-bal-composicao');
  // Barras só dos meses completos; parcial (*) e sem dados ficam hachurados, como na DFC.
  const g2=recPainel('O patrimônio cresce?',`Patrimônio líquido gerencial (ativo − passivo) no fim de cada mês de ${ano}. † = usa saldo de um mês anterior. Hachurado: mês sem caixa ou sem a posição, ou parcial (*); o valor parcial está na tabela "Balanço mês a mês".`,gEmpilhadas(serie.map(x=>({rotulo:x.label.slice(0,3)+(x.parcial?'*':x.apurado&&x.anteriores.length?'†':''),valores:x.apurado&&!x.parcial?{pl:x.pl}:{},linha:null})),{series:[{chave:'pl',rotulo:'Patrimônio líquido',sinal:true}],selecionado:sel,titulo:'Patrimônio líquido no fim de cada mês'}));
- return balCartoes(b)+nota+erro+semCaixa+faltam+avisos+acoes+`<div class="graficos-controle">${g1}${g2}</div>`+balTabela(b)+balMensal(label,serie);
+ const semComp=noAno&&!b0?`<p class="hint bal-sem-comparacao">${esc(gestaoSemAno())}</p>`:'';
+ return balCartoes(b,b0)+nota+semComp+erro+semCaixa+faltam+avisos+acoes+`<div class="graficos-controle">${g1}${g2}</div>`+(b0?balComparacaoAno(b,b0):'')+balTabela(b)+balMensal(label,serie);
 }
 /* ── RENTABILIDADE · FASE 9.2 ───────────────────────────────────────────────
    Retorno do período sobre o capital do Balanço gerencial (Fase 8), em meses inteiros:

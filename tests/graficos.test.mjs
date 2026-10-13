@@ -189,3 +189,147 @@ test('sem travessão em frase nos textos da frente (I34)',()=>{
   assert.doesNotMatch(js,/\S\s—\s(?!=\s|significa)\S/,f);
  }
 });
+
+/* ── ANO EM TODAS AS TELAS (Dashboard, Despesas e categorias, DRE) ─────────────
+   Fixture: 2024 e 2025 completos, 2026 de Jan a Ago fechados e Set em andamento,
+   hoje 22/09/2026. As funções do contrato são do app.js; enquanto a frente do app
+   não as tiver, um substituto com as mesmas regras entra (só se faltarem). */
+const CONTRATO_ANO=String.raw`
+if(typeof TEXTO_SEM_ANO_COMPARADO==='undefined')globalThis.TEXTO_SEM_ANO_COMPARADO='Sem comparação: escolha um ano em “Comparar com”, no topo.';
+if(typeof textoSemMesesComparaveis==='undefined')globalThis.textoSemMesesComparaveis=(a,b)=>'Sem meses completos, da mesma base e com plano de contas em '+a+' e '+b+' para comparar.';
+if(typeof telaNoAno==='undefined')globalThis.telaNoAno=()=>!!state.anoTodo&&['inicio','cfo','dre','caixa','resultado','custos','detalhe','conferencia','dfc','balanco','precos','parametros','indicadores'].includes(state.view)&&!anoCompetencia();
+if(typeof anoDaTela==='undefined')globalThis.anoDaTela=()=>Number(String(state.periodo).split('/')[1])||null;
+if(typeof rotuloMesesAno==='undefined')globalThis.rotuloMesesAno=ix=>{if(ix.length===12)return 'ano inteiro';const g=[];for(const i of ix){const u=g[g.length-1];if(u&&i===u[1]+1)u[1]=i;else g.push([i,i]);}const t=g.map(([a,b])=>a===b?PT_MON[a]:PT_MON[a]+' a '+PT_MON[b]);return t.length>1?t.slice(0,-1).join(', ')+' e '+t[t.length-1]:t[0]||'';};
+if(typeof rotuloAno==='undefined')globalThis.rotuloAno=(ano=anoDaTela())=>{const f=fimDoAno(String(ano)),m=f.split('/')[0],r=state.records.find(x=>x.label===f);return ano+' · '+(m==='Jan'?'Jan':'Jan a '+m)+(r&&F.qualidade(r).parcial?'*':'');};
+if(typeof anosComparaveis==='undefined')globalThis.anosComparaveis=(ano=anoDaTela())=>[...new Set(state.records.map(r=>Number(String(r.label).split('/')[1])))].filter(y=>y&&y!==Number(ano)).sort((a,b)=>b-a);
+if(typeof anoPadraoComparado==='undefined')globalThis.anoPadraoComparado=(ano=anoDaTela())=>{const l=anosComparaveis(ano);return l.includes(ano-1)?ano-1:(l.find(y=>y<ano)??null);};
+if(typeof anoComparado==='undefined')globalThis.anoComparado=()=>{const v=String(state.anoComparar||'');if(v==='nenhum')return null;if(/^\d{4}$/.test(v)&&anosComparaveis().includes(Number(v)))return Number(v);return anoPadraoComparado();};
+if(typeof mesesComparaveisAno==='undefined')globalThis.mesesComparaveisAno=(ano,anoComp)=>{const r=l=>state.records.find(x=>x.label===l),ok=x=>x&&F.periodo(x.label).ate<dfcHoje()&&!F.qualidade(x).parcial&&((DRESimples.apurar(x)?.pctSemConta??0)<=10);return PT_MON.map((m,i)=>i).filter(i=>{const a=r(PT_MON[i]+'/'+ano),b=r(PT_MON[i]+'/'+anoComp);return ok(a)&&ok(b)&&F.comparavelComRessalva(a,b).pode;});};
+if(typeof registroDoAno==='undefined')globalThis.registroDoAno=(ano,indices=null)=>{const fim=PT_MON.indexOf(fimDoAno(String(ano)).split('/')[0]),ix=indices||PT_MON.map((m,i)=>i).filter(i=>i<=fim),meses=ix.map(i=>PT_MON[i]+'/'+ano),regs=meses.map(l=>state.records.find(r=>r.label===l)),faltam=meses.filter((l,i)=>!regs[i]);if(faltam.length)return {disponivel:false,reg:null,faltam,meses,parcial:false,motivo:faltam.join(', ')+' sem dados coletados: sem todos os meses, o acumulado de '+ano+' não é somado.'};const s=F.somarMeses(regs,{label:String(ano),rotulo:indices?ano+' · '+rotuloMesesAno(indices):rotuloAno(ano)});return {disponivel:s.disponivel,reg:s.reg||null,motivo:s.motivo||'',faltam:[],meses,parcial:!!s.reg?.ano.parcial};};
+if(typeof comparacaoDoAno==='undefined')globalThis.comparacaoDoAno=(ano=anoDaTela(),anoComp=anoComparado())=>{const v={ano,anoComp,indices:[],meses:'',atual:null,anterior:null,ressalva:false,motivo:''};if(anoComp==null)return {...v,motivo:TEXTO_SEM_ANO_COMPARADO};const ix=mesesComparaveisAno(ano,anoComp);if(!ix.length)return {...v,motivo:textoSemMesesComparaveis(ano,anoComp)};const r=l=>state.records.find(x=>x.label===l);return {...v,indices:ix,meses:rotuloMesesAno(ix),atual:registroDoAno(ano,ix).reg,anterior:registroDoAno(anoComp,ix).reg,ressalva:ix.some(i=>F.comparavelComRessalva(r(PT_MON[i]+'/'+ano),r(PT_MON[i]+'/'+anoComp)).ressalva)};};
+`;
+const FATOR={2024:0.8,2025:1,2026:1.1,2027:1.2},MESES=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],ultimoDia=(ano,i)=>String(new Date(Date.UTC(ano,i+1,0)).getUTCDate());
+// centavos inteiros: entrada, energia (só pelo mês, igual nos anos), aluguel e materiais (pelo ano)
+const centavos=(ano,i)=>{const f=FATOR[ano];return {e:Math.round(100000*f)*100+i*7,en:10010+i*10,al:50000,ma:Math.round(30000*f)*100+i*3};};
+function mesFixture(ano,i,ate=`${ano}-${String(i+1).padStart(2,'0')}-${ultimoDia(ano,i)}`){
+ const v=centavos(ano,i),r=x=>x/100,fixas=v.en+v.al;
+ return {label:`${MESES[i]}/${ano}`,company:'Impresilk + Universo',basis:'Caixa gerencial',origem:'erp',atualizadoEm:ate+'T23:00:00Z',qualidade:{estado:'aguardando-conferencia',ate,escopo:'compõe DRE',regra:'caixa-v2'},
+  cells:[{code:'1',name:'Receitas',value:r(v.e)},{code:'1.1',name:'Comunicação Visual',value:r(v.e)},{code:'2',name:'Despesas',value:r(fixas+v.ma)},{code:'2.5',name:'Despesas Fixas',value:r(fixas)},{code:'2.5.2',name:'Aluguel',value:r(v.al)},{code:'2.5.3',name:'Cemig',value:r(v.en)},{code:'2.12',name:'Materiais e Insumos',value:r(v.ma)}]};
+}
+const REG_ANO=[...MESES.map((m,i)=>mesFixture(2024,i)),...MESES.map((m,i)=>mesFixture(2025,i)),...MESES.slice(0,8).map((m,i)=>mesFixture(2026,i)),mesFixture(2026,8,'2026-09-20')];
+const somaCent=(ano,ate,k)=>Array.from({length:ate+1},(_,i)=>centavos(ano,i)[k]).reduce((t,x)=>t+x,0);
+const brl=c=>(c/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const sp=s=>String(s).replace(/\u00a0/g,' ');
+function viewAno({view='inicio',anoComparar='',anoTodo=true,registros=REG_ANO,hoje='2026-09-22',periodo='Set/2026'}={}){
+ const elements={exportCosts:{}};
+ const c={structuredClone,document:{addEventListener(){},querySelectorAll:()=>[],querySelector:()=>null,getElementById:id=>elements[id]},localStorage:{getItem:()=>null,setItem(){}},navigator:{onLine:true},location:{hash:''},URLSearchParams};
+ vm.createContext(c);
+ for(const f of ['financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','cfo-modelo.js','cfo.js','pdf-cfo.js','app.js','gestao.js','dfc.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c,{filename:f});
+ c.__r=structuredClone(registros);
+ vm.runInContext(`dfcHoje=()=>'${hoje}';state.records=__r;state.periodo='${periodo}';state.comparar='';state.view=${JSON.stringify(view)};state.anoTodo=${anoTodo};state.anoComparar=${JSON.stringify(anoComparar)};state.D={accounts:[]};state.cfg={};dreUI.base='caixa';`,c);
+ vm.runInContext(CONTRATO_ANO,c);
+ c.run=s=>vm.runInContext(s,c);
+ return {c,elements};
+}
+test('compLinhaAno: anterior com a cor do lado, Δ com seta, Math.abs e a cor pela direção (§2.4)',()=>{
+ const {c}=viewAno();
+ const h=sp(c.run("compLinhaAno('2025 · Jan a Ago',1000,-250,-1)"));
+ assert.match(h,/^<span class="comp-ano">2025 · Jan a Ago: <span class="">R\$ 1\.000,00<\/span> · <b class="delta-bom">▼ R\$ 250,00 a menos<\/b><\/span>$/);
+ assert.match(sp(c.run("compLinhaAno('2025 · Jan a Ago',1000,0,1)")),/<b class="delta-neutro">■ R\$ 0,00<\/b>/);
+ assert.match(sp(c.run("compLinhaAno('2025 · Jan a Ago',1000,300,1,{tomAnterior:'tom-entra'})")),/<span class="tom-entra">R\$ 1\.000,00<\/span> · <b class="delta-bom">▲ R\$ 300,00 a mais<\/b>/);
+ assert.match(sp(c.run("compLinhaAno('2025 · Jan a Ago',1000,300,0)")),/<b class="delta-neutro">▲ R\$ 300,00 a mais<\/b>/,'direção neutra');
+ assert.equal(c.run("compLinhaAno('Comparação',null,null,0,{motivo:'Sem comparação: escolha um ano.'})"),'<span class="comp-ano">Comparação: Sem comparação: escolha um ano.</span>');
+ assert.match(sp(c.run("compLinhaAno('2025 · Jan a Ago',800,200,1,{atual:1000,rotuloAtual:'2026 nesses meses'})")),/R\$ 800,00<\/span> · 2026 nesses meses: R\$ 1\.000,00 · <b class="delta-bom">▲ R\$ 200,00 a mais/);
+ assert.match(c.run("compLinhaAno('Fim de Ago/2025',12.5,-1.25,-1,{formato:v=>v.toFixed(2).replace('.',',')+'%',unidade:' p.p.'})"),/<b class="delta-bom">▼ 1,25% p\.p\. a menos<\/b>/);
+ assert.match(c.run("compLinhaAno('<i>x</i>',1,1,1)"),/&lt;i&gt;x/,'rótulo escapado');
+});
+test('Dashboard no Ano: cartões do ano somados em centavos, faixa nos mesmos meses com o ano escolhido (§4.1)',()=>{
+ const {c}=viewAno();
+ assert.equal(c.run('rotuloAno()'),'2026 · Jan a Set*');
+ const cards=sp(c.run('resumoMovimento(regAtual())'));
+ assert.match(cards,new RegExp(`O que entrou</span><strong class="tom-entra">${brl(somaCent(2026,8,'e')).replace(/\u00a0/g,' ').replace(/[.$]/g,'\\$&')}</strong><small>Recebimentos registrados em 2026 · Jan a Set\\*</small>`));
+ assert.match(cards,/Pagamentos registrados em 2026 · Jan a Set\*/);assert.match(cards,/Variação do ano · não é lucro nem saldo bancário/);
+ const faixa=c.run('comparativoMovimento(regAtual())');
+ assert.match(faixa,/Diferença para <b>2025<\/b> nos mesmos meses \(Jan a Ago\)/);
+ assert.match(faixa,/Entradas <b class="delta-bom">▲/,'entrada que sobe é boa');assert.match(faixa,/Saídas <b class="delta-ruim">▲/,'saída que sobe é ruim');assert.match(faixa,/Variação <b class="delta-bom">▲/);
+ const ent=(somaCent(2026,7,'e')-somaCent(2025,7,'e'));assert.ok(sp(faixa).includes('▲ '+sp(brl(ent))+' a mais'),'Δ das entradas só de Jan a Ago, em centavos');
+ c.run("state.anoComparar='2024'");assert.match(c.run('comparativoMovimento(regAtual())'),/Diferença para <b>2024<\/b> nos mesmos meses \(Jan a Ago\)/);
+ c.run("state.anoComparar='nenhum'");assert.equal(c.run('comparativoMovimento(regAtual())'),'','sem ano escolhido, sem faixa');
+ // ano sem meses completos dos dois lados
+ c.run("state.anoComparar='';state.records=state.records.filter(r=>!/\\/2026$/.test(r.label)||r.label==='Set/2026')");
+ assert.match(c.run('comparativoMovimento(regAtual())'),/Sem comparação com <b>2025<\/b>: [^<]+<\/span><button data-go="conferencia">Conferir →<\/button>/);
+ assert.match(c.run('resumoMovimento(regAtual())'),/<strong>Não apurado<\/strong><small>[^<]*sem dados coletados/,'sem o ano somado: Não apurado e o motivo');
+});
+test('fora do Ano, cartões e faixa continuam os do mês',()=>{
+ const {c}=viewAno({anoTodo:false});c.run("state.periodo='Ago/2026';state.comparar='Jul/2026'");
+ const h=c.run('resumoMovimento(regAtual())');assert.match(h,/Recebimentos registrados no período/);assert.match(h,/Variação do mês · não é lucro nem saldo bancário/);
+ assert.match(c.run('comparativoMovimento(regAtual())'),/Diferença para <b>Jul\/2026<\/b><\/span><span>Entradas <b class="delta-bom">▲/);
+ assert.doesNotMatch(c.run('renderCustos(regAtual())'),/Total 2026|comp-ano/);
+ assert.match(c.run('renderCustos(regAtual())'),/Variação<br><small>Ago\/2026 \/ Jul\/2026<\/small>/);
+ assert.match(c.run('graficoPonte(regAtual())'),/<p>Ago\/2026 · cada saída reduz o movimento líquido<\/p>/);
+});
+test('cascata do Ano: a descrição usa o rótulo do ano e o último degrau é entradas menos saídas',()=>{
+ const {c}=viewAno();const h=sp(c.run('graficoPonte(registroDoAno(2026).reg)'));
+ assert.match(h,/<p>2026 · Jan a Set\* · cada saída reduz o movimento líquido<\/p>/);
+ const v=somaCent(2026,8,'e')-[...Array(9).keys()].reduce((t,i)=>{const x=centavos(2026,i);return t+x.en+x.al+x.ma;},0);
+ assert.ok(h.includes('Variação: '+sp(brl(v))));
+});
+test('Despesas e categorias no Ano: total do ano, ano comparado e Δ nos mesmos meses (§4.8)',()=>{
+ const {c,elements}=viewAno({view:'custos'});c.run("custoUI.grupo='2';custoUI.conta='2.5.3'");
+ const h=sp(c.run('renderCustos(regAtual())'));
+ assert.match(h,/<th scope="col" class="num">Total 2026\*<\/th><th scope="col" class="num">2025 · Jan a Ago<\/th><th scope="col" class="num">Δ 2026 × 2025<\/th>/);
+ assert.doesNotMatch(h,/selected-month/,'no Ano nenhum mês fica destacado');assert.doesNotMatch(h,/Variação<br>/);
+ const linha=nome=>h.slice(h.indexOf(`>${nome}</button>`),h.indexOf('</tr>',h.indexOf(`>${nome}</button>`)));
+ const mat=linha('Materiais e Insumos');
+ assert.ok(mat.includes(`<td class="num tom-sai">${sp(brl(somaCent(2026,8,'ma')))}</td>`),'total do ano de Jan a Set');
+ assert.ok(mat.includes(`<td class="num tom-sai">${sp(brl(somaCent(2025,7,'ma')))}</td>`),'2025 só de Jan a Ago');
+ assert.match(mat,new RegExp(`<span class="delta-ruim">▲ ${sp(brl(somaCent(2026,7,'ma')-somaCent(2025,7,'ma'))).replace(/[.$]/g,'\\$&')}</span>`),'saída que sobe: ▲ e vermelho, sem sinal');
+ assert.match(linha('Despesas Fixas'),/<span class="delta-neutro">■ R\$ 0,00<\/span>/,'sem diferença: ■ neutro');
+ // atalho, conta escolhida e ranking com o ano
+ assert.ok(h.includes(`<span class="label">Energia</span><strong class="tom-sai">${sp(brl(somaCent(2026,8,'en')))}</strong>`),'atalho com o valor do ano');
+ assert.match(h,/<span class="label">2026 · Jan a Set\*<\/span>/);assert.match(h,/Diferença para 2025 nos mesmos meses \(Jan a Ago\)<\/span><b class="delta-neutro">■ R\$ 0,00<\/b>/);
+ assert.match(h,/<p>2026 · Jan a Set\* · categorias da base<\/p>/);
+ // planilha com as colunas do ano
+ c.download=(name,content)=>{c.exported={name,content};};c.run('wireGraficos()');elements.exportCosts.onclick();
+ assert.match(c.exported.content,/"Set\/2026";"Total 2026\*";"2025 · Jan a Ago";"Δ 2026 × 2025"/);
+ assert.match(c.exported.content,new RegExp(`"2.12";"Materiais e Insumos";.*"${((somaCent(2026,8,'ma'))/100).toFixed(2).replace('.',',')}";"${(somaCent(2025,7,'ma')/100).toFixed(2).replace('.',',')}";"${((somaCent(2026,7,'ma')-somaCent(2025,7,'ma'))/100).toFixed(2).replace('.',',')}"`));
+ // com 2024 escolhido e sem comparação
+ c.run("state.anoComparar='2024'");const h24=c.run('renderCustos(regAtual())');assert.match(h24,/>2024 · Jan a Ago<\/th><th scope="col" class="num">Δ 2026 × 2024</);assert.doesNotMatch(h24,/>2025 · /);
+ c.run("state.anoComparar='nenhum'");const hn=c.run('renderCustos(regAtual())');
+ assert.match(hn,/<th scope="col" class="num">Total 2026\*<\/th><\/tr><\/thead>/,'sem ano escolhido, só o total');assert.doesNotMatch(hn,/Δ 2026 ×/);
+ assert.match(hn,/Sem comparação: escolha um ano em “Comparar com”, no topo\./);
+});
+test('DRE no Ano: comparação com o ano escolhido nos mesmos meses, somada em centavos (§4.3)',()=>{
+ const {c}=viewAno({view:'dre'});
+ const r=sp(c.run('dreSimplesCaixa().resto'));
+ assert.match(r,/<h2 class="card-titulo">Comparação · 2026 contra 2025 nos mesmos meses \(Jan a Ago\)<\/h2>/);
+ const venda=r.slice(r.indexOf('dre-comparacao'));const lv=venda.slice(venda.indexOf('>Receita bruta de vendas</th>'));
+ assert.ok(lv.startsWith(`>Receita bruta de vendas</th><td class="num tom-entra">${sp(brl(somaCent(2026,7,'e')))}</td><td class="num">100,0%</td><td class="num tom-entra">${sp(brl(somaCent(2025,7,'e')))}</td>`),'Vendas A = Jan a Ago de 2026; B = Jan a Ago de 2025');
+ assert.match(r,/<th scope="col" class="num">2026 · Jan a Ago<\/th>.*<th scope="col" class="num">2025 · Jan a Ago<\/th>/);
+ assert.match(r,/Só os meses completos nos dois anos, da mesma base e com plano de contas\. Mude o ano em “Comparar com”, no topo\./);
+ assert.match(r,/2026 somado de janeiro a Set, com Set\/2026 em andamento\. As contas de cada linha são por mês: escolha um mês na barra para vê-las\./);
+ assert.ok(r.indexOf('Comparação · 2026')<r.indexOf('dre-ano-nota'),'depois dos gráficos e antes da nota');
+ c.run("state.anoComparar='2024'");assert.match(c.run('dreSimplesCaixa().resto'),/Comparação · 2026 contra 2024 nos mesmos meses \(Jan a Ago\)[\s\S]*>2024 · Jan a Ago</);
+ c.run("state.anoComparar='nenhum'");const n=c.run('dreSimplesCaixa().resto');
+ assert.match(n,/<h2 class="card-titulo">Comparação · 2026<\/h2><\/summary><div class="card-body"><p class="hint">Sem comparação: escolha um ano em “Comparar com”, no topo\.<\/p>/);
+ assert.doesNotMatch(n,/dre-comparacao/);
+});
+test('virada do ano (15/01/2027): Jan/2027 em andamento entra com *, nada de ano escrito e a comparação diz por que não compara',()=>{
+ const regs=[...MESES.map((m,i)=>mesFixture(2025,i)),...MESES.map((m,i)=>mesFixture(2026,i)),mesFixture(2027,0,'2027-01-14')];
+ for(const view of ['inicio','custos','dre','resultado']){
+  const {c}=viewAno({view,registros:regs,hoje:'2027-01-15',periodo:'Jan/2027'});
+  assert.equal(c.run('rotuloAno()'),'2027 · Jan*');
+  const h=c.run(view==='dre'?'JSON.stringify(dreSimplesCaixa())':view==='resultado'?'resumoMovimento(regAtual())+graficoPonte(registroDoAno(2027).reg)':`resumoMovimento(regAtual())+comparativoMovimento(regAtual())+${view==='custos'?'renderCustos(regAtual())':"''"}`);
+  assert.doesNotMatch(h,/NaN|undefined|Infinity|R\$ -/,view);
+  if(view==='inicio'){assert.match(h,/Recebimentos registrados em 2027 · Jan\*/);assert.match(h,/Sem comparação com <b>2026<\/b>: Sem meses completos, da mesma base e com plano de contas em 2027 e 2026 para comparar\./);}
+  if(view==='custos'){assert.match(h,/>Total 2027\*<\/th><th scope="col" class="num">2026<\/th><th scope="col" class="num">Δ 2027 × 2026<\/th>/);c.run("state.anoComparar='2025'");assert.match(c.run('renderCustos(regAtual())'),/>Δ 2027 × 2025</);}
+  if(view==='dre')assert.match(h,/Comparação · 2027<\/h2>.*Sem meses completos, da mesma base e com plano de contas em 2027 e 2026 para comparar\./);
+  if(view==='resultado')assert.match(h,/2027 · Jan\* · cada saída reduz o movimento líquido/);
+ }
+});
+test('nenhum ano escrito no código novo do Ano (os anos vêm dos dados e da data de hoje)',()=>{
+ const g=fs.readFileSync(new URL('../graficos.js',import.meta.url),'utf8'),d=fs.readFileSync(new URL('../demonstrativos.js',import.meta.url),'utf8'),f=fs.readFileSync(new URL('../financeiro.js',import.meta.url),'utf8');
+ const corpo=(src,nome)=>{const i=src.indexOf('function '+nome+'(');assert.ok(i>=0,nome);let j=src.indexOf('\nfunction ',i+1);const k=src.indexOf('\n  function ',i+1);if(k>0&&(j<0||k<j))j=k;return src.slice(i,j<0?undefined:j);};
+ for(const [src,nomes] of [[g,['compLinhaAno','setaDelta','resumoMovimento','comparativoMovimento','custosAno','celulasCustosAno','tabelaCustosAno','rankingCustosTela','custoSelecionadoAno']],[d,['dreComparacaoAno','dreSimplesAno']],[f,['somarMeses']]])
+  for(const n of nomes)assert.doesNotMatch(corpo(src,n),/\b(19|20)\d\d\b/,n);
+});

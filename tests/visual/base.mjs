@@ -3,7 +3,7 @@
 // na rota E no resolvedor de nomes do Chrome (nenhum pedido escapa para a rede).
 // Sem senha, sem login real: crachá falso no localStorage, como no harness.
 // Playwright e Chrome vêm do ambiente: PLAYWRIGHT=<caminho do index.mjs> e CHROME=<executável>.
-const {chromium} = await import(process.env.PLAYWRIGHT || 'playwright');
+// O Playwright só carrega ao lançar: a lista de estados (ESTADOS) é lida pelos testes sem navegador.
 import {performance} from 'node:perf_hooks';
 import {AGORA, criarServidor} from './fixture.mjs';
 export const BASE = process.env.DRE_URL || 'http://127.0.0.1:8793/';
@@ -28,6 +28,7 @@ export async function esperarServidor(limite = 10000) {
   throw new Error(`Servidor do app não respondeu em ${BASE} em ${limite / 1000} s (${ultimo}). Suba: python3 -m http.server 8793 --bind 127.0.0.1`);
 }
 export async function lancar() {
+  const {chromium} = await import(process.env.PLAYWRIGHT || 'playwright');
   return chromium.launch({...(CHROME ? {executablePath: CHROME} : {}), headless: true, args: ['--no-sandbox', `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost, EXCLUDE ${new URL(BASE).hostname}`]});
 }
 export async function contexto(browser, {mobile = false, sw = 'block', servidor = criarServidor(), cpu = 1} = {}) {
@@ -89,6 +90,8 @@ export async function clicarSe(page, sel) {
 }
 export async function irTela(page, tela, mobile) {
   if (tela === 'custos') { await irTela(page, 'inicio', mobile); await page.locator('[data-go="custos"]').first().click(); await estabilizar(page); return; }
+  // Composição do caixa não está no menu: chega-se pelo "Veja também" de Caixa e planejamento.
+  if (tela === 'resultado') { await irTela(page, 'caixa', mobile); await page.locator('#pageContent [data-go="resultado"]').first().click(); await estabilizar(page); return; }
   const sel = tela === 'config' ? '#settingsBtn' : tela === 'ajuda' ? '#helpBtn' : `#viewTabs [data-view="${tela}"]`;
   if (mobile && !(await page.locator(sel).isVisible())) { await page.locator('#menuToggle').click(); await page.locator(sel).waitFor({state: 'visible'}); }
   await page.locator(sel).click();
@@ -105,6 +108,17 @@ export async function ligarAno(page, ligado) {
   if (!(await b.count()) || !(await b.isVisible())) return false;
   if ((await b.getAttribute('aria-pressed')) !== String(ligado)) { await b.click(); await estabilizar(page); }
   return true;
+}
+// Ano de comparação pelo link (anocomp=AAAA ou nenhum; '' = padrão, o ano anterior), como quem abre um link copiado.
+// Devolve se o app ficou com o valor pedido (state.anoComparar).
+export async function compararAno(page, valor = '') {
+  const lido = () => page.evaluate(() => typeof state === 'undefined' ? null : String(state.anoComparar ?? ''));
+  if (await lido() === valor) return true;
+  await page.evaluate(v => { const q = new URLSearchParams(location.hash.slice(1)); if (v) q.set('anocomp', v); else q.delete('anocomp'); location.hash = q.toString(); }, valor);
+  await estabilizar(page);
+  await page.waitForFunction(v => typeof state !== 'undefined' && String(state.anoComparar ?? '') === v, valor, {timeout: 5000}).catch(() => {});
+  await estabilizar(page);
+  return await lido() === valor;
 }
 export async function indicadores(page, area, fonte) {
   await page.getByRole('navigation', {name: 'Áreas dos indicadores'}).waitFor({state: 'visible', timeout: 15000});
@@ -124,6 +138,21 @@ export async function abrirCartoes(page) {
   for (let i = 0; i < 2; i++) { await page.evaluate(() => { for (const d of document.querySelectorAll('#pageContent details:not([open])')) d.open = true; }); await estabilizar(page, 150); }
 }
 const AREAS = {Receita: ['recebimentos', 'comercial', 'fiscal', 'competencia'], Custos: ['custos', 'compras'], Despesas: ['pagamentos'], Resultado: ['variacao', 'competencia'], Margem: ['margem', 'competencia'], Rentabilidade: ['rentabilidade']};
+const PLANILHA = async p => { await plano(p, 'planilha'); await clicarSe(p, '[data-plano-matriz="tudo"]'); };
+const DRE_CAIXA = async p => { await clicarSe(p, '[data-dre-base="caixa"]'); };
+const RECEBIMENTOS = p => indicadores(p, 'Receita', 'recebimentos');
+// Ano em toda tela com a barra de meses (padrão: comparado com o ano anterior), com 2024 escolhido em "Comparar com" e sem comparação.
+const ANO = {periodo: MES_FECHADO, ano: true};
+export const ESTADOS_ANO = [
+  ...['inicio', 'cfo', 'caixa', 'resultado', 'balanco', 'conferencia', 'custos', 'parametros'].map(tela => ({tela, estado: 'ano', ...ANO})),
+  ...['inicio', 'cfo', 'dfc', 'caixa', 'custos', 'balanco', 'precos'].map(tela => ({tela, estado: 'ano-comp-2024', ...ANO, anocomp: '2024'})),
+  {tela: 'dre', estado: 'caixa-ano-comp-2024', ...ANO, anocomp: '2024', antes: DRE_CAIXA},
+  {tela: 'detalhe', estado: 'juntas-ano-comp-2024', ...ANO, anocomp: '2024', antes: p => plano(p, 'juntas')},
+  {tela: 'detalhe', estado: 'planilha-ano-comp-2024', ...ANO, anocomp: '2024', antes: PLANILHA},
+  {tela: 'indicadores', estado: 'receita-recebimentos-ano-comp-2024', ...ANO, anocomp: '2024', antes: RECEBIMENTOS},
+  {tela: 'inicio', estado: 'ano-sem-comparacao', ...ANO, anocomp: 'nenhum'},
+  {tela: 'detalhe', estado: 'planilha-ano-sem-comparacao', ...ANO, anocomp: 'nenhum', antes: PLANILHA},
+];
 const slug = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 export const ESTADOS = [
   {tela: 'inicio', estado: 'padrao', periodo: MES_FECHADO, abrir: false},
@@ -131,7 +160,7 @@ export const ESTADOS = [
   {tela: 'inicio', estado: 'mes-parcial', periodo: MES_PARCIAL},
   {tela: 'cfo', estado: 'mes-fechado', periodo: MES_FECHADO},
   {tela: 'dre', estado: 'caixa-mes', periodo: MES_FECHADO, antes: async p => { await clicarSe(p, '[data-dre-base="caixa"]'); await clicarSe(p, '[data-dre-visao="mes"]'); }},
-  {tela: 'dre', estado: 'caixa-ano', periodo: MES_FECHADO, ano: true, antes: async p => { await clicarSe(p, '[data-dre-base="caixa"]'); }},
+  {tela: 'dre', estado: 'caixa-ano', periodo: MES_FECHADO, ano: true, antes: DRE_CAIXA},
   {tela: 'dre', estado: 'competencia', periodo: MES_FECHADO, antes: async p => { await clicarSe(p, '[data-dre-base="competencia"]'); }},
   {tela: 'dfc', estado: 'mes', periodo: MES_FECHADO},
   {tela: 'dfc', estado: 'ano', periodo: MES_FECHADO, ano: true},
@@ -143,26 +172,35 @@ export const ESTADOS = [
   {tela: 'precos', estado: 'mes', periodo: MES_FECHADO},
   {tela: 'precos', estado: 'ano', periodo: MES_FECHADO, ano: true},
   ...Object.entries(AREAS).flatMap(([area, fontes]) => fontes.map(fonte => ({tela: 'indicadores', estado: slug(area) + '-' + fonte, periodo: MES_FECHADO, antes: p => indicadores(p, area, fonte)}))),
-  {tela: 'indicadores', estado: 'receita-recebimentos-ano', periodo: MES_FECHADO, ano: true, antes: p => indicadores(p, 'Receita', 'recebimentos')},
+  {tela: 'indicadores', estado: 'receita-recebimentos-ano', periodo: MES_FECHADO, ano: true, antes: RECEBIMENTOS},
   {tela: 'detalhe', estado: 'dashboard', periodo: MES_FECHADO, antes: p => plano(p, 'dashboard')},
   {tela: 'detalhe', estado: 'dashboard-conta-impostos', periodo: MES_FECHADO, antes: async p => { await plano(p, 'dashboard'); await p.evaluate(() => planoSelecionar('2.4')); await estabilizar(p); }},
-  {tela: 'detalhe', estado: 'planilha', periodo: MES_FECHADO, antes: async p => { await plano(p, 'planilha'); await clicarSe(p, '[data-plano-matriz="tudo"]'); }},
+  {tela: 'detalhe', estado: 'planilha', periodo: MES_FECHADO, antes: PLANILHA},
   {tela: 'detalhe', estado: 'juntas-mes', periodo: MES_FECHADO, antes: p => plano(p, 'juntas')},
   {tela: 'detalhe', estado: 'juntas-ano', periodo: MES_FECHADO, ano: true, antes: p => plano(p, 'juntas')},
   {tela: 'parametros', estado: 'mes', periodo: MES_FECHADO},
   {tela: 'conferencia', estado: 'mes-fechado', periodo: MES_FECHADO},
   {tela: 'conferencia', estado: 'mes-parcial', periodo: MES_PARCIAL},
   {tela: 'custos', estado: 'mes-fechado', periodo: MES_FECHADO},
+  ...ESTADOS_ANO,
   {tela: 'glossario', estado: 'padrao'},
   {tela: 'config', estado: 'padrao'},
   {tela: 'ajuda', estado: 'padrao'},
 ];
+// Devolve os problemas de chegar ao estado (Ano que não ligou, ano de comparação que não pegou) para o portão listar.
 export async function irEstado(page, e, mobile = false) {
+  const problemas = [];
   await irTela(page, e.tela, mobile);
   if (e.periodo) await irPeriodo(page, e.periodo);
   if (e.antes) await e.antes(page);
-  if (e.ano) { await ligarAno(page, true); if (e.antes && e.tela !== 'dre') await e.antes(page); }
+  if (e.ano) {
+    if (!(await ligarAno(page, true))) problemas.push({regra: 'ano-nao-ligou'});
+    // todo estado do Ano diz o ano comparado: o anterior ('') quando não pede outro, para um estado não herdar o do anterior
+    else if (!(await compararAno(page, e.anocomp || ''))) problemas.push({regra: 'ano-comparado-nao-aplicado', anocomp: e.anocomp || 'padrão'});
+    if (e.antes && e.tela !== 'dre') await e.antes(page);
+  }
   if (e.abrir !== false) await abrirCartoes(page);
   await page.evaluate(() => window.scrollTo(0, 0));
   await estabilizar(page, 200);
+  return problemas;
 }

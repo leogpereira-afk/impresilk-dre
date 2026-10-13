@@ -197,3 +197,109 @@ test('"↑ Topo e menu": volta ao topo com o menu aberto e o foco no Menu (N13)'
  assert.equal(typeof ouv['voltarMenu:click'],'function');ouv['voltarMenu:click']();
  assert.equal(JSON.stringify(rolou),'[{"top":0}]');assert.deepEqual([estado.aberto,estado.expandido,estado.focoMenu],[true,'true',1]);
 });
+
+// ── Ano em todas as telas e o ano de comparação (PLANO-ANO, frente gestao) ──────────
+// Contrato do Ano (app.js e graficos.js, de outras frentes): o stub só entra no que ainda não existir.
+const CONTRATO_ANO=`
+if(typeof dfcHoje==='undefined')globalThis.dfcHoje=()=>'2026-09-22';
+if(typeof telaNoAno==='undefined')globalThis.telaNoAno=()=>anoAtivo()&&!anoCompetencia();
+if(typeof TEXTO_SEM_ANO_COMPARADO==='undefined')globalThis.TEXTO_SEM_ANO_COMPARADO='Sem comparação: escolha um ano em “Comparar com”, no topo.';
+if(typeof textoSemMesesComparaveis==='undefined')globalThis.textoSemMesesComparaveis=(a,b)=>'Sem meses completos, da mesma base e com plano de contas em '+a+' e '+b+' para comparar.';
+if(typeof anosComparaveis==='undefined')globalThis.anosComparaveis=(ano=Number(String(state.periodo).split('/')[1]))=>[...new Set(state.records.map(r=>Number(String(r.label).split('/')[1])))].filter(y=>y&&y!==Number(ano)).sort((a,b)=>b-a);
+if(typeof anoPadraoComparado==='undefined')globalThis.anoPadraoComparado=(ano=Number(String(state.periodo).split('/')[1]))=>{const l=anosComparaveis(ano);return l.includes(ano-1)?ano-1:l.find(y=>y<ano)??null;};
+if(typeof anoComparado==='undefined')globalThis.anoComparado=()=>{const v=state.anoComparar||'';if(v==='nenhum')return null;if(/^\\d{4}$/.test(v)&&anosComparaveis().includes(Number(v)))return Number(v);return anoPadraoComparado();};
+if(typeof rotuloMesesAno==='undefined')globalThis.rotuloMesesAno=ix=>{if(ix.length===12)return 'ano inteiro';const g=[];for(const i of ix){const u=g[g.length-1];if(u&&u[1]===i-1)u[1]=i;else g.push([i,i]);}const t=g.map(([a,b])=>a===b?PT_MON[a]:PT_MON[a]+' a '+PT_MON[b]);return t.length>1?t.slice(0,-1).join(', ')+' e '+t[t.length-1]:t[0]||'';};
+if(typeof mesesComparaveisAno==='undefined')globalThis.mesesComparaveisAno=(ano,comp)=>PT_MON.map((m,i)=>i).filter(i=>{const a=state.records.find(r=>r.label===PT_MON[i]+'/'+ano),b=state.records.find(r=>r.label===PT_MON[i]+'/'+comp);const ok=r=>r&&F.periodo(r.label).ate<dfcHoje()&&!F.qualidade(r).parcial&&!(DRESimples.apurar(r).pctSemConta>10);return ok(a)&&ok(b)&&F.comparavelComRessalva(a,b).pode;});
+if(typeof comparacaoDoAno==='undefined')globalThis.comparacaoDoAno=(ano=Number(String(state.periodo).split('/')[1]),anoComp=anoComparado())=>{
+ if(anoComp==null)return {ano,anoComp,indices:[],meses:'',motivo:TEXTO_SEM_ANO_COMPARADO};
+ const indices=mesesComparaveisAno(ano,anoComp);if(!indices.length)return {ano,anoComp,indices,meses:'',motivo:textoSemMesesComparaveis(ano,anoComp)};
+ const par=(i,y)=>state.records.find(r=>r.label===PT_MON[i]+'/'+y);
+ const soma=y=>{const regs=indices.map(i=>par(i,y)),cod=new Map();for(const r of regs)for(const c of r.cells)cod.set(c.code,{name:c.name,v:(cod.get(c.code)?.v||0)+Math.round(c.value*100)});const r0=regs[0];
+  return {id:'ano_'+y,label:String(y),ano:{meses:regs.map(r=>r.label)},company:r0.company,basis:r0.basis,origem:r0.origem,qualidade:{escopo:r0.qualidade?.escopo,regra:r0.qualidade?.regra,estado:'ano'},cells:[...cod.entries()].sort((a,b)=>a[0]<b[0]?-1:1).map(([code,x])=>({code,name:x.name,value:x.v/100})),pendencias:[]};};
+ return {ano,anoComp,indices,meses:rotuloMesesAno(indices),atual:soma(ano),anterior:soma(anoComp),ressalva:indices.some(i=>F.comparavelComRessalva(par(i,ano),par(i,anoComp)).ressalva),motivo:''};};
+`;
+test('rota: anocomp guardado como veio (só AAAA ou nenhum), gravado só no Ano e fora do padrão (GES-1)',()=>{
+ const {c}=ctxRota('#tela=inicio&mes=Set%2F2026&ano=1&anocomp=2024');
+ assert.equal(c.run('state.anoComparar'),'2024');assert.equal(c.run('state.anoTodo'),true);
+ for(const [h,esperado] of [['anocomp=xyz',''],['anocomp=nenhum','nenhum'],['anocomp=20245',''],['','']]){c.location.hash='#tela=inicio&mes=Set%2F2026&ano=1&'+h;c.run('restaurarRota()');assert.equal(c.run('state.anoComparar'),esperado,h||'sem anocomp');}
+ // Gravar: numa tela que já é do Ano nas duas versões do app (dfc).
+ const q=()=>new URLSearchParams(c.location.hash.slice(1));
+ c.run("state.view='dfc';state.anoTodo=true;state.anoComparar='nenhum';gravarRota()");assert.equal(q().get('anocomp'),'nenhum');assert.equal(q().get('ano'),'1');
+ c.run("state.anoComparar='2024';gravarRota()");assert.equal(q().get('anocomp'),'2024');
+ c.run("state.anoComparar='';gravarRota()");assert.equal(q().has('anocomp'),false,'o padrão (ano anterior) não vai ao link');
+ c.run("state.anoComparar='2024';state.anoTodo=false;gravarRota()");assert.equal(q().has('anocomp'),false,'fora do Ano não grava');
+ c.run("state.anoTodo=true;state.view='giro';gravarRota()");assert.equal(q().has('anocomp'),false,'tela fora de ANO_TELAS não grava');assert.equal(q().has('ano'),false);
+ // O comparar=<mês> do modo mês continua.
+ c.location.hash='#tela=dre&mes=Fev%2F2026&comparar=Jan%2F2026';c.run('restaurarRota()');assert.equal(c.run('state.comparar'),'Jan/2026');assert.equal(c.run('state.anoComparar'),'');
+ // Ida e volta.
+ c.run("state.view='dfc';state.anoTodo=true;state.anoComparar='2024';gravarRota()");const h=c.location.hash;c.run("state.anoComparar='';restaurarRota()");assert.equal(c.run('state.anoComparar'),'2024',h);
+});
+// 2024 inteiro, 2025 de Jan a Set fechados, 2026 de Jan a Ago fechados e Set em andamento (hoje: 22/09/2026).
+function ctxAno({sem=[],pend={}}={}){
+ const c=context();c.run(CONTRATO_ANO);c.run("dfcHoje=()=>'2026-09-22'");
+ c.__sem=sem;c.__pend=pend;
+ c.run(`const cel=(code,name,value)=>({code,name,value});
+ const mes=(label,fixas,fin,ate)=>({label,company:'Impresilk',basis:'Caixa',origem:'erp',qualidade:{ate:ate||F.periodo(label).ate,estado:'aguardando-conferencia',regra:'caixa-v2',escopo:'compõe DRE'},cells:[cel('1','Entradas',1000),cel('2','Saídas',fixas+fin),cel('2.5','Despesas Fixas',fixas),cel('2.13','Despesas financeiras',fin)],pendencias:__pend[label]||[]});
+ state.records=[...PT_MON.map(m=>mes(m+'/2024',200,400)),...PT_MON.slice(0,9).map(m=>mes(m+'/2025',300,400)),...PT_MON.slice(0,8).map(m=>mes(m+'/2026',500,300)),mes('Set/2026',100,50,'2026-09-15')].filter(r=>!__sem.includes(r.label));
+ state.view='inicio';state.periodo='Set/2026';state.anoTodo=true;state.anoComparar='';state.cfg={};`);
+ return c;
+}
+test('O que mudou no Ano: grupos de saídas dos mesmos meses completos, colunas com os anos e o ano escolhido em "Comparar com" (GES-2)',()=>{
+ const c=ctxAno(),h=c.run('resumoGestao(regAtual())');
+ assert.match(h,/<p class="hint">2025 → 2026 nos mesmos meses \(Jan a Ago\) · variações dos grupos de saídas\.<\/p>/,'Set/2026 em andamento fica fora');
+ assert.match(h,/<thead><tr><th scope="col">Grupo<\/th><th scope="col" class="num">Diferença<\/th><th scope="col" class="num">2026<\/th><th scope="col" class="num">2025<\/th><\/tr><\/thead>/);
+ assert.match(h,/>Despesas Fixas \(grupo 2\.5 do Mubisys\)<\/button><\/td><td class="num delta-ruim">▲ <span class="nowrap">R\$\s1\.600,00<\/span><\/td><td class="num tom-sai">R\$\s4\.000,00<\/td><td class="num tom-sai">R\$\s2\.400,00<\/td>/,'8 meses: 4.000 contra 2.400, somados em centavos');
+ assert.match(h,/>Despesas financeiras<\/button><\/td><td class="num ">▼ <span class="nowrap">R\$\s800,00<\/span><\/td>/,'dívida: neutra');
+ assert.match(h,/<details><summary>Orçamento<\/summary><p>O orçamento é mensal: escolha um mês na barra para ver o desvio\.<\/p><\/details>/);
+ assert.doesNotMatch(h,/Mesmo mês do ano anterior|Entradas menos saídas:|Atual<\/th>|Anterior<\/th>/);
+ assert.match(h,/<button class="chip-warn" data-go="conferencia">Set\/2026 em andamento<\/button>/);
+ // Ano escolhido: 2024 nos mesmos meses.
+ c.run("state.anoComparar='2024'");const h24=c.run('resumoGestao(regAtual())');
+ assert.match(h24,/2024 → 2026 nos mesmos meses \(Jan a Ago\)/);assert.match(h24,/<th scope="col" class="num">2024<\/th>/);assert.doesNotMatch(h24,/2025/);
+ assert.match(h24,/<td class="num delta-ruim">▲ <span class="nowrap">R\$\s2\.400,00<\/span><\/td><td class="num tom-sai">R\$\s4\.000,00<\/td><td class="num tom-sai">R\$\s1\.600,00<\/td>/);
+ // Sem comparação.
+ c.run("state.anoComparar='nenhum'");const hn=c.run('resumoGestao(regAtual())');
+ assert.match(hn,/<h2>O que mudou<\/h2><button id="gestaoPlanejamento">Orçamento e alertas<\/button><\/div><p>Sem comparação: escolha um ano em “Comparar com”, no topo\.<\/p>/);assert.doesNotMatch(hn,/<table>/);
+ // Fora do Ano: o mês, como antes.
+ c.run("state.anoTodo=false;state.anoComparar='';state.periodo='Ago/2026';state.comparar='Jul/2026'");const hm=c.run('resumoGestao(regAtual())');
+ assert.match(hm,/Jul\/2026 → Ago\/2026 · variações/);assert.match(hm,/<summary>Mesmo mês do ano anterior e orçamento<\/summary>/);assert.doesNotMatch(hm,/nos mesmos meses/);
+});
+test('O que mudou no Ano: mês sem coleta fica fora da comparação e vira chip; pendências do ano somadas (GES-2)',()=>{
+ const p=n=>Array.from({length:n},(_,i)=>({tipo:'Cobertura',texto:'P'+i,conta:'2.5',valor:1}));
+ const c=ctxAno({sem:['Mai/2026'],pend:{'Mar/2026':p(2),'Jul/2026':p(1)}}),h=c.run('resumoGestao(regAtual())');
+ assert.match(h,/2025 → 2026 nos mesmos meses \(Jan a Abr e Jun a Ago\)/);
+ const chips=[...h.matchAll(/<button class="chip-warn" data-go="conferencia">([^<]*)<\/button>/g)].map(m=>m[1]);
+ assert.deepEqual(chips,['3 pendências a conferir em 2 meses','Set/2026 em andamento','Sem coleta: Mai/2026']);
+ const c1=ctxAno({sem:['Fev/2026','Mar/2026'],pend:{'Jan/2026':p(1)}}),chips1=[...c1.run('resumoGestao(regAtual())').matchAll(/data-go="conferencia">([^<]*)</g)].map(m=>m[1]);
+ assert.deepEqual(chips1,['1 pendência a conferir em 1 mês','Set/2026 em andamento','Sem coleta: Fev/2026 a Mar/2026']);
+});
+test('Fila de conferência no Ano: um grupo por mês, até 20 linhas, chave do mês certo e sem ação nova (GES-5)',()=>{
+ const p=(n,t='Cobertura')=>Array.from({length:n},(_,i)=>({tipo:t,texto:'Pendência '+i,conta:'2.5',valor:i+1}));
+ const c=ctxAno({pend:{'Jul/2026':[...p(1,'Classificação')],'Mar/2026':p(25)}});c.run("state.view='conferencia';planoTom=()=>'tom-sai'");
+ const h=c.run('painelPendencias(regAtual())');
+ const grupos=[...h.matchAll(/<details class="conf-ano-mes"[^>]*><summary>([^<]*)<\/summary>([\s\S]*?)<\/details>/g)];
+ assert.deepEqual(grupos.map(g=>g[1]),['Mar/2026 · 25 pendência(s) a conferir','Jul/2026 · 1 pendência(s) a conferir'],'em ordem de mês');
+ assert.equal((grupos[0][2].match(/class="review-row"/g)||[]).length,20);assert.match(grupos[0][2],/<button type="button" data-period="Mar\/2026">Ver todas de Mar\/2026 →<\/button>/);
+ assert.ok([...grupos[0][2].matchAll(/data-pend-key="([^"]*)"/g)].every(m=>m[1].startsWith('acao:Mar_2026:')),'chave de Mar/2026');
+ assert.match(grupos[1][2],/data-pend-key="acao:Jul_2026:/);assert.doesNotMatch(grupos[1][2],/Ver todas/);
+ assert.doesNotMatch(h,/novaAcao|\+ Ação de revisão|data-pend-page/);assert.match(h,/26 pendência\(s\) a conferir em 2026\./);
+ // A busca e o tipo valem para o ano.
+ c.run("gestaoUI.pendTipo='Classificação'");const f=c.run('painelPendencias(regAtual())');assert.equal((f.match(/class="conf-ano-mes"/g)||[]).length,1);assert.match(f,/Jul\/2026 · 1 pendência/);
+ c.run("gestaoUI.pendTipo='todos';gestaoUI.pendBusca='nada disso'");assert.match(c.run('painelPendencias(regAtual())'),/Nenhuma pendência a conferir neste filtro/);
+ // Sem pendência no ano.
+ const v=ctxAno();v.run("state.view='conferencia'");assert.match(v.run('painelPendencias(regAtual())'),/<p class="hint">Nenhuma pendência a conferir em 2026\.<\/p>/);
+ // Fora do Ano: a fila do mês, com a ação nova.
+ c.run("state.anoTodo=false;gestaoUI.pendBusca='';state.periodo='Mar/2026'");const m=c.run('painelPendencias(regAtual())');assert.match(m,/\+ Ação de revisão/);assert.doesNotMatch(m,/conf-ano-mes/);
+});
+test('Fila de conferência no Ano: o grupo aberto continua aberto a cada render; com busca, os grupos com resultado abrem (v136, RC-3)',()=>{
+ const p=(n,t='Cobertura')=>Array.from({length:n},(_,i)=>({tipo:t,texto:'Pendência '+i,conta:'2.5',valor:i+1}));
+ const c=ctxAno({pend:{'Jul/2026':[...p(1,'Classificação')],'Mar/2026':p(3)}});c.run("state.view='conferencia';planoTom=()=>'tom-sai'");
+ const abertos=()=>[...c.run('painelPendencias(regAtual())').matchAll(/<details class="conf-ano-mes"([^>]*)><summary>([^ ]*)/g)].map(m=>[m[2],/\bopen\b/.test(m[1])]);
+ assert.deepEqual(abertos(),[['Mar/2026',false],['Jul/2026',false]],'começam fechados');
+ // A pessoa abre Mar (o ouvinte de toggle grava em cardAbertos): mudar o tipo, voltar a todos ou revisar redesenha com Mar aberto.
+ c.run("cardAbertos[cardChave('Fila de conferência · Mar')]=true");assert.deepEqual(abertos(),[['Mar/2026',true],['Jul/2026',false]]);
+ c.run("gestaoUI.pendTipo='Cobertura'");assert.deepEqual(abertos(),[['Mar/2026',true]]);c.run("gestaoUI.pendTipo='todos'");assert.deepEqual(abertos(),[['Mar/2026',true],['Jul/2026',false]]);
+ // Com busca, todo grupo com resultado aparece aberto; sem busca, volta a escolha da pessoa.
+ c.run("gestaoUI.pendBusca='Pendência 0'");assert.deepEqual(abertos(),[['Mar/2026',true],['Jul/2026',true]]);
+ c.run("gestaoUI.pendBusca=''");assert.deepEqual(abertos(),[['Mar/2026',true],['Jul/2026',false]]);
+});

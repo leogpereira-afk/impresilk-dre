@@ -249,25 +249,36 @@ function dreAnoCaixa(meses,ate){
  const pct=v=>linhas.vendas>0&&v!=null?v/linhas.vendas*100:null;
  return {faltam,parciais,linhas,margens:{margemContribuicao:pct(linhas.margemContribuicao),ebitda:pct(linhas.ebitda),resultado:pct(linhas.resultado)}};
 }
+/* Ano contra o ano escolhido em "Comparar com" (comparacaoDoAno, do app.js): as linhas
+   somadas em centavos só nos meses completos nos dois anos, % sobre as vendas de cada lado. */
+function dreComparacaoAno(ano){
+ if(typeof comparacaoDoAno!=='function'||typeof anoComparado!=='function')return '';
+ const anoComp=anoComparado(),c=anoComp==null?{motivo:typeof TEXTO_SEM_ANO_COMPARADO==='string'?TEXTO_SEM_ANO_COMPARADO:'Sem comparação: escolha um ano em “Comparar com”, no topo.'}:comparacaoDoAno(Number(ano),anoComp);
+ const soma=y=>dreAnoCaixa((c.indices||[]).map(i=>dreMesCaixa(PT_MON[i]+'/'+y)),(c.indices||[]).length-1).linhas;
+ const A=!c.motivo&&c.indices?.length?soma(ano):null,B=A?soma(anoComp):null;
+ if(!A||!B)return card(`Comparação · ${ano}`,`<p class="hint">${esc(c.motivo||(typeof textoSemMesesComparaveis==='function'?textoSemMesesComparaveis(ano,anoComp):''))}</p>`,false);
+ const pct=l=>id=>l.vendas>0&&l[id]!=null?l[id]/l.vendas*100:null;
+ return card(`Comparação · ${ano} contra ${anoComp} nos mesmos meses (${c.meses})`,dreComparacao(DRESimples.LINHAS,id=>A[id]??null,id=>B[id]??null,pct(A),pct(B),{rotuloA:`${ano} · ${c.meses}`,rotuloB:`${anoComp} · ${c.meses}`,pode:true,ressalva:!!c.ressalva,base:'as vendas'})+'<p class="hint">Só os meses completos nos dois anos, da mesma base e com plano de contas. Mude o ano em “Comparar com”, no topo.</p>',true);
+}
 function dreSimplesAno(label,meses,sel,painelTendencia){
  const ano=String(label).split('/')[1],ate=String(label).split('/')[0],y=dreAnoCaixa(meses,sel),lista=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0]||'';
- const tabela=dreMesesSimples(label,meses),porMes=`<p class="hint dre-ano-nota">${esc(`${ano} somado de janeiro a ${ate}${y.parciais.length?`, com ${lista(y.parciais)} em andamento`:''}. A comparação entre meses e as contas de cada linha são por mês: escolha um mês na barra para vê-las.`)}</p>`;
+ const tabela=dreMesesSimples(label,meses),porMes=`<p class="hint dre-ano-nota">${esc(`${ano} somado de janeiro a ${ate}${y.parciais.length?`, com ${lista(y.parciais)} em andamento`:''}. As contas de cada linha são por mês: escolha um mês na barra para vê-las.`)}</p>`,comparacao=dreComparacaoAno(ano);
  if(!y.linhas){
   const faixas=xs=>{const g=[];for(const l of xs){const k=monthSortKey(l),u=g[g.length-1];if(u&&k===u.k+1){u.fim=l;u.k=k;}else g.push({ini:l,fim:l,k});}return lista(g.map(x=>x.ini===x.fim?x.ini:`${x.ini} a ${x.fim}`));};
   const motivo=`${faixas(y.faltam)} sem dados coletados: sem todos os meses, o ano de ${ano} não é somado. Use “Atualizar Mubisys” ou importe a planilha dos meses.`;
-  return {cards:`<div class="cards cards-controle">${dreCartao(`Vendas · ${ano}`,'Não apurado',motivo)}${['Margem de contribuição','Resultado operacional (EBITDA de caixa)',`Resultado de ${ano}`].map(t=>dreCartao(t,'Não apurado','Depende de todos os meses do ano até '+ate+'.')).join('')}</div>`,resto:`<div class="graficos-controle">${painelTendencia}</div>`+porMes+tabela};
+  return {cards:`<div class="cards cards-controle">${dreCartao(`Vendas · ${ano}`,'Não apurado',motivo)}${['Margem de contribuição','Resultado operacional (EBITDA de caixa)',`Resultado de ${ano}`].map(t=>dreCartao(t,'Não apurado','Depende de todos os meses do ano até '+ate+'.')).join('')}</div>`,resto:`<div class="graficos-controle">${painelTendencia}</div>`+comparacao+porMes+tabela};
  }
  const l=y.linhas,g=y.margens,marca=y.parciais.length?` · inclui ${lista(y.parciais)} (parcial)`:'',per=`de janeiro a ${ate} de ${ano}${marca}`,tom=v=>v>0?'tom-entra':v<0?'tom-sai':'';
  const cards=`<div class="cards cards-controle">${dreCartao(`Vendas · ${ano}`,money(l.vendas),`Receita bruta de vendas, ${per}`,l.vendas>0?'tom-entra':'')}${dreCartao('Margem de contribuição',money(l.margemContribuicao),`${drePct(g.margemContribuicao)} das vendas, depois do Simples, ISS, devoluções e custos variáveis, ${per}`,tom(l.margemContribuicao))}${dreCartao('Resultado operacional (EBITDA de caixa)',money(l.ebitda),`${drePct(g.ebitda)} das vendas, depois das despesas fixas, ${per}`,tom(l.ebitda))}${dreCartao(`Resultado de ${ano}`,money(l.resultado),`${drePct(g.resultado)} das vendas, antes de retiradas, investimentos e dívidas, ${per}`,tom(l.resultado))}</div>`;
  const graficos=`<div class="graficos-controle">${drePainel(`Da venda ao resultado · ${ano}`,`O ano somado, ${per}; cada degrau com o percentual sobre as vendas.`,dreCascataCaixa({a:{linhas:l}},{simples:'(−) Simples (DAS e DARF)',resultado:`(=) Resultado de ${ano}`}),true)}${painelTendencia}</div>`;
- return {cards,resto:graficos+porMes+tabela};
+ return {cards,resto:graficos+comparacao+porMes+tabela};
 }
 function dreSimplesCaixa(){
  const label=state.periodo,m=dreMesCaixa(label),meses=dreMesesDoAno(label).map(x=>dreMesmoMes(x,label)?m:dreMesCaixa(x)),sel=meses.findIndex(x=>x===m);
  const tendencia=gLinhaArea(meses.map(x=>({rotulo:x.label.slice(0,3)+(x.a&&x.parcial?'*':''),valor:x.a&&!x.parcial?x.a.margens.margemContribuicao:null})),{selecionado:sel,titulo:'Margem de contribuição sobre as vendas',formato:v=>drePct(v),rotulo:'Margem de contribuição',cor:'resultado'});
  const painelTendencia=drePainel('A margem de contribuição está melhorando?','Percentual sobre as vendas, mês a mês. Mês sem dados ou em andamento fica hachurado.',tendencia,true);
  // Ano: de janeiro ao último mês com dados até hoje, calculado aqui (não o mês guardado).
- if(typeof anoAtivo==='function'&&state.view==='dre'&&anoAtivo()){const fim=typeof fimDoAno==='function'?fimDoAno(String(label).split('/')[1]):label,i=meses.findIndex(x=>dreMesmoMes(x.label,fim));if(i>=0)return dreSimplesAno(fim,meses,i,painelTendencia);}
+ if(state.view==='dre'&&(typeof telaNoAno==='function'?telaNoAno():typeof anoAtivo==='function'&&anoAtivo())){const fim=typeof fimDoAno==='function'?fimDoAno(String(label).split('/')[1]):label,i=meses.findIndex(x=>dreMesmoMes(x.label,fim));if(i>=0)return dreSimplesAno(fim,meses,i,painelTendencia);}
  if(!m.a){
   // Sem o mês: os cards dizem o que falta e como resolver; o ano continua visível.
   const como='Use “Atualizar Mubisys” (mês atual e anterior) ou importe a planilha do mês.';

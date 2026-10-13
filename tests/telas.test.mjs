@@ -139,7 +139,12 @@ test('controles sem efeito ficam escondidos: mês, Comparar e cobertura',()=>{
  run("voltandoHistorico=true");vis('inicio');run("voltandoHistorico=false");assert.deepEqual([run('__rolou'),focos],[1,1],'Voltar não força o topo');
  // D33: com o Ano ligado, o chip diz o ano até o mês, não só o mês
  run("state.anoTodo=true;state.periodo='Ago/2025';state.view='dfc';render()");assert.match(els.qualityBar.innerHTML,/<span>2025 até Dez\/2025 · <b>/);
- run("state.view='inicio';render()");assert.match(els.qualityBar.innerHTML,/<span>Dez\/2025 · <b>/,'fora das telas do Ano, só o mês');
+ run("state.view='inicio';render()");assert.match(els.qualityBar.innerHTML,/<span>2025 até Dez\/2025 · <b>/,'o Dashboard também tem o Ano');
+ run("state.view='glossario';render()");assert.match(els.qualityBar.innerHTML,/<span>Dez\/2025 · <b>/,'fora das telas do Ano, só o mês');
+ // Plano Ano: no Ano, o Comparar (de ano) aparece em toda tela que compara; Conferência e Parâmetros não comparam.
+ for(const v of ['inicio','cfo','caixa','resultado','custos','detalhe','dfc','balanco','precos','indicadores'])assert.deepEqual(vis(v)[1],true,v+': Comparar com outro ano no Ano');
+ for(const v of ['conferencia','parametros'])assert.deepEqual(vis(v)[1],false,v+': no Ano não compara');
+ run("state.anoTodo=false");for(const v of ['caixa','conferencia','dfc','detalhe'])assert.deepEqual(vis(v)[1],false,v+': no mês, como antes');
 });
 
 // v135: harness de render com menu, foco e Indicadores (N3, N4, N7, N16, N25, N26).
@@ -208,4 +213,13 @@ test('logo leva ao Dashboard sem trocar a página e mantém o Ano',async()=>{
  assert.equal(typeof marca.onclick,'function');let impediu=false;run("__renders=0;const __r=render;render=()=>{__renders++;__r()}");
  marca.onclick({preventDefault(){impediu=true;}});
  assert.equal(impediu,true,'o href não navega: a rota é gravada pelo render');assert.equal(run('state.view'),'inicio');assert.equal(run('state.anoTodo'),true);assert.equal(run('__renders'),1);
+});
+// Plano Ano (APP-4): os Indicadores recebem o ano comparado e os meses comparáveis do app; fora do Ano, null e [].
+test('Indicadores no Ano recebem anoComparado e mesesComparaveis; fora do Ano, null e []',()=>{
+ const {run}=telaRender();
+ const cel=(code,value)=>({code,name:code,value});const fim=(y,i)=>new Date(Date.UTC(y,i+1,0)).toISOString().slice(0,10);const M=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+ const regs=[2025,2026].flatMap(y=>M.slice(0,y===2026?3:12).map((m,i)=>({id:m+'_'+y,label:m+'/'+y,company:'Impresilk + Universo',basis:'Caixa gerencial',origem:'erp',qualidade:{ate:fim(y,i),estado:'aguardando-conferencia',regra:'caixa-v2',escopo:'compõe DRE'},cells:[cel('1',1000),cel('2',800),cel('2.1',800)]})));
+ run(`dfcHoje=()=>'2026-04-10';__ctx=[];window={DREIndicadores:{mount:(el,ctx)=>__ctx.push({anoComparado:ctx.anoComparado,mesesComparaveis:ctx.mesesComparaveis})}};api=()=>{};state.records=${JSON.stringify(regs)};state.view='indicadores';state.periodo='Mar/2026';state.anoTodo=true;render()`);
+ run("state.anoComparar='nenhum';render();state.anoTodo=false;render()");
+ assert.deepEqual(JSON.parse(run('JSON.stringify(__ctx)')),[{anoComparado:2025,mesesComparaveis:[0,1,2]},{anoComparado:null,mesesComparaveis:[]},{anoComparado:null,mesesComparaveis:[]}]);
 });

@@ -74,3 +74,63 @@ test('metricRubricaCFO: sem classe extra o HTML é o de antes; com classe, ela e
  assert.match(a,/^<button class="metric metric-entra" data-cfo-rubrica="liquida"/);assert.equal(b,a.replace('class="metric ','class="metric metric-param '));
  assert.match(vm.runInContext("metricRubricaCFO('liquida','Receita líquida',0,'Vendas')",c),/^<button class="metric" data-cfo-rubrica/);
 });
+
+// Contrato do Ano (PLANO-ANO §2), só quando o app ou graficos.js ainda não o trazem.
+const STUB_ANO=`(()=>{const g=globalThis,T=['inicio','cfo','dre','caixa','resultado','custos','detalhe','conferencia','dfc','balanco','precos','parametros','indicadores'];
+if(typeof telaNoAno!=='function')g.telaNoAno=()=>!!state.anoTodo&&T.includes(state.view);
+if(typeof anoDaTela!=='function')g.anoDaTela=()=>Number(String(state.periodo).split('/')[1])||null;
+if(typeof TEXTO_SEM_ANO_COMPARADO==='undefined')g.TEXTO_SEM_ANO_COMPARADO='Sem comparação: escolha um ano em “Comparar com”, no topo.';
+if(typeof textoSemMesesComparaveis!=='function')g.textoSemMesesComparaveis=(a,b)=>'Sem meses completos, da mesma base e com plano de contas em '+a+' e '+b+' para comparar.';
+if(typeof rotuloMesesAno!=='function')g.rotuloMesesAno=ix=>{if(ix.length===12)return 'ano inteiro';const f=[];for(const i of ix){const u=f[f.length-1];if(u&&i===u[1]+1)u[1]=i;else f.push([i,i]);}const t=f.map(([a,b])=>a===b?PT_MON[a]:PT_MON[a]+' a '+PT_MON[b]);return t.length>1?t.slice(0,-1).join(', ')+' e '+t[t.length-1]:t[0]||'';};
+const regDe=l=>state.records.find(r=>monthSortKey(r.label)===monthSortKey(l))||null;
+if(typeof rotuloAno!=='function')g.rotuloAno=(ano=anoDaTela())=>{const f=fimDoAno(ano),m=String(f).split('/')[0],r=regDe(f);return ano+' · '+(m==='Jan'?'Jan':'Jan a '+m)+(r&&F.qualidade(r).parcial?'*':'');};
+if(typeof anosComparaveis!=='function')g.anosComparaveis=(ano=anoDaTela())=>[...new Set(state.records.map(r=>Number(String(r.label).split('/')[1])).filter(Boolean))].filter(y=>y!==Number(ano)).sort((a,b)=>b-a);
+if(typeof anoPadraoComparado!=='function')g.anoPadraoComparado=(ano=anoDaTela())=>{const l=anosComparaveis(ano);return l.includes(ano-1)?ano-1:l.find(y=>y<ano)??null;};
+if(typeof anoComparado!=='function')g.anoComparado=()=>{const v=state.anoComparar||'';if(v==='nenhum')return null;if(/^\\d{4}$/.test(v)&&anosComparaveis().includes(Number(v)))return Number(v);return anoPadraoComparado();};
+if(typeof mesesComparaveisAno!=='function')g.mesesComparaveisAno=(a,b)=>PT_MON.map((m,i)=>i).filter(i=>{const x=regDe(PT_MON[i]+'/'+a),y=regDe(PT_MON[i]+'/'+b);if(!x||!y)return false;const ok=r=>F.periodo(r.label).ate<dfcHoje()&&!F.qualidade(r).parcial&&!((DRESimples.apurar(r)?.pctSemConta??0)>10);return ok(x)&&ok(y)&&F.comparavelComRessalva(x,y).pode;});
+if(typeof registroDoAno!=='function')g.registroDoAno=(ano,ix=null)=>{const f=fimDoAno(ano),ate=PT_MON.indexOf(String(f).split('/')[0]),idx=ix||PT_MON.slice(0,ate+1).map((m,i)=>i),ls=idx.map(i=>PT_MON[i]+'/'+ano),regs=ls.map(regDe),faltam=ls.filter((l,i)=>!regs[i]);
+ if(faltam.length)return {disponivel:false,faltam,motivo:faltam.join(', ')+' sem dados coletados: sem todos os meses, o acumulado de '+ano+' não é somado.',meses:ls,parcial:false};
+ const cod=new Map();for(const r of regs)for(const c of r.cells||[]){const k=cod.get(c.code)||{code:c.code,name:c.name,v:0};k.v+=Math.round(Number(c.value)*100);k.name=c.name;cod.set(c.code,k);}
+ const parcial=regs.some(r=>F.qualidade(r).parcial),r0=regs[regs.length-1];
+ const reg={id:'ano_'+ano,label:String(ano),rotulo:ix?ano+' · '+rotuloMesesAno(ix):rotuloAno(ano),ano:{meses:ls,parcial,ressalva:false},company:r0.company,basis:r0.basis,origem:r0.origem,qualidade:{...r0.qualidade,estado:'ano'},cells:[...cod.values()].sort((a,b)=>a.code.localeCompare(b.code,undefined,{numeric:true})).map(k=>({code:k.code,name:k.name,value:k.v/100})),pendencias:regs.flatMap(r=>(r.pendencias||[]).map(p=>({...p,mes:r.label}))),eventos:[]};
+ return {disponivel:true,reg,motivo:'',faltam:[],meses:ls,parcial};};
+if(typeof comparacaoDoAno!=='function')g.comparacaoDoAno=(ano=anoDaTela(),anoComp=anoComparado())=>{if(anoComp==null)return {ano,anoComp,indices:[],meses:'',atual:null,anterior:null,ressalva:false,motivo:TEXTO_SEM_ANO_COMPARADO};const indices=mesesComparaveisAno(ano,anoComp);if(!indices.length)return {ano,anoComp,indices,meses:'',atual:null,anterior:null,ressalva:false,motivo:textoSemMesesComparaveis(ano,anoComp)};return {ano,anoComp,indices,meses:rotuloMesesAno(indices),atual:registroDoAno(ano,indices).reg,anterior:registroDoAno(anoComp,indices).reg,ressalva:false,motivo:''};};
+if(typeof compLinhaAno!=='function')g.compLinhaAno=(rotulo,anterior,delta,dir,{tomAnterior='',motivo='',atual=null,rotuloAtual='',formato=money,unidade=''}={})=>anterior==null?'<span class="comp-ano">'+esc(rotulo)+': '+esc(motivo)+'</span>':'<span class="comp-ano">'+esc(rotulo)+': <span class="'+tomAnterior+'">'+formato(anterior)+'</span>'+(rotuloAtual?' · '+esc(rotuloAtual)+': '+formato(atual):'')+' · <b class="'+(tomDelta(dir,delta)||'delta-neutro')+'">'+(delta>0?'▲':delta<0?'▼':'■')+' '+formato(Math.abs(delta))+unidade+(delta>0?' a mais':delta<0?' a menos':'')+'</b></span>';
+})()`;
+// Ano (PLANO-ANO §4.2): leitura do ano somado, card 2 contra o ano escolhido nos mesmos meses, cenário só por mês.
+function contextoAno(anoComparar=''){
+ const k={document:{addEventListener(){},querySelectorAll:()=>[]},localStorage:{getItem:()=>null},structuredClone};vm.createContext(k);
+ for(const f of ['financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','cfo-modelo.js','cfo.js','pdf-cfo.js','app.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),k);
+ const fim=(a,m)=>new Date(Date.UTC(a,m+1,0)).toISOString().slice(0,10),M=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+ const mes=(a,m,v,ate=fim(a,m))=>rec(v,{label:`${M[m]}/${a}`,qualidade:{estado:'fechado',ate,regra:'v2',escopo:'DRE'}});
+ k.regs=[...M.map((_,m)=>mes(2025,m,{'1':1000,'2':700,'2.5':500,'2.12':200})),...M.slice(0,8).map((_,m)=>mes(2026,m,{'1':1000,'2':900,'2.5':600,'2.12':300})),mes(2026,8,{'1':300,'2':200,'2.5':150,'2.12':50},'2026-09-15')];
+ k.regs[13].pendencias=[{tipo:'sem-classe'}];k.regs[20].pendencias=[{tipo:'duplicado'}];
+ vm.runInContext(`dfcHoje=()=>'2026-09-22';state.records=regs;state.periodo='Set/2026';state.D={accounts:[]};state.comparar='';state.view='cfo';state.anoTodo=true;state.anoComparar=${JSON.stringify(anoComparar)};`,k);vm.runInContext(STUB_ANO,k);
+ return k;
+}
+test('Análise CFO no Ano: leitura do ano, pesos do ano, card 2 contra o ano escolhido e cenário só por mês',()=>{
+ const k=contextoAno(),h=vm.runInContext('renderCFO(regAtual())',k);
+ assert.match(h,/<p class="eyebrow">LEITURA CFO · 2026 · Jan a Set\*<\/p><h2>As entradas registradas cobriram as saídas\.<\/h2>/);
+ assert.match(h,/Diferença de <b class="tom-entra">R\$\s900,00<\/b> no caixa considerado em 2026 · Jan a Set\*\. O ano inclui o mês em andamento: a leitura ainda muda\./,'8 × 100 + 100 de Set');
+ assert.match(h,/<b>2 pendências a conferir no ano<\/b>/);
+ assert.match(h,/Grupos de saídas somados em 2026 · Jan a Set\*, em ordem de valor absoluto\./);
+ assert.match(h,/data-cfo-account="2\.5" data-cfo-period="Set\/2026">R\$\s4\.950,00<\/button><\/td><td class="num">66,9%<\/td>/,'peso nas saídas do ano: 4.950 de 7.400');
+ const c2=h.slice(h.indexOf('2. O que mudou em relação ao outro ano'),h.indexOf('3. Receita necessária'));
+ assert.match(c2,/2025 \(Jan a Ago\): <span class="tom-sai">R\$\s4\.000,00<\/span> → 2026 \(Jan a Ago\): <span class="tom-sai">R\$\s4\.800,00<\/span>/);
+ assert.match(c2,/Variação <span class="delta-ruim">▲ R\$\s800,00<\/span>/,'saída que sobe é ruim');assert.match(c2,/2025 → 2026 nos mesmos meses \(Jan a Ago\)/);
+ const c3=h.slice(h.indexOf('3. Receita necessária'),h.indexOf('4. Para conhecer'));assert.match(c3,/<p>O cenário é por mês: escolha um mês na barra para simular e salvar\.<\/p>/);assert.doesNotMatch(c3,/<form|cfoCenario/);
+ assert.match(h,/<div class="cfo-alert">/,'ano com mês em andamento: aviso de cobertura');assert.doesNotMatch(h,/NaN|undefined| — /);
+ // Sem comparação: o motivo no card 2
+ const n=vm.runInContext('renderCFO(regAtual())',contextoAno('nenhum'));assert.match(n,/2\. O que mudou em relação ao outro ano[\s\S]*<p>Sem comparação: escolha um ano em “Comparar com”, no topo\.<\/p>/);assert.doesNotMatch(n,/2025 \(Jan/);
+ // Dashboard usa a mesma leitura do ano
+ const d=contextoAno();vm.runInContext("state.view='inicio'",d);assert.match(vm.runInContext('cfoResumo(regAtual())',d),/LEITURA CFO · 2026 · Jan a Set\*[\s\S]*data-go="cfo"/);
+ // Fora do Ano: tudo como antes
+ const m=contextoAno();vm.runInContext("state.anoTodo=false",m);const hm=vm.runInContext('renderCFO(regAtual())',m);assert.match(hm,/LEITURA CFO · Set\/2026/);assert.match(hm,/id="cfoCenario"/);assert.match(hm,/2\. O que mudou em relação ao outro mês/);
+});
+test('Análise CFO: o PDF do topo leva ano:true no Ano e ano:false no mês',()=>{
+ for(const [ano,esperado] of [[true,true],[false,false]]){
+  const k=contextoAno(),el={cfoPDF:{}};vm.runInContext(`state.anoTodo=${ano}`,k);k.document.getElementById=id=>el[id]||null;k.document.querySelectorAll=()=>[];
+  vm.runInContext('__op=null;exportarCFO=op=>{__op=op};wireCFO(document)',k);el.cfoPDF.onclick();
+  const op=vm.runInContext('__op',k);assert.equal(op.ano,esperado);assert.equal(op.tipo,'executivo');assert.equal(op.periodo,'Set/2026');
+ }
+});

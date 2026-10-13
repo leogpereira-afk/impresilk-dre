@@ -9,11 +9,15 @@
 //  7. no celular, o chip do mês escolhido fica fora da parte visível da faixa de meses (ao abrir e a cada tela);
 //  8. id repetido no documento (id-duplicado); 9. botão, link, campo ou lista visível sem nome para o leitor de tela
 //     (controle-sem-nome). As regras 8 e 9 (acessibilidade, N26) entram no resumo mas ainda não mudam a saída.
+// 10. na linha de comparação do Ano (.comp-ano), a seta e o Δ só com delta-bom/delta-ruim/delta-neutro, nunca tom-*;
+//     o valor do ano comparado é comparação (não segue o rótulo do cartão);
+// 11. no Ano: o chip não liga ou o ano de comparação do link não pega; no celular, alvo do Ano com menos de 44 px.
+// 12. de 701 a 1280 px (mouse e toque): o topo no Ano mais alto que no mês (mais de 2 px) ou a página rolando para o lado.
 // Uso: servidor local do repositório em DRE_URL (padrão http://127.0.0.1:8793/), depois
 //   PLAYWRIGHT=<.../playwright/index.mjs> CHROME=<executável> node tests/visual/regra-cores.mjs [--json saida.json]
 // Nenhum pedido sai para a rede: o Supabase é respondido pela fixture e os outros hosts são bloqueados.
 import fs from 'node:fs/promises';
-import {esperarServidor, lancar, contexto, abrirApp, irEstado, ESTADOS, MES_PARCIAL} from './base.mjs';
+import {esperarServidor, lancar, contexto, abrirApp, irEstado, ESTADOS, MES_PARCIAL, MES_FECHADO, irTela, irPeriodo, ligarAno} from './base.mjs';
 // Acessibilidade: lista no resumo sem reprovar (nesta versão).
 const SO_AVISO = new Set(['id-duplicado', 'controle-sem-nome']);
 
@@ -55,7 +59,7 @@ function verificar() {
     // 2. valores ligados a contas do plano (fora das colunas de comparação)
     const td = el.closest('td'); const col = td ? cabecalhoDaColuna(td) : '';
     const ano = document.getElementById('yearSelect')?.value, anos = col.match(/\b20\d\d\b/g) || [];
-    const comparacao = /Δ|×|anterior|diferen|varia/i.test(col) || (anos.length && !anos.includes(ano));
+    const comparacao = !!el.closest('.comp-ano') || /Δ|×|anterior|diferen|varia/i.test(col) || (anos.length && !anos.includes(ano));
     const conta = el.closest('[data-account],[data-plano-linha],[data-plano-select],[data-cfo-account]');
     const code = conta && (conta.getAttribute('data-account') || conta.getAttribute('data-plano-linha') || conta.getAttribute('data-plano-select') || conta.getAttribute('data-cfo-account'));
     if (code && /^[12](\.|$)/.test(code) && !comparacao) {
@@ -99,6 +103,17 @@ function verificar() {
     const esperado = sentido < 0 ? VERM : AZUL;
     if (cor !== esperado) falhas.push({regra: 'valor-do-rotulo-fora-da-cor', rotulo: texto.replace(/\s+/g, ' ').slice(0, 80), onde: onde(el), secao: secao(el), texto: t, cor, esperado});
   }
+  // 10. linha de comparação do Ano: Δ com seta só pela classe delta-*; o neutro sem azul nem vermelho
+  for (const linha of document.querySelectorAll('#pageContent .comp-ano')) {
+    if (!vis(linha)) continue;
+    if (/[▲▼■]/.test(proprio(linha))) falhas.push({regra: 'comp-ano-sem-delta', onde: onde(linha), secao: secao(linha), texto: proprio(linha).slice(0, 40)});
+    for (const el of linha.querySelectorAll('*')) {
+      if (!/[▲▼■]/.test(proprio(el))) continue;
+      const d = [...el.classList].find(c => /^delta-(bom|ruim|neutro)$/.test(c));
+      if (!d || el.classList.contains('tom-entra') || el.classList.contains('tom-sai')) falhas.push({regra: 'comp-ano-sem-delta', onde: onde(el), secao: secao(el), texto: proprio(el).slice(0, 40), classe: el.className});
+      else if (d === 'delta-neutro' && [AZUL, VERM].includes(getComputedStyle(el).color)) falhas.push({regra: 'variacao-fora-da-cor', onde: onde(el), secao: secao(el), texto: proprio(el).slice(0, 30), cor: getComputedStyle(el).color, esperado: 'nem azul nem vermelho'});
+    }
+  }
   // 8. id repetido entre elementos visíveis (getElementById e aria-* passam a apontar para o primeiro)
   const ids = new Map();
   for (const el of document.querySelectorAll('[id]')) if (el.id && vis(el)) ids.set(el.id, [...(ids.get(el.id) || []), el]);
@@ -120,9 +135,29 @@ function verificar() {
   return falhas;
 }
 
+// 11. alvos do Ano no celular: o chip, o "Comparar com" e os botões das tabelas novas com 44 px de altura
+const alvosPequenosDoAno = () => [...document.querySelectorAll('#anoChip button, #periodCompare > summary, #pageContent .param-ano-tabela th button, #pageContent details.conf-ano-mes > summary, #pageContent .tabela-ano [data-period]')]
+  .filter(el => el.getClientRects().length && el.getBoundingClientRect().height < 43.5)
+  .map(el => ({regra: 'alvo-do-ano-menor-que-44px', alvo: el.id || el.tagName.toLowerCase() + [...el.classList].slice(0, 2).map(c => '.' + c).join(''), texto: (el.innerText || '').trim().slice(0, 30), altura: Math.round(el.getBoundingClientRect().height)}));
 // 7. a faixa rola para o lado no celular: o mês aceso precisa estar na parte visível dela
 const chipForaDaFaixa = () => { const b = document.querySelector('#monthChips'), s = b?.querySelector('[aria-pressed="true"]'); if (!s || !b.getClientRects().length) return null;
   const rb = b.getBoundingClientRect(), rs = s.getBoundingClientRect(); return rs.left < rb.left - 1 || rs.right > rb.right + 1 ? {mes: s.dataset.period, chip: [Math.round(rs.left), Math.round(rs.right)], faixa: [Math.round(rb.left), Math.round(rb.right)]} : null; };
+// 12. topo entre 701 e 1280 px: o Ano (chip e "Comparar com") não abre linha nova. No Dashboard o Comparar aparece no mês
+// e no Ano; no Fluxo de caixa DFC, só no Ano; na Conferência, nunca.
+const alturaDoTopo = () => ({topo: Math.round(document.querySelector('.pagehead').getBoundingClientRect().height), rola: document.documentElement.scrollWidth > innerWidth});
+async function topoNoAno(page, toque) {
+  const f = [];
+  for (const w of [701, 768, 820, 900, 1024, 1100, 1179, 1280]) {
+    await page.setViewportSize({width: w, height: 900});
+    for (const tela of ['inicio', 'dfc', 'conferencia']) {
+      await irTela(page, tela, w <= 900 || toque);await irPeriodo(page, MES_FECHADO);await ligarAno(page, false);
+      const mes = await page.evaluate(alturaDoTopo);await ligarAno(page, true);const ano = await page.evaluate(alturaDoTopo);await ligarAno(page, false);
+      if (ano.topo > mes.topo + 2) f.push({regra: 'topo-do-ano-mais-alto', tela, largura: w, mes: mes.topo, ano: ano.topo});
+      if (mes.rola || ano.rola) f.push({regra: 'rolagem-lateral-no-topo', tela, largura: w});
+    }
+  }
+  return f;
+}
 await esperarServidor();
 const browser = await lancar();
 const todas = [];
@@ -138,8 +173,8 @@ try {
       await link.page.close();
     }
     for (const e of ESTADOS) {
-      await irEstado(page, e, m.mobile);
-      const f = await page.evaluate(verificar);
+      const f = [...await irEstado(page, e, m.mobile), ...await page.evaluate(verificar)];
+      if (m.mobile && e.ano) f.push(...await page.evaluate(alvosPequenosDoAno));
       if (m.mobile) {
         const w = await page.evaluate(() => ({pagina: document.documentElement.scrollWidth, aparelho: Math.round(window.visualViewport?.width || screen.width)}));
         if (w.pagina > w.aparelho + 1) f.push({regra: 'rolagem-lateral-no-celular', ...w});
@@ -147,6 +182,7 @@ try {
       }
       for (const x of f) todas.push({modo: m.id, tela: e.tela, estado: e.estado, ...x});
     }
+    if (!m.escuro) for (const x of await topoNoAno(page, m.mobile)) todas.push({modo: m.id, ...x});
     for (const x of erros.filter(x => x.tipo !== 'warning')) todas.push({modo: m.id, regra: 'erro-de-console', ...x});
     await ctx.close();
   }

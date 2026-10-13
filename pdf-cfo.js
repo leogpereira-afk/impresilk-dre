@@ -37,7 +37,41 @@ var PDFCFO = (()=>{
  }
  return {carregar,montar};
 })();
+/* Relatório do Ano (executivo e custos): o registro do ano somado de janeiro ao último mês com dados
+   (registroDoAno do app) e a comparação com o ano escolhido em "Comparar com", só nos meses completos
+   dos dois anos (comparacaoDoAno). Sem ano escolhido ou sem meses comparáveis, a nota diz o motivo. */
+function relatorioCFOAno(op={}){
+ const label=op.periodo||state.periodo,ano=Number(String(label).split('/')[1]),ra=registroDoAno(ano),reg=ra?.disponivel?ra.reg:null,rotulo=typeof rotuloAno==='function'?rotuloAno(ano):String(ano);
+ const doAno=state.records.filter(x=>String(x.label).endsWith('/'+ano)),empresa=reg?.company||state.records.find(x=>x.label===label)?.company||doAno.at(-1)?.company||'Escopo não informado';
+ const a=DRECFO.analise(reg,null),base=op.base==='competencia'?'Competência':'Caixa gerencial';
+ const r={titulo:'Análise financeira para decisão',subtitulo:rotulo+' · '+empresa,periodo:rotulo,arquivo:String(ano),base,notas:[],blocos:[]};
+ if(reg)r.notas.push(a.q.rotulo+' · '+a.q.mensagem,'Coleta/registro: '+dataBR(a.q.coletadoEm)+'. Leitura da nuvem: '+dataBR(state.updated)+'.');else r.notas.push('Ano não somado: '+(ra?.motivo||'sem dados no ano.'));
+ r.notas.push('Os valores de caixa não são lucro contábil nem saldo bancário disponível.');
+ if(a.incompleta)r.notas.push('Composição incompleta: pesos suspensos por valores inválidos.');
+ const table=(titulo,colunas,linhas,texto,tons)=>r.blocos.push({titulo,colunas,linhas,texto,...(tons?{tons}:{})});
+ table('Retrato do período',['Indicador','Registrado em '+rotulo],[['Entradas',cfoValor(a.entradas)],['Saídas',cfoValor(a.saidas)],['Variação',cfoValor(a.variacao)]],'',[['',pdfTomLinha('entradas',a.entradas)],['',pdfTomLinha('saidas',a.saidas)],['',pdfTomLinha('variacao',a.variacao)]]);
+ r.blocos.push({titulo:'Composição visual',barras:[{nome:'Entradas',valor:a.entradas,cor:PDF_COR.entra},{nome:'Saídas',valor:a.saidas,cor:PDF_COR.sai},{nome:'Variação',valor:a.variacao,cor:a.variacao<0?PDF_COR.sai:PDF_COR.entra}].filter(x=>x.valor!=null)});
+ table('Onde investigar',['Grupo','Valor','Peso','Pergunta para conferência'],a.ranking.map(x=>[x.name,cfoValor(x.value),x.peso==null?'—':x.peso.toFixed(1).replace('.',',')+'%',x.pergunta]),'Grupos de saídas somados em '+rotulo+'.',a.ranking.map(x=>['',pdfTomConta(x.code,x.value)]));
+ // Comparação com o ano escolhido, nos mesmos meses completos dos dois anos.
+ const cmp=typeof comparacaoDoAno==='function'?comparacaoDoAno(ano,typeof anoComparado==='function'?anoComparado():null):null;
+ if(cmp&&!cmp.motivo&&cmp.atual&&cmp.anterior){
+  const c=DRECFO.analise(cmp.atual,cmp.anterior),rA=cmp.anoComp+' · '+cmp.meses,rB=cmp.ano+' · '+cmp.meses;
+  table('Comparação com '+cmp.anoComp+' nos mesmos meses ('+cmp.meses+')',['Conta',rA,rB,'Diferença'],c.variacoes.map(x=>[x.name,cfoValor(x.anterior),cfoValor(x.atual),cfoValor(x.delta)]),c.comparavel?(cmp.ressalva||c.comp?.ressalva?'Variações mensuradas. Cobertura da coleta ainda não validada em algum mês: confira a origem antes de decidir.':'Variações mensuradas só nos meses completos dos dois anos; as causas precisam de conferência.'):(c.comp?.motivo||'Comparação suspensa por cobertura ou critérios incompatíveis.'),c.variacoes.map(x=>['',pdfTomConta(x.code,x.anterior),pdfTomConta(x.code,x.atual),pdfTomDelta(pdfDirConta(x.code),x.delta)]));
+ }else r.notas.push(cmp?.motivo||(typeof TEXTO_SEM_ANO_COMPARADO!=='undefined'?TEXTO_SEM_ANO_COMPARADO:'Sem comparação com outro ano.'));
+ if(op.tipo==='custos'){
+  const cols=F.serieAnual(state.records,label,'2'),rows=linhasCustos();r.titulo='Despesas por mês · seleção de custos';
+  for(let i=0;i<12;i+=3)table('Despesas · '+(i/3+1)+'º trimestre',['Conta',...cols.slice(i,i+3).map(x=>x.label)],rows.map(c=>[c.name,...cols.slice(i,i+3).map(x=>cfoValor(F.valorConta(x.reg,c.code)))]),'Seleção: '+(custoUI.busca||contaConhecida(custoUI.grupo))+'. Cada valor preserva a classificação e cobertura do seu mês.',rows.map(c=>['',...cols.slice(i,i+3).map(x=>pdfTomConta(c.code,F.valorConta(x.reg,c.code)))]));
+  return r;
+ }
+ const ds=reg?DRESimples.apurar(reg):null;
+ table('DRE Simples, linha por linha',['Linha',rotulo],DRESimples.LINHAS.map(x=>[x.nome,cfoValor(ds?ds.linhas[x.id]:null)]),'As mesmas linhas da tela da DRE (base de caixa), somadas de janeiro ao último mês com dados.',DRESimples.LINHAS.map(x=>['',pdfTomSimples(x,ds?ds.linhas[x.id]:null)]));
+ // Pendências de todos os meses do ano, cada uma com o seu mês.
+ const pend=reg?.pendencias||doAno.sort((x,y)=>monthSortKey(x.label)-monthSortKey(y.label)).flatMap(x=>(x.pendencias||[]).map(p=>({...p,mes:x.label})));
+ table('Conferências pendentes',['Mês','Ocorrência','Valor'],pend.map(x=>[x.mes||'',x.texto||x.tipo,cfoValor(x.valor)]),'Ausência de pendência cadastrada não comprova conciliação.',pend.map(x=>['','',pdfTomConta(x.conta,x.valor)]));
+ return r;
+}
 function relatorioCFO(op={}){
+ if(op.ano&&(!op.tipo||op.tipo==='executivo'||op.tipo==='custos')&&typeof registroDoAno==='function')return relatorioCFOAno(op);
  const label=op.periodo||state.periodo,reg=state.records.find(r=>r.label===label),a=DRECFO.analise(reg,state.records.find(r=>r.label===state.comparar)),base=op.base==='competencia'?'Competência':'Caixa gerencial';
  const r={titulo:'Análise financeira para decisão',subtitulo:label+' · '+(reg?.company||'Escopo não informado'),periodo:label,base,notas:[a.q.rotulo+' · '+a.q.mensagem,'Coleta/registro: '+dataBR(a.q.coletadoEm)+'. Leitura da nuvem: '+dataBR(state.updated)+'.','Os valores de caixa não são lucro contábil nem saldo bancário disponível.'],blocos:[]};
  if(a.incompleta)r.notas.push('Composição incompleta: pesos suspensos por valores inválidos.');
@@ -101,7 +135,7 @@ function relatorioCFO(op={}){
  }
  table('Retrato do período',['Indicador','Registrado'],[['Entradas',cfoValor(a.entradas)],['Saídas',cfoValor(a.saidas)],['Variação',cfoValor(a.variacao)]],'',[['',pdfTomLinha('entradas',a.entradas)],['',pdfTomLinha('saidas',a.saidas)],['',pdfTomLinha('variacao',a.variacao)]]);
  r.blocos.push({titulo:'Composição visual',barras:[{nome:'Entradas',valor:a.entradas,cor:PDF_COR.entra},{nome:'Saídas',valor:a.saidas,cor:PDF_COR.sai},{nome:'Variação',valor:a.variacao,cor:a.variacao<0?PDF_COR.sai:PDF_COR.entra}].filter(x=>x.valor!=null)});
- table('Onde investigar',['Grupo','Valor','Peso','Pergunta para conferência'],a.ranking.map(x=>[x.name,cfoValor(x.value),x.peso==null?'—':x.peso.toFixed(1)+'%',x.pergunta]),'',a.ranking.map(x=>['',pdfTomConta(x.code,x.value)]));
+ table('Onde investigar',['Grupo','Valor','Peso','Pergunta para conferência'],a.ranking.map(x=>[x.name,cfoValor(x.value),x.peso==null?'—':x.peso.toFixed(1).replace('.',',')+'%',x.pergunta]),'',a.ranking.map(x=>['',pdfTomConta(x.code,x.value)]));
  if(state.comparar)table('Comparação com '+state.comparar,['Conta','Anterior','Atual','Diferença'],a.variacoes.map(x=>[x.name,cfoValor(x.anterior),cfoValor(x.atual),cfoValor(x.delta)]),a.comparavel?(a.comp?.ressalva?'Variações mensuradas. Cobertura da coleta ainda não validada nos dois meses: confira a origem antes de decidir.':'Variações mensuradas; as causas precisam de conferência.'):(a.comp?.motivo||'Comparação suspensa por cobertura ou critérios incompatíveis.'),a.variacoes.map(x=>['',pdfTomConta(x.code,x.anterior),pdfTomConta(x.code,x.atual),pdfTomDelta(pdfDirConta(x.code),x.delta)]));
  if(op.tipo==='custos'){
   const cols=F.serieAnual(state.records,label,'2'),rows=linhasCustos();r.titulo='Despesas por mês · seleção de custos';
@@ -115,5 +149,5 @@ function relatorioCFO(op={}){
 }
 const normalPDF=s=>String(s||'').toLocaleLowerCase('pt-BR');
 async function exportarCFO(op,button){
- const label=button?.textContent;try{const report=structuredClone(relatorioCFO(op));if(button){button.disabled=true;button.textContent='Preparando PDF…';}const Constructor=await PDFCFO.carregar();const doc=PDFCFO.montar(Constructor,report);doc.save('impresilk-'+(op.tipo||'analise')+'-'+safeId(report.periodo)+'.pdf');toast('PDF preparado com período, critérios e os dados da análise.');}catch(e){toast(e.message||'Não foi possível preparar o PDF.','err');}finally{if(button){button.disabled=false;button.textContent=label;}}
+ const label=button?.textContent;try{const report=structuredClone(relatorioCFO(op));if(button){button.disabled=true;button.textContent='Preparando PDF…';}const Constructor=await PDFCFO.carregar();const doc=PDFCFO.montar(Constructor,report);doc.save('impresilk-'+(op.tipo||'analise')+'-'+(report.arquivo||safeId(report.periodo))+'.pdf');toast('PDF preparado com período, critérios e os dados da análise.');}catch(e){toast(e.message||'Não foi possível preparar o PDF.','err');}finally{if(button){button.disabled=false;button.textContent=label;}}
 }

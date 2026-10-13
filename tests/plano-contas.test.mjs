@@ -80,7 +80,7 @@ test('entradas e saídas juntas no chip Ano: mesmos meses do ano anterior e o sa
  const c=ctx();comAnos(c);c.run("state.anoTodo=true;planoUI.juntas=true");const h=c.run('dashboardPlano(contextoPlano())');
  assert.match(h,/Ano 2026 contra 2025/);assert.match(h,/Entradas · Ago a Set<\/small><strong class="tom-entra">R\$\s2\.000,00<\/strong><small>2025: R\$\s1\.600,00 · \+25,0%/);
  assert.match(h,/Nos mesmos meses \(Ago a Set\), as saídas consumiram 50,0% das entradas, contra 50,0% em 2025\. O saldo melhorou R\$\s200,00\./);
- const sem=ctx();sem.run("state.anoTodo=true;planoUI.juntas=true");assert.match(sem.run('dashboardPlano(contextoPlano())'),/Sem meses completos, da mesma base, em 2026 e 2025/);
+ const sem=ctx();sem.run("state.anoTodo=true;planoUI.juntas=true");assert.match(sem.run('dashboardPlano(contextoPlano())'),/Sem outro ano com dados para comparar\./,'v136: sem 2025 nos dados, não há ano para comparar');
 });
 
 // ── v133: cor das diferenças, celular, Ano e PDF ──
@@ -168,4 +168,75 @@ test('v135 (N25): no Plano um só "↓ Planilha" (o do topo); DFC, Balanço e Pr
  const chamou=[];c.dfcCSV=()=>chamou.push('dfc');c.balCSV=()=>chamou.push('balanco');c.precosCSV=()=>chamou.push('precos');
  for(const v of ['dfc','balanco','precos'])c.run(`state.view='${v}';baixarPlanilhaTela()`);
  assert.deepEqual(chamou,['dfc','balanco','precos']);
+});
+
+// ── Ano em todas as telas: o ano de comparação escolhido em "Comparar com" (PLA-1, PLA-3) ──
+// O contrato do app (anoComparado, telaNoAno...) vem de app.js; sem ele (frente ainda não integrada),
+// a mesma regra do PLANO-ANO §2.2 em versão mínima, só para estes testes.
+const CONTRATO=`
+if(typeof telaNoAno!=='function')globalThis.telaNoAno=()=>anoAtivo()&&!anoCompetencia();
+if(typeof anoDaTela!=='function')globalThis.anoDaTela=()=>Number(String(state.periodo).split('/')[1])||null;
+if(typeof anosComparaveis!=='function')globalThis.anosComparaveis=(ano=anoDaTela())=>[...new Set(state.records.map(r=>Number(String(r.label).split('/')[1])).filter(Boolean))].filter(y=>y!==ano).sort((a,b)=>b-a);
+if(typeof anoPadraoComparado!=='function')globalThis.anoPadraoComparado=(ano=anoDaTela())=>{const l=anosComparaveis(ano);return l.includes(ano-1)?ano-1:l.find(y=>y<ano)??null;};
+if(typeof anoComparado!=='function')globalThis.anoComparado=()=>{const v=String(state.anoComparar??'');if(v==='nenhum')return null;if(/^\\d{4}$/.test(v)&&anosComparaveis().includes(Number(v)))return Number(v);return anoPadraoComparado();};
+if(typeof rotuloAno!=='function')globalThis.rotuloAno=(ano=anoDaTela())=>{const f=fimDoAno(ano),i=PT_MON.indexOf(f.split('/')[0]),r=state.records.find(x=>x.label===f);return ano+' · '+(i>0?'Jan a '+PT_MON[i]:'Jan')+(r&&F.qualidade(r).parcial?'*':'');};
+`;
+const com24=c=>c.run(`state.records=[...state.records,...['Ago','Set'].map((m,i)=>({label:m+'/2024',company:'Impresilk + Universo',basis:'Caixa',origem:'erp',qualidade:{ate:i?'2024-09-30':'2024-08-31',estado:'aguardando-conferencia',regra:'caixa-v2',escopo:'compõe DRE'},cells:[{code:'1',name:'Entradas',value:500},{code:'2',name:'Saídas',value:250},{code:'2.5.3',name:'Cemig',value:50}]}))];`);
+const noAno=(c,comp)=>{comAnos(c);com24(c);c.run(CONTRATO);c.run(`state.view='detalhe';state.anoTodo=true;state.anoComparar=${JSON.stringify(comp)};planoUI.matriz=new Set(['1','2'])`);return c;};
+test('Ano com "Comparar com" 2024: dashboard, entradas e saídas juntas e planilha contra 2024, nos mesmos meses',()=>{
+ const c=noAno(ctx(),'2024');assert.equal(c.run('anoComparado()'),2024);
+ c.run("state.contaSelecionada='2.5.3'");let h=c.run('dashboardPlano(contextoPlano())');
+ assert.match(h,/<span class="plano-compare">Ano 2026 contra 2024<\/span>/);assert.match(h,/<small>2024 · mesmos meses<\/small><strong class="tom-sai">R\$\s100,00/);
+ assert.match(h,/Aumentou R\$\s150,00 \(\+150,0%\) contra 2024 nos mesmos meses \(Ago a Set\)/);assert.doesNotMatch(h,/2025/,'2025 não aparece como ano comparado');
+ c.run("planoUI.juntas=true");h=c.run('dashboardPlano(contextoPlano())');
+ assert.match(h,/Ano 2026 contra 2024/);assert.match(h,/<small>2024: R\$\s1\.000,00 · \+100,0%/);assert.match(h,/contra 50,0% em 2024\. O saldo melhorou R\$\s500,00\./);
+ const t=c.run('tabelaPlano(contextoPlano())');
+ assert.match(t,/<th scope="col" class="num plano-ano">2024<small>Ago a Set<\/small><\/th><th scope="col" class="num plano-ano">Δ 2026 × 2024<small>Ago a Set nos dois anos<\/small><\/th>/);
+ assert.match(t,/comparação com 2024 em Ago a Set \(meses completos nos dois anos\)/);
+ assert.match(t,/data-plano-linha="2\.5\.3"[\s\S]*?<td class="num plano-ano tom-sai"[^>]*>100,00<\/td><td class="num plano-ano delta-ruim"[^>]*>▲ 150,0%<\/td>/);
+ // conta que não existia no ano comparado: o motivo diz o ano
+ c.run("state.records.find(r=>r.label==='Set/2026').cells.push({code:'2.7.9',name:'Nova',value:50})");
+ assert.match(J(c,"(()=>{const x=contextoPlano();return planoAno(x,'2.7.9',planoMesesComparaveis(x,2024),null,2024).motivo})()"),/^a conta não existia em 2024$/);
+ // padrão (''): o ano anterior
+ const d=noAno(ctx(),'');d.run("state.contaSelecionada='2.5.3'");assert.match(d.run('dashboardPlano(contextoPlano())'),/Ano 2026 contra 2025/);
+ assert.match(d.run('tabelaPlano(contextoPlano())'),/Δ 2026 × 2025/);
+});
+test('Ano com "Sem comparação": sem as colunas do outro ano, colspan certo, legenda e o texto do topo',()=>{
+ const c=noAno(ctx(),'nenhum');assert.equal(c.run('anoComparado()'),null);
+ c.run("state.contaSelecionada='2.5.3'");let h=c.run('dashboardPlano(contextoPlano())');
+ assert.match(h,/<span class="plano-compare">Ano 2026 · sem comparação<\/span>/);assert.match(h,/<small>Ano comparado<\/small><strong>Sem comparação<\/strong>/);
+ assert.match(h,/Sem comparação: escolha um ano em “Comparar com”, no topo\./);assert.match(h,/<small>2026 · meses com registro<\/small><strong class="tom-sai">R\$\s250,00/,'o ano todo, sem inventar comparação');
+ assert.doesNotMatch(h,/2025|2024|Aumentou|Diminuiu/);
+ c.run("planoUI.juntas=true");h=c.run('dashboardPlano(contextoPlano())');assert.match(h,/Ano 2026 · sem comparação/);assert.match(h,/Sem comparação: escolha um ano em “Comparar com”, no topo\. Os números são do ano/);assert.doesNotMatch(h,/2025|2024/);
+ const t=c.run('tabelaPlano(contextoPlano())');
+ assert.equal((t.match(/<th scope="col"/g)||[]).length,14,'conta, 12 meses e o total');assert.doesNotMatch(t,/Δ 2026|2025|2024/);
+ assert.match(t,/sem comparação com outro ano \(escolha em “Comparar com”, no topo\)/);
+ const linha=t.slice(t.indexOf('data-plano-linha="2.5.3"'),t.indexOf('</tr>',t.indexOf('data-plano-linha="2.5.3"')));assert.equal((linha.match(/<td/g)||[]).length,13,'12 meses e o total');
+ c.run("state.consulta='zzz'");assert.match(c.run('tabelaPlano(contextoPlano())'),/<td colspan="14">Nenhuma conta/);
+});
+test('fora do Ano, o "Comparar com" de ano não muda nada: o ano anterior, como na v135',()=>{
+ const c=ctx();comAnos(c);com24(c);c.run(CONTRATO);c.run("state.view='detalhe';state.anoTodo=false;state.anoComparar='2024';planoUI.matriz=new Set(['1','2'])");
+ const t=c.run('tabelaPlano(contextoPlano())');assert.match(t,/Δ 2026 × 2025/);assert.doesNotMatch(t,/2024/);
+ c.run("state.contaSelecionada='2.5.3';state.comparar='Ago/2026'");assert.match(c.run('dashboardPlano(contextoPlano())'),/id="planoCompare"/,'o seletor de mês continua');
+ const n=ctx();comAnos(n);n.run(CONTRATO);n.run("state.anoComparar='nenhum'");assert.match(n.run('tabelaPlano(contextoPlano())'),/Δ 2026 × 2025/,'Sem comparação só vale no Ano');
+});
+test('meses comparados em texto: faixas com lacuna e mês único, como rotuloMesesAno do app',()=>{
+ const c=ctx();const t=idx=>c.run(`planoMesesTxt(${JSON.stringify(idx.map(i=>({m:{label:['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][i]+'/2026'}})))})`);
+ assert.equal(t([0,1,2,3,4,5,6,7]),'Jan a Ago');assert.equal(t([3]),'Abr');assert.equal(t([0,1,2,4]),'Jan a Mar e Mai');assert.equal(t([0,1,3,5,6]),'Jan a Fev, Abr e Jun a Jul');assert.equal(t([...Array(12).keys()]),'ano inteiro');assert.equal(t([]),'');
+});
+test('"↓ Planilha" no Ano: período do ano, ano comparado e arquivo com o ano; Conferência com todas as pendências do ano e a coluna Mês',()=>{
+ const c=noAno(ctx(),'2024');const baixados=[];c.download=(nome,conteudo)=>baixados.push({nome,conteudo});
+ c.document.getElementById=id=>({pageTitle:{textContent:'Dashboard'},pageContent:{querySelectorAll:()=>[]}})[id]||null;
+ c.run("state.records.find(r=>r.label==='Set/2026').qualidade.ate='2026-09-20';dfcHoje=()=>'2026-09-22';state.view='inicio';state.periodo='Set/2026'");
+ c.run('baixarPlanilhaTela()');assert.equal(baixados[0].nome,'dre-inicio-2026.csv');
+ assert.match(baixados[0].conteudo,/"Período";"2026 · Jan a Set\*"/);assert.match(baixados[0].conteudo,/"Comparar com";"2024"/);
+ c.run("state.anoComparar='nenhum'");c.run('baixarPlanilhaTela()');assert.match(baixados[1].conteudo,/"Comparar com";"Sem comparação"/);
+ // Conferência: uma linha por pendência de cada mês do ano, com o mês na frente
+ c.run(`state.view='conferencia';gestaoUI.pendTipo='todos';gestaoUI.pendBusca='';state.records.find(r=>r.label==='Ago/2026').pendencias=[{tipo:'Sem conta',conta:'2.99',texto:'Pagamento sem conta',valor:10}];state.records.find(r=>r.label==='Set/2026').pendencias=[{tipo:'Sem conta',conta:'2.99',texto:'Outro pagamento',valor:20}];state.records.find(r=>r.label==='Set/2025').pendencias=[{tipo:'Sem conta',conta:'2.99',texto:'Do ano passado',valor:30}]`);
+ c.run('baixarPlanilhaTela()');const conf=baixados[2];assert.equal(conf.nome,'conferencia-2026.csv');
+ assert.match(conf.conteudo,/"Mês";"Tipo";"Conta";"Ocorrência"/);assert.match(conf.conteudo,/"Ago\/2026";"Sem conta";"2\.99";"Pagamento sem conta"/);assert.match(conf.conteudo,/"Set\/2026";"Sem conta";"2\.99";"Outro pagamento"/);
+ assert.doesNotMatch(conf.conteudo,/Do ano passado/);assert.match(conf.conteudo,/"Período";"2026 · Jan a Set\*"/);
+ // fora do Ano, como na v135
+ c.run("state.anoTodo=false");c.run('baixarPlanilhaTela()');assert.equal(baixados[3].nome,'conferencia-Set_2026.csv');assert.doesNotMatch(baixados[3].conteudo,/"Mês";/);
+ c.run("state.view='inicio';state.comparar='Ago/2026'");c.run('baixarPlanilhaTela()');assert.equal(baixados[4].nome,'dre-inicio-Set_2026.csv');assert.match(baixados[4].conteudo,/"Período";"Set\/2026"/);assert.match(baixados[4].conteudo,/"Comparar com";"Ago\/2026"/);
 });

@@ -120,7 +120,8 @@ function dfcMarca(m){
  const estado=m.emAndamento?'mês em andamento':'mês incompleto',dia=dfcDia(m.ate)||(m.emAndamento?'agora':'uma data não registrada');
  return m.origem&&m.origem!=='erp'?` · planilha com dados até ${dia} (${estado})`:` · coletado ${m.emAndamento?'':'só '}até ${dia} (${estado})`;
 }
-function dfcCartao(rotulo,valor,nota,tom=''){return `<div class="metric metric-param"><span class="label">${esc(rotulo)}</span><strong class="${tom}">${esc(valor)}</strong><small>${esc(nota)}</small></div>`;}
+// extra: a linha de comparação do Ano (compLinhaAno), sempre depois do </small>.
+function dfcCartao(rotulo,valor,nota,tom='',extra=''){return `<div class="metric metric-param"><span class="label">${esc(rotulo)}</span><strong class="${tom}">${esc(valor)}</strong><small>${esc(nota)}</small>${extra}</div>`;}
 function dfcPainel(titulo,descricao,html,largo=true,id=''){return `<section${id?` id="${id}"`:''} class="chart-card dre-grafico${largo?' dre-grafico-largo':''}"><div class="chart-heading"><div><h2>${esc(titulo)}</h2><p>${esc(descricao)}</p></div></div>${html}</section>`;}
 // Valor da linha com o sinal do caixa (entrada +, saída −), para a tabela e o CSV.
 // Com ajuste, o saldo inicial da coluna é o final do mês anterior e a diferença
@@ -193,20 +194,85 @@ function dfcNotaSaldo(label,s,todos,perm){
  const ano=ult.label.split('/')[1],onde=ano===String(label).split('/')[1]?'na linha de ajuste da tabela':`na tabela de ${ano}`;
  return `<p class="hint">O saldo segue o saldo inicial informado em ${esc(ult.label)}, que ficou ${esc(comparado(ult))}; a diferença está ${esc(onde)}.</p>`;
 }
+const dfcLista=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0]||'';
+// Meses seguidos viram faixa: "Jan/2026 a Jun/2026".
+const dfcFaixas=xs=>{const g=[];for(const l of xs){const k=monthSortKey(l),u=g[g.length-1];if(u&&k===u.k+1){u.fim=l;u.k=k;}else g.push({ini:l,fim:l,k});}return dfcLista(g.map(x=>x.ini===x.fim?x.ini:`${x.ini} a ${x.fim}`));};
+const dfcMarcaAno=parc=>parc.length?` · inclui ${dfcLista(parc.map(m=>`${m.label} (${m.emAndamento?'mês em andamento':'mês incompleto'})`))}`:'';
+const dfcMotivoAno=(faltam,ano)=>`${dfcFaixas(faltam)} sem dados coletados: sem todos os meses, o acumulado de ${ano} não é somado.`;
+const dfcCent0=v=>v==null?null:Math.round(Number(v)*100);
+const dfcDelta=(a,b)=>a==null||b==null?null:(dfcCent0(a)-dfcCent0(b))/100+0;
+// Direção da variação no Ano: subir é bom na operação (valores com sinal do caixa);
+// investimento, dívida, sócios e empréstimo não são bons nem ruins por si.
+const DFC_DIR_ANO=Object.fromEntries(DFC_LINHAS.filter(l=>l.tipo!=='saldo').map(l=>[l.id,l.id==='fco'||l.id==='geracao'||l.bloco==='fco'?1:0]));
+// Ano contra ano nos mesmos meses (índices 0 a 11): soma em centavos de cada linha;
+// mês sem apuração deixa a linha sem valor (nunca zero). Saldo: o final do último mês.
+function dfcComparacaoAno(ano,anoComp,indices){
+ const idx=[...(indices||[])].map(Number).filter(i=>i>=0&&i<12).sort((a,b)=>a-b),todos=dfcSaldos();
+ const meses=y=>y==null?null:idx.map(i=>dfcMes(PT_MON[i]+'/'+y));
+ const ma=meses(ano),mb=meses(anoComp);
+ const soma=(ms,id)=>{if(!ms||!ms.length||ms.some(m=>!m.d))return null;return ms.reduce((t,m)=>t+dfcCent0(dfcValorLinha(m,null,id)),0)/100+0;};
+ const linhas=Object.fromEntries(DFC_LINHAS.filter(l=>l.tipo!=='saldo').map(l=>{const atual=soma(ma,l.id),anterior=soma(mb,l.id);return [l.id,{atual,anterior,delta:dfcDelta(atual,anterior)}];}));
+ const ult=idx.length?PT_MON[idx[idx.length-1]]:null,fin=y=>y==null?null:dfcSaldo(ult+'/'+y,todos)?.final??null;
+ const saldo=ult?(()=>{const atual=fin(ano),anterior=fin(anoComp);return {mes:ult,atual,anterior,delta:dfcDelta(atual,anterior)};})():null;
+ return {linhas,saldo};
+}
+// O que o Ano compara (contrato do app): ano, ano comparado, meses e motivo quando não compara.
+function dfcComparacaoDoAno(ano){
+ if(typeof comparacaoDoAno!=='function')return null;
+ const c=comparacaoDoAno(Number(ano));if(!c)return null;
+ if(c.motivo||c.anoComp==null||!c.indices?.length)return {...c,motivo:c.motivo||(typeof TEXTO_SEM_ANO_COMPARADO!=='undefined'?TEXTO_SEM_ANO_COMPARADO:'Sem comparação.'),dfc:null};
+ return {...c,dfc:dfcComparacaoAno(Number(ano),c.anoComp,c.indices)};
+}
+// Linha de comparação de um cartão do Ano (compLinhaAno, de graficos.js).
+function dfcLinhaComp(rotulo,x,dir,{atual=false,rotuloAtual=''}={}){
+ if(typeof compLinhaAno!=='function')return '';
+ if(x?.anterior==null||x?.delta==null)return compLinhaAno(rotulo,null,null,dir,{motivo:x?.anterior==null?'não apurado (falta dado em algum desses meses)':'sem diferença: o valor deste ano não está apurado'});
+ return compLinhaAno(rotulo,x.anterior,x.delta,dir,{tomAnterior:dfcTom(x.anterior),...(atual?{atual:x.atual,rotuloAtual,tomAtual:dfcTom(x.atual)}:{})});
+}
 // Ano inteiro (chip "Ano", Fase 9.1): cartões com o acumulado de janeiro até o último
 // mês com dados. Mês sem dados no caminho deixa o acumulado sem valor, dito no cartão
 // (a mesma regra do acumulado da tabela); mês parcial no caminho fica marcado.
-function dfcCartoesAno(meses,saldos,ate){
+// Com o ano comparado, cada cartão ganha a linha do outro ano nos mesmos meses.
+function dfcCartoesAno(meses,saldos,ate,cmp=null){
  const ult=meses[ate],ano=ult.label.split('/')[1],faltam=meses.slice(0,ate+1).filter(m=>!m.d).map(m=>m.label),parc=dfcAcumParcial(meses,ate);
- const lista0=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0];
- const marca=parc.length?` · inclui ${lista0(parc.map(m=>`${m.label} (${m.emAndamento?'mês em andamento':'mês incompleto'})`))}`:'';
+ const marca=dfcMarcaAno(parc);
  const v=id=>dfcAcumulado(meses,saldos,ate,id),txt=x=>x==null?'Não apurado':money(x);
- const lista=xs=>xs.length>1?xs.slice(0,-1).join(', ')+' e '+xs[xs.length-1]:xs[0];
- // Meses seguidos viram faixa: "Jan/2026 a Jun/2026".
- const faixas=xs=>{const g=[];for(const l of xs){const k=monthSortKey(l),u=g[g.length-1];if(u&&k===u.k+1){u.fim=l;u.k=k;}else g.push({ini:l,fim:l,k});}return lista(g.map(x=>x.ini===x.fim?x.ini:`${x.ini} a ${x.fim}`));};
- const nota=base=>faltam.length?`${faixas(faltam)} sem dados coletados: sem todos os meses, o acumulado de ${ano} não é somado.`:`${base}, de janeiro a ${ult.label.split('/')[0]} de ${ano}${marca}`;
+ const nota=base=>faltam.length?dfcMotivoAno(faltam,ano):`${base}, de janeiro a ${ult.label.split('/')[0]} de ${ano}${marca}`;
  const fco=v('fco'),fci=v('fci'),fcf=v('fcf'),saldo=saldos[ate]?.final??null;
- return `<div class="cards cards-controle">${dfcCartao(`Caixa da operação (FCO) · ${ano}`,txt(fco),nota('Vendas e despesas do dia a dia, já com o Simples e os juros'),fco==null?'':dfcTom(fco))}${dfcCartao(`Investimentos (FCI) · ${ano}`,txt(fci),nota('Compras de máquinas e veículos e parcelas de ativos'),fci==null?'':dfcTom(fci))}${dfcCartao(`Financiamentos (FCF) · ${ano}`,txt(fcf),nota('Empréstimos, dívidas, parcelamento do DAS, retiradas, arrendamento e transferências entre as empresas'),fcf==null?'':dfcTom(fcf))}${dfcCartao(`Saldo final · ${ult.label}`,txt(saldo),saldo==null?(!ult.d||!saldos[ate]?`${ult.label} sem dados coletados: o saldo depende do mês coletado.`:'Falta o saldo inicial: veja abaixo onde a sequência parou.'):`Saldo no fim de ${ult.label}, o último mês com dados de ${ano}${dfcMarca(ult)}`,saldo==null?'':dfcTom(saldo))}</div>`;
+ // Comparação: só nos meses completos dos dois anos; sem ela, o motivo uma vez, no primeiro cartão.
+ const d=cmp?.dfc,rot=d?`${cmp.anoComp} · ${cmp.meses}`:'',menos=d&&cmp.indices.length<ate+1;
+ const comp=id=>!cmp?'':!d?(id==='fco'&&typeof compLinhaAno==='function'?compLinhaAno('Comparação',null,null,0,{motivo:String(cmp.motivo).replace(/^Sem comparação: /,'')}):''):dfcLinhaComp(rot,d.linhas[id],DFC_DIR_ANO[id],{atual:menos,rotuloAtual:`${ano} nesses meses`});
+ const compSaldo=!d||!d.saldo?'':dfcLinhaComp(`Fim de ${d.saldo.mes}/${cmp.anoComp}`,d.saldo,1,{atual:true,rotuloAtual:`Fim de ${d.saldo.mes}/${ano}`});
+ return `<div class="cards cards-controle">${dfcCartao(`Caixa da operação (FCO) · ${ano}`,txt(fco),nota('Vendas e despesas do dia a dia, já com o Simples e os juros'),fco==null?'':dfcTom(fco),comp('fco'))}${dfcCartao(`Investimentos (FCI) · ${ano}`,txt(fci),nota('Compras de máquinas e veículos e parcelas de ativos'),fci==null?'':dfcTom(fci),comp('fci'))}${dfcCartao(`Financiamentos (FCF) · ${ano}`,txt(fcf),nota('Empréstimos, dívidas, parcelamento do DAS, retiradas, arrendamento e transferências entre as empresas'),fcf==null?'':dfcTom(fcf),comp('fcf'))}${dfcCartao(`Saldo final · ${ult.label}`,txt(saldo),saldo==null?(!ult.d||!saldos[ate]?`${ult.label} sem dados coletados: o saldo depende do mês coletado.`:'Falta o saldo inicial: veja abaixo onde a sequência parou.'):`Saldo no fim de ${ult.label}, o último mês com dados de ${ano}${dfcMarca(ult)}`,saldo==null?'':dfcTom(saldo),compSaldo)}</div>`;
+}
+// Variação na tabela do Ano: cor pela direção da linha, seta e valor sem sinal.
+function dfcCelDelta(dir,d){
+ if(d==null)return `<td class="num">${valorDRE(null)}</td>`;
+ const tom=(typeof tomDelta==='function'?tomDelta(dir,d):'')||'delta-neutro';
+ return `<td class="num ${tom}">${d>0?'▲':d<0?'▼':'■'} ${money(Math.abs(d))}</td>`;
+}
+// Tabela do Ano contra o ano comparado, nos mesmos meses (sem as linhas de saldo).
+function dfcTabelaAno(ano,cmp){
+ if(!cmp)return '';
+ if(!cmp.dfc){const t=`Comparação · ${ano}`;return `<details class="card dfc-ano-comp"${dfcCardAttrs(t,false)}><summary><h2 class="card-titulo">${esc(t)}</h2></summary><div class="card-body"><p class="hint">${esc(cmp.motivo)}</p></div></details>`;}
+ const t=`Fluxo de caixa · ${ano} contra ${cmp.anoComp} nos mesmos meses (${cmp.meses})`,L=cmp.dfc.linhas;
+ const linhas=DFC_LINHAS.filter(l=>l.tipo!=='saldo').map(l=>{const x=L[l.id];return `<tr class="dre-l-${l.tipo==='item'?'detalhe':'subtotal'}"><th scope="row">${esc(l.nome)}</th><td class="num ${dfcTomLinha(l.id,x.atual)}">${valorDRE(x.atual)}</td><td class="num ${dfcTomLinha(l.id,x.anterior)}">${valorDRE(x.anterior)}</td>${dfcCelDelta(DFC_DIR_ANO[l.id],x.delta)}</tr>`;}).join('');
+ return `<details class="card dfc-ano-comp"${dfcCardAttrs(t,true)}><summary><h2 class="card-titulo">${esc(t)}</h2></summary><div class="card-body"><div class="table-scroll"><table class="tabela-controle tabela-ano"><caption>Método direto · R$ · entradas positivas, saídas negativas · só os meses completos nos dois anos (${esc(cmp.meses)}) · — = sem dados</caption><thead><tr><th scope="col">Linha</th><th scope="col" class="num">${esc(ano)}</th><th scope="col" class="num">${esc(cmp.anoComp)}</th><th scope="col" class="num">Δ</th></tr></thead><tbody>${linhas}</tbody></table></div><p class="hint">${esc(`Só os meses completos nos dois anos, da mesma base e com plano de contas${cmp.ressalva?' (cobertura a conferir em algum deles)':''}. Na operação, subir é bom; investimento e financiamento ficam sem cor de bom ou ruim. Mude o ano em “Comparar com”, no topo.`)}</p></div></details>`;
+}
+// Blocos do caixa no Ano (telas Caixa e Composição do caixa): o mesmo formato de
+// caixaEmBlocos, com o acumulado de janeiro ao último mês com dados do ano.
+function dfcBlocosAno(ano){
+ const y=String(ano),fim=typeof fimDoAno==='function'?fimDoAno(y):null,ate=fim&&String(fim).endsWith('/'+y)?PT_MON.indexOf(String(fim).split('/')[0]):11;
+ const meses=PT_MON.map(x=>dfcMes(x+'/'+y)),todos=dfcSaldos(),saldos=meses.map(m=>todos.get(monthSortKey(m.label))||null),m=meses[ate];
+ const faltam=meses.slice(0,ate+1).filter(x=>!x.d).map(x=>x.label);
+ if(faltam.length)return {m,meses:meses.slice(0,ate+1),ate,faltam,motivo:dfcMotivoAno(faltam,y)};
+ const andamento=dfcMarcaAno(dfcAcumParcial(meses,ate)),v=id=>dfcAcumulado(meses,saldos,ate,id);
+ const lin=(id,nome,total=false)=>{const x=v(id);return `<div class="line${total?' total':''}" data-dfc-linha="${id}"><span>${esc(nome)}</span><b class="${dfcTomLinha(id,x)}">${money(x)}</b></div>`;};
+ const bloco=b=>DFC_ITENS.filter(i=>i.bloco===b).map(i=>lin(i.id,i.nome)).join('')+lin(b,'(=) '+DFC_LINHAS.find(l=>l.id===b).nome,true);
+ const soma=k=>meses.slice(0,ate+1).reduce((t,x)=>t+dfcCent0(x.d[k]),0)/100+0,dif=soma('diferenca'),caixa=soma('caixa'),geracao=v('geracao'),per=ate===0?`em ${m.label}`:`de janeiro a ${String(m.label).split('/')[0]} de ${y}`;
+ const fecha=Math.abs(dif)<.01?`<p class="hint">Operação + investimento + financiamento = ${esc(money(geracao))}, igual a entradas menos saídas do ERP ${esc(per)}.</p>`:`<p class="param-avisos">Diferença de ${esc(money(dif))} entre a geração de caixa e entradas menos saídas do ERP (${esc(money(caixa))}) ${esc(per)}: confira as contas de cada mês no Fluxo de caixa DFC.</p>`;
+ return {m,meses:meses.slice(0,ate+1),ate,andamento,vendas:v('vendas'),operacao:bloco('fco'),outros:bloco('fci')+bloco('fcf')+lin('geracao','(=) Geração de caixa do ano',true),
+  rodape:fecha+`<p class="hint">Soma dos meses de ${esc(y)} com a mesma classificação da DRE Simples e do Fluxo de caixa: parcelamento do DAS, dívidas, retiradas, arrendamento e transferências entre as empresas são financiamento; compra de máquina ou veículo e parcelas de ativos são investimento; o resto fica na operação. As contas de cada bloco são mostradas por mês.</p><div class="actions"><button data-go="dfc">Ver o ano no Fluxo de caixa DFC →</button></div>`};
 }
 function renderDFC(){
  const label=state.periodo;if(!label||!F.periodo(label))return '<p class="hint">Escolha um mês para ver o fluxo de caixa.</p>';
@@ -214,8 +280,9 @@ function renderDFC(){
  const sel=meses.findIndex(m=>monthSortKey(m.label)===monthSortKey(label)),m=meses[sel]||dfcMes(label),s=sel>=0?saldos[sel]:null,marca=dfcMarca(m);
  // Ano: de janeiro ao último mês com dados até hoje, calculado aqui (não o mês guardado).
  const fimAno=state.anoTodo&&typeof fimDoAno==='function'?fimDoAno(ano):label,selAno=meses.findIndex(x=>monthSortKey(x.label)===monthSortKey(fimAno)),anoTodo=!!state.anoTodo&&selAno>=0;
+ const cmp=anoTodo?dfcComparacaoDoAno(ano):null;
  let cards;
- if(anoTodo)cards=dfcCartoesAno(meses,saldos,selAno);
+ if(anoTodo)cards=dfcCartoesAno(meses,saldos,selAno,cmp);
  else if(!m.d)cards=`<div class="cards cards-controle">${dfcCartao(`Caixa da operação (FCO) · ${label}`,'Não apurado',`${label} sem dados coletados. Use “Atualizar Mubisys” ou importe a planilha do mês.`)}${['Investimentos (FCI)','Financiamentos (FCF)','Saldo final'].map(t=>dfcCartao(t,'Não apurado','Depende do mês coletado.')).join('')}</div>`;
  else{
   const saldoTxt=s?.final!=null?money(s.final):'Não apurado';
@@ -232,7 +299,7 @@ function renderDFC(){
  // No ano, as contas de cada bloco ficam por mês: a composição de um mês sai ao escolher o mês.
  const parc=anoTodo?dfcAcumParcial(meses,selAno):[],pl=parc.map(x=>`${x.label} ${x.emAndamento?'em andamento':'incompleto'}`),parciaisAno=pl.length?`, com ${pl.length>1?pl.slice(0,-1).join(', ')+' e '+pl[pl.length-1]:pl[0]}`:'';
  const contas=anoTodo?`<p class="hint dfc-ano-contas">${esc(`${ano} somado de janeiro a ${String(fimAno).split('/')[0]}${parciaisAno}. As contas de cada bloco são mostradas por mês: escolha um mês na barra para ver a composição; o acumulado de cada linha está na tabela abaixo.`)}</p>`:m.d?dfcContas(m):'';
- return cards+dfcNotaSaldo(label,s,todos,perm)+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+contas+dfcTabela(label,meses,saldos);
+ return cards+dfcNotaSaldo(label,s,todos,perm)+`<div class="graficos-controle">${g1}${g2}${g3}</div>`+(anoTodo?dfcTabelaAno(ano,cmp):'')+contas+dfcTabela(label,meses,saldos);
 }
 // Planilha do ano (mesmas linhas da tabela, com o acumulado).
 function dfcCSV(){

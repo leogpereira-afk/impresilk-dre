@@ -22,7 +22,7 @@ await page.route('https://heveemylixartyijxewh.supabase.co/**',async route=>{
  if(b.acao==='eu')r={ok:true};
  if(b.action==='indice')r={erro:'Ação desconhecida: indice'};// servidor antigo: o app lê a lista inteira
  if(b.action==='permissions')r={ok:true,permissoes:{leitura:true,edicao:false,admin:false}};
- if(b.action==='list')r={ok:true,itens:[reg,{...reg,id:'Jan_2026',label:'Jan/2026',company:'Impresilk',eventos:[]},{...reg,id:'Dez_2025',label:'Dez/2025',company:'Impresilk',eventos:[]}],nextOffset:null};
+ if(b.action==='list')r={ok:true,itens:[reg,{...reg,id:'Jan_2026',label:'Jan/2026',company:'Impresilk',eventos:[]},{...reg,id:'Dez_2025',label:'Dez/2025',company:'Impresilk',eventos:[]},{...reg,id:'Set_2024',label:'Set/2024',eventos:[],atualizadoEm:'2024-10-08T12:00:00Z',qualidade:{...reg.qualidade,de:'2024-09-01',ate:'2024-09-30',coletadoEm:'2024-10-08T12:00:00Z'},cells:[{code:'1',name:'Entradas',value:4000},{code:'2',name:'Saídas',value:900}]}],nextOffset:null};
  if(b.action==='getCfg')r={ok:true,cfg,atualizadoEm:null};
  if(b.action==='coletaStatus')r={ok:true,coleta:{estado:'concluida'}};
  if(b.action==='indicadores'){
@@ -102,5 +102,22 @@ try{
  assert.equal(await page.locator('.ind-metrics').count(),0);await page.locator('[data-dre]').click();assert.match(await page.locator('.source-empty').innerText(),/Falta a apuração de Out/);assert.equal(await page.locator('#editarCompetencia').isVisible(),true);assert.equal(await page.locator('#editarCompetencia').isDisabled(),true);
  assert.equal(await page.locator('#monthChips button').count(),12);await page.locator('#monthChips [data-period="Set/2026"]').click();assert.match(await page.locator('#pageContent .cards').first().innerText(),/400,00/);
  await page.locator('#monthChips [data-period="Out/2026"]').click();await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'entregas/revisao/competencia-v98-mobile.png',fullPage:true});
+ // Ano com o ano escolhido em "Comparar com" no link (anocomp): cartão e gráfico com 2024, nunca 2025 como comparado.
+ if(await page.evaluate(()=>typeof anoComparado==='function')){
+  const abrir=async comp=>{await page.goto(BASE+'#tela=indicadores&mes=Set/2026&ano=1&anocomp='+comp+'&area=Receita&fonte=recebimentos');await page.reload();await page.locator('.ind-metrics').waitFor();};
+  await abrir('2024');assert.equal(await page.evaluate(()=>anoComparado()),2024);
+  const card=await page.locator('.ind-metric').nth(1).innerText();assert.match(card,/2024/);assert.doesNotMatch(card,/2025/);
+  assert.match(await page.locator('.ind-chart-caption').first().innerText(),/com 2024 ao lado/);assert.match(await page.locator('.ind-legenda').first().innerText(),/2024/);assert.doesNotMatch(await page.locator('.ind-analysis').first().innerText(),/2025 ao lado/);
+  await page.screenshot({path:'entregas/revisao/indicadores-ano-2024.png',fullPage:true});
+  // v136 (RC-1 e RC-2): Aplicar sem mudar o intervalo mantém 2024; o trimestre sai do Ano e o "Comparar com" some (sem anos na lista); o ano pelo filtro religa 2024.
+  const aplicar=async preset=>{if(!(await page.locator('.ind-range').evaluate(d=>d.open)))await page.locator('.ind-range summary').click();if(preset)await page.locator('[name=preset]').selectOption(preset);await page.getByRole('button',{name:'Aplicar',exact:true}).click();await page.locator('.ind-metrics').waitFor();};
+  await aplicar();assert.match(await page.locator('.ind-metric').nth(1).innerText(),/2024/);assert.match(await page.locator('.ind-chart-caption').first().innerText(),/com 2024 ao lado/);assert.equal(await page.locator('#compareSummary').innerText(),'Comparar: 2024');
+  await aplicar('trimestre');assert.equal(await page.evaluate(()=>state.anoTodo),false);assert.equal(await page.locator('#periodCompare').isHidden(),true);
+  assert.equal(await page.evaluate(()=>[...document.querySelectorAll('#compareSelect option')].some(o=>/^\d{4}$/.test(o.value))),false,'fora do Ano, o seletor não lista anos');
+  await aplicar('ano');assert.equal(await page.evaluate(()=>state.anoTodo),true);assert.equal(await page.locator('#compareSummary').innerText(),'Comparar: 2024');assert.match(await page.locator('.ind-chart-caption').first().innerText(),/com 2024 ao lado/);
+  await abrir('nenhum');assert.equal(await page.evaluate(()=>anoComparado()),null);
+  const sem=await page.locator('.ind-metric').nth(1).innerText();assert.match(sem,/^Comparação\s+Sem comparação\s+Escolha um ano em “Comparar com”, no topo\.$/);
+  assert.doesNotMatch(await page.locator('.ind-analysis').first().innerText(),/ao lado/);assert.equal(await page.locator('.ind-legenda').count(),0);
+ }
  assert.deepEqual(errors,[]);console.log('Browser OK: 6 áreas, filtros, paginação, detalhes, CSV, PDF, falha preservando leitura, teclado, recarga e celular 390px.');
 }finally{await browser.close();}

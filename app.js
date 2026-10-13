@@ -12,11 +12,11 @@ let activeRenderAll = null; // permite recolorir após troca de tema
 // Voltar do navegador: o popstate (gestao.js) liga estes avisos para o diálogo fechar sem
 // voltar de novo e para a troca de tela não rolar ao topo.
 let fechandoPorVoltar=false,voltandoHistorico=false;
-// Cartões que lembram se a pessoa abriu ou fechou, por tela e título (sem mês, ano e marca do
-// mês parcial, para a chave não mudar ao trocar o mês). O ouvinte de toggle grava só a escolha
+// Cartões que lembram se a pessoa abriu ou fechou, por tela e título (sem mês, ano, faixa de meses
+// entre parênteses e marca do mês parcial, para a chave não mudar ao trocar o mês ou o ano). O ouvinte de toggle grava só a escolha
 // da pessoa: o toggle que o navegador dispara ao desenhar um cartão aberto não vira escolha.
 const cardAbertos={},cardPadrao={};
-function cardChave(titulo){const v=typeof state!=='undefined'?state.view:'';return v+':'+String(titulo??'').replace(/\b[A-Z][a-zç]{2}\/\d{4}\b|\b\d{2}\/\d{2}(\/\d{4})?\b|\b\d{4}\b/g,'').split('·').map(x=>x.replace(/\s+/g,' ').trim()).filter(x=>x&&!/^(coletado|planilha com dados)/.test(x)).join(' · ');}
+function cardChave(titulo){const v=typeof state!=='undefined'?state.view:'';return v+':'+String(titulo??'').replace(/\s*\((?:ano inteiro|(?:Jan|Fev|Mar|Abr|Mai|Jun|Jul|Ago|Set|Out|Nov|Dez)\b[^)]*)\)/g,'').replace(/\b[A-Z][a-zç]{2}\/\d{4}\b|\b\d{2}\/\d{2}(\/\d{4})?\b|\b\d{4}\b/g,'').split('·').map(x=>x.replace(/\s+/g,' ').trim()).filter(x=>x&&!/^(coletado|planilha com dados)/.test(x)).join(' · ');}
 function cardAttrs(titulo,abertoPadrao=true){const k=cardChave(titulo),o=k in cardAbertos?cardAbertos[k]:abertoPadrao;cardPadrao[k]=!!abertoPadrao;return `data-card="${String(k).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}"${o?' open':''}`;}
 if(typeof document!=='undefined'&&typeof document.addEventListener==='function')document.addEventListener('toggle',e=>{const k=e.target?.dataset?.card;if(k&&(k in cardAbertos||!!e.target.open!==cardPadrao[k]))cardAbertos[k]=!!e.target.open;},true);
 
@@ -375,7 +375,7 @@ async function trySync() {
 
 /* Interface financeira: as cinco leituras compartilham período e fonte. */
 const F = typeof DREFinancas !== 'undefined' ? DREFinancas : null;
-let state={D:null,records:[],cfg:{},permissoes:{leitura:true,edicao:false,admin:false},view:'inicio',periodo:'',comparar:'',consulta:'',grupo:'todos',tipo:'todos',ano:false,detCache:{},updated:null};
+let state={D:null,records:[],cfg:{},permissoes:{leitura:true,edicao:false,admin:false},view:'inicio',periodo:'',comparar:'',anoComparar:'',consulta:'',grupo:'todos',tipo:'todos',ano:false,detCache:{},updated:null};
 const $$=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Sinal de menos tipográfico (U+2212) e sem "-0": o PDF troca de volta para hífen (pdfTexto).
@@ -397,7 +397,7 @@ const fato=(label,value)=>`<div class="fato"><span class="label">${esc(label)}</
 const linha=(label,value,total=false,code='',tom=tomDoValor(code,value))=>`<div class="line ${total?'total':''}"><span>${code?botaoConta(code,label):esc(label)}</span><b class="${tom}">${value==null?'Não apurado':typeof value==='number'?money(value):esc(value)}</b></div>`;
 const card=(title,html,open=true,id='')=>`<details class="card"${id?` id="${id}"`:''} ${cardAttrs(title,open)}><summary><h2 class="card-titulo">${esc(title)}</h2></summary><div class="card-body">${html}</div></details>`;
 const metric=(label,value,desc,code='',tom='')=>`<${code?'button':'div'} class="metric${tom?' metric-'+tom.slice(4):''}" ${code?`data-account="${esc(code)}"`:''}><span class="label">${esc(label)}</span><strong${tom?` class="${tom}"`:''}>${value==null?'Não apurado':typeof value==='number'?money(value):esc(value)}</strong><small>${esc(desc)}</small></${code?'button':'div'}>`;
-function escreverRodape(){const el=$$('footMeta');if(!el||!state.D)return;el.textContent=state.view==='dre'&&dreUI.base==='competencia'?`Competência informada por mês · nuvem lida em ${dataBR(state.updated)}. Preenchimento não equivale a fechamento contábil.`:`${state.records.length} registros mensais · ${state.D.accounts.length} contas · ${state.periodo} · ${state.rotuloQualidade||''} · Nuvem lida em ${dataBR(state.updated)}. Valores não conciliados não representam fechamento.`;}
+function escreverRodape(){const el=$$('footMeta');if(!el||!state.D)return;el.textContent=state.view==='dre'&&dreUI.base==='competencia'?`Competência informada por mês · nuvem lida em ${dataBR(state.updated)}. Preenchimento não equivale a fechamento contábil.`:`${state.records.length} registros mensais · ${state.D.accounts.length} contas · ${telaNoAno()?rotuloAno():state.periodo} · ${state.rotuloQualidade||''} · Nuvem lida em ${dataBR(state.updated)}. Valores não conciliados não representam fechamento.`;}
 function regAtual(){return state.records.find(r=>r.label===state.periodo)||null;}
 function boot(D){state.D=D;state.records=(D?.registros||datasetRecords(D||getCurrentData())).filter(r=>!r.apagado);if(!state.periodo)state.periodo=mesHoje();if(!state.comparar&&!(typeof rotaLida!=='undefined'&&rotaLida))state.comparar=state.records.filter(r=>monthSortKey(r.label)<monthSortKey(state.periodo)).at(-1)?.label||'';render();}
 function scopeSession(){sessionDataset=null;if(typeof planoSujo!=='undefined')planoSujo=false;let sub='equipe';try {const raw=AUTH.cracha().split('.')[1];sub=JSON.parse(atob(raw.replace(/-/g,'+').replace(/_/g,'/'))).sub||sub;}catch(_){}const suffix=encodeURIComponent(String(sub));STORE_KEY='dre_v2_data:'+suffix;MONTH_TS_KEY='dre_v2_ts:'+suffix;QUEUE_KEY='dre_v2_queue:'+suffix;servidorLocal=new Map();cacheFalhou=false;state.lidoNuvem=false;state.telaDoAparelho=false;if(typeof CacheDRE!=='undefined')CacheDRE.escopo(suffix);}
@@ -495,10 +495,104 @@ async function lerNuvem(manual=false){
    para que Voltar, link ou um mês gravado por fora não encurtem o ano. Clicar num
    mês volta ao mês, em qualquer tela. Na DRE por competência o chip não aparece: lá
    a visão é por apuração. */
-const ANO_TELAS=['dre','dfc','indicadores','precos','detalhe'];
+// Toda tela que mostra a barra de meses tem o Ano; Conferência e Parâmetros não comparam com outro ano.
+const ANO_TELAS=['inicio','cfo','dre','caixa','resultado','custos','detalhe','conferencia','dfc','balanco','precos','parametros','indicadores'];
+const ANO_TELAS_COMPARAM=ANO_TELAS.filter(v=>v!=='conferencia'&&v!=='parametros');
 const anoAtivo=()=>!!state.anoTodo;
 const anoCompetencia=()=>state.view==='dre'&&typeof dreUI!=='undefined'&&dreUI.base==='competencia';
+// Uma pergunta só para "estou no Ano?": Ano ligado, tela com o chip e fora da competência.
+const telaNoAno=()=>anoAtivo()&&ANO_TELAS.includes(state.view)&&!anoCompetencia();
 function hojeRotulo(){const d=typeof dfcHoje==='function'?dfcHoje():'';return /^\d{4}-\d{2}/.test(d)?PT_MON[Number(d.slice(5,7))-1]+'/'+d.slice(0,4):mesHoje();}
+function anoDaTela(){const y=String(state.periodo||'').split('/')[1]||'';return /^\d{4}$/.test(y)?Number(y):null;}
+// Ano de hoje pelo mesmo relógio da DFC (dfcHoje): nenhum ano fica escrito no código, 2027 em diante entra sozinho.
+const anoDeHoje=()=>Number(hojeRotulo().split('/')[1]);
+const regDoMes=l=>{const k=monthSortKey(l);return k<0?null:state.records.find(r=>monthSortKey(r.label)===k)||null;};
+// "Jan a Mar e Mai": meses seguidos em faixa; os 12 meses, "ano inteiro".
+function rotuloMesesAno(indices){
+ const xs=[...new Set((indices||[]).map(Number).filter(i=>Number.isInteger(i)&&i>=0&&i<12))].sort((a,b)=>a-b);if(!xs.length)return '';if(xs.length===12)return 'ano inteiro';
+ const g=[];for(const i of xs){const u=g[g.length-1];if(u&&i===u[1]+1)u[1]=i;else g.push([i,i]);}
+ const t=g.map(([a,b])=>a===b?PT_MON[a]:`${PT_MON[a]} a ${PT_MON[b]}`);return t.length>1?t.slice(0,-1).join(', ')+' e '+t[t.length-1]:t[0];
+}
+// "2026 · Jan a Set*": de janeiro ao último mês com dados; * quando esse mês está em andamento ou incompleto.
+function rotuloAno(ano=anoDaTela()){
+ if(ano==null||!/^\d{4}$/.test(String(ano)))return '';
+ const fim=fimDoAno(ano),m=String(fim).split('/')[0],r=regDoMes(fim),parcial=!!r&&!!F.qualidade(r).parcial;
+ return `${ano} · ${m==='Jan'?'Jan':'Jan a '+m}${parcial?'*':''}`;
+}
+// Anos com algum mês registrado, do mais recente ao mais antigo, sem o ano da tela.
+function anosComparaveis(ano=anoDaTela()){
+ const ys=new Set();for(const r of state.records){if(!F.periodo(r?.label))continue;const y=Number(String(r.label).split('/')[1]);if(Number.isInteger(y)&&y!==Number(ano))ys.add(y);}
+ return [...ys].sort((a,b)=>b-a);
+}
+function anoPadraoComparado(ano=anoDaTela()){
+ if(ano==null)return null;const xs=anosComparaveis(ano),y=Number(ano);
+ return xs.includes(y-1)?y-1:xs.find(x=>x<y)??null;
+}
+// O ano escolhido em "Comparar com" (state.anoComparar) validado contra os dados: inválido ou ausente volta ao padrão.
+function anoComparado(){
+ const v=String(state.anoComparar??'');if(v==='nenhum')return null;
+ if(/^\d{4}$/.test(v)&&anosComparaveis().includes(Number(v)))return Number(v);
+ return anoPadraoComparado();
+}
+function selecionarAnoComparado(valor){
+ const v=String(valor??'');
+ if(v==='nenhum')state.anoComparar='nenhum';else if(/^\d{4}$/.test(v))state.anoComparar=Number(v)===anoPadraoComparado()?'':v;else return;
+ const el=typeof document!=='undefined'&&typeof document.getElementById==='function'?id=>document.getElementById(id):()=>null;
+ if(el('periodCompare'))el('periodCompare').open=false;render();el('compareSummary')?.focus?.();
+}
+// Sem ano comparado: se há outro ano com dados, a pessoa escolhe no topo; se não há, a tela diz isso (2027 entra sozinho quando tiver dados).
+Object.defineProperty(globalThis,'TEXTO_SEM_ANO_COMPARADO',{configurable:true,get:()=>anosComparaveis().length?'Sem comparação: escolha um ano em “Comparar com”, no topo.':'Sem outro ano com dados para comparar.'});
+const textoSemMesesComparaveis=(ano,anoComp)=>`Sem meses completos, da mesma base e com plano de contas em ${ano} e ${anoComp} para comparar.`;
+// Contas do ano guardadas por identidade de state.records (troca a cada leitura) e pelo dia de hoje.
+const anoCache=new WeakMap();
+function anoMemo(chave,f){
+ const rs=state.records;if(!rs||typeof rs!=='object')return f();const hoje=typeof dfcHoje==='function'?dfcHoje():'';
+ let m=anoCache.get(rs);if(!m){m=new Map();anoCache.set(rs,m);}const k=chave+'|'+hoje+'|'+rs.length;if(!m.has(k))m.set(k,f());return m.get(k);
+}
+// Meses (0 a 11) completos nos dois anos, da mesma base e com plano de contas (pctSemConta ≤ 10): a régua de toda comparação do Ano.
+function mesesComparaveisAno(ano,anoComp){
+ if(ano==null||anoComp==null||!/^\d{4}$/.test(String(ano))||!/^\d{4}$/.test(String(anoComp)))return [];
+ return anoMemo(`M|${ano}|${anoComp}`,()=>{
+  const hoje=typeof dfcHoje==='function'?dfcHoje():new Date().toISOString().slice(0,10);
+  const fechado=r=>{const per=r&&F.periodo(r.label);return !!per&&per.ate<hoje&&!F.qualidade(r).parcial;};
+  const comPlano=r=>{const a=typeof DRESimples!=='undefined'?DRESimples.apurar(r):null;return !(a&&a.pctSemConta!=null&&a.pctSemConta>10);};
+  const out=[];for(let i=0;i<12;i++){const a=regDoMes(PT_MON[i]+'/'+ano),b=regDoMes(PT_MON[i]+'/'+anoComp);if(fechado(a)&&fechado(b)&&F.comparavelComRessalva(a,b).pode&&comPlano(a)&&comPlano(b))out.push(i);}
+  return out;
+ }).slice();
+}
+// "Fev/2026 a Mar/2026 e Mai/2026": meses seguidos em faixa (a mesma escrita do DFC no Ano).
+function faixasDeMeses(ls){
+ const g=[];for(const l of ls){const k=monthSortKey(l),u=g[g.length-1];if(u&&k===u.k+1){u.fim=l;u.k=k;}else g.push({ini:l,fim:l,k});}
+ const t=g.map(x=>x.ini===x.fim?x.ini:`${x.ini} a ${x.fim}`);return t.length>1?t.slice(0,-1).join(', ')+' e '+t[t.length-1]:t[0]||'';
+}
+// Registro do ano: de janeiro ao fim do ano (ou só os meses pedidos), somado em centavos por F.somarMeses.
+// Mês faltando não vira zero: o ano não é somado e o motivo diz qual falta.
+function registroDoAno(ano,indices=null){
+ if(ano==null||!/^\d{4}$/.test(String(ano)))return {disponivel:false,reg:null,motivo:'Ano não reconhecido.',faltam:[],meses:[],parcial:false};
+ const idx=Array.isArray(indices)?[...new Set(indices.map(Number))].filter(i=>Number.isInteger(i)&&i>=0&&i<12).sort((a,b)=>a-b):null;
+ return anoMemo(`R|${ano}|${idx?idx.join(','):'*'}`,()=>{
+  const ate=idx?null:PT_MON.indexOf(String(fimDoAno(ano)).split('/')[0]);
+  const meses=idx?idx.map(i=>PT_MON[i]+'/'+ano):PT_MON.slice(0,Math.max(0,ate)+1).map(m=>m+'/'+ano);
+  const regs=meses.map(regDoMes),faltam=meses.filter((l,i)=>!regs[i]),parcial=regs.some(r=>r&&F.qualidade(r).parcial);
+  if(!meses.length)return {disponivel:false,reg:null,motivo:'Nenhum mês no período.',faltam,meses,parcial};
+  if(faltam.length)return {disponivel:false,reg:null,motivo:`${faixasDeMeses(faltam)} sem dados coletados: sem todos os meses, o acumulado de ${ano} não é somado.`,faltam,meses,parcial};
+  if(typeof F.somarMeses!=='function')return {disponivel:false,reg:null,motivo:'A soma do ano não está disponível nesta versão.',faltam,meses,parcial};
+  const s=F.somarMeses(regs,{label:String(ano),rotulo:idx?`${ano} · ${rotuloMesesAno(idx)}`:rotuloAno(ano)});
+  return s?.disponivel?{disponivel:true,reg:s.reg,motivo:'',faltam,meses,parcial}:{disponivel:false,reg:null,motivo:s?.motivo||'O ano não pôde ser somado.',faltam,meses,parcial};
+ });
+}
+// A comparação do Ano: os meses completos nos dois anos, somados de cada lado.
+function comparacaoDoAno(ano=anoDaTela(),anoComp=anoComparado()){
+ const out={ano,anoComp,indices:[],meses:'',atual:null,anterior:null,ressalva:false,motivo:''};
+ if(anoComp==null){out.motivo=TEXTO_SEM_ANO_COMPARADO;return out;}
+ const indices=mesesComparaveisAno(ano,anoComp);
+ if(!indices.length){out.motivo=textoSemMesesComparaveis(ano,anoComp);return out;}
+ const a=registroDoAno(ano,indices),b=registroDoAno(anoComp,indices);
+ out.indices=indices;out.meses=rotuloMesesAno(indices);
+ if(!a.disponivel||!b.disponivel){out.motivo=(!a.disponivel?a:b).motivo;return out;}
+ out.atual=a.reg;out.anterior=b.reg;out.ressalva=indices.some(i=>F.comparavelComRessalva(regDoMes(PT_MON[i]+'/'+ano),regDoMes(PT_MON[i]+'/'+anoComp)).ressalva);
+ return out;
+}
 // Último mês com dados do ano até hoje; sem nenhum, o mês de hoje (ano corrente) ou dezembro.
 function fimDoAno(ano){
  const y=String(ano||''),hoje=hojeRotulo();if(!/^\d{4}$/.test(y))return state.periodo;
@@ -506,14 +600,16 @@ function fimDoAno(ano){
  return doAno[0]||(y===hoje.split('/')[1]?hoje:'Dez/'+y);
 }
 // Fora das telas do Ano (e na competência), o app volta ao mês escolhido antes de ligar o Ano.
-function alinharAno(){if(anoAtivo()&&ANO_TELAS.includes(state.view)&&!anoCompetencia()){const f=fimDoAno(String(state.periodo).split('/')[1]);if(f&&f!==state.periodo)state.periodo=f;}else if(anoAtivo()&&state.mesBase&&String(state.mesBase).split('/')[1]===String(state.periodo).split('/')[1]&&(!ANO_TELAS.includes(state.view)||anoCompetencia()))state.periodo=state.mesBase;return state.periodo;}
+function alinharAno(){if(telaNoAno()){const f=fimDoAno(String(state.periodo).split('/')[1]);if(f&&f!==state.periodo)state.periodo=f;}else if(anoAtivo()&&state.mesBase&&String(state.mesBase).split('/')[1]===String(state.periodo).split('/')[1]&&(!ANO_TELAS.includes(state.view)||anoCompetencia()))state.periodo=state.mesBase;return state.periodo;}
 function ligarAno(ligado){state.anoTodo=!!ligado;if(typeof gestaoUI!=='undefined')gestaoUI.dre=ligado?'ano':'mes';}
 function selecionarAno(ano){
  const y=String(ano||String(state.periodo).split('/')[1]||'');if(!/^\d{4}$/.test(y))return;
  const anoAntes=String(state.periodo).split('/')[1];
  // O mês de onde se ligou o Ano volta nas outras telas; outro ano não tem esse mês guardado.
  if(!state.anoTodo)state.mesBase=state.periodo;else if(y!==anoAntes)state.mesBase='';
- state.periodo=fimDoAno(y);if(y!==anoAntes||state.comparar===state.periodo)state.comparar='';ligarAno(true);
+ state.periodo=fimDoAno(y);if(y!==anoAntes||state.comparar===state.periodo)state.comparar='';
+ // O ano escolhido para comparar não pode ser o próprio ano: volta ao padrão (ano anterior).
+ if(String(state.anoComparar??'')===y)state.anoComparar='';ligarAno(true);
  window.DREIndicadores?.ano?.(state.periodo);
  render();
 }
@@ -525,19 +621,27 @@ function selecionarPeriodo(label){
  window.DREIndicadores?.periodo?.(label);
  render();
 }
+// "Comparar com" escondido: no Ano, nas telas que não comparam; no mês, onde ninguém lê state.comparar.
+const compararEscondido=()=>telaNoAno()?!ANO_TELAS_COMPARAM.includes(state.view):['indicadores','detalhe','glossario','caixa','conferencia','config','ajuda',...TELAS_CONTROLE].includes(state.view);
+// Devolve se o intervalo é o ano do app: os Indicadores ligam a comparação ao "Comparar com" do topo por ele.
 function atualizarChipsPeriodo(p){
- document.querySelectorAll('#monthChips button').forEach(b=>{const m=F.periodo(b.dataset.period);b.setAttribute('aria-pressed',String(m?.de===p.de&&m?.ate===p.ate));});
  // Intervalo escolhido dentro dos Indicadores: o ano do app (de janeiro até o último mês
  // com dados, ou o ano civil inteiro) acende o chip; outro ano ou outro recorte apaga.
  const y=String(state.periodo).split('/')[1],fim=F.periodo(fimDoAno(y))?.ate;
  const inteiro=p?.de===y+'-01-01'&&(p?.ate===y+'-12-31'||p?.ate===fim),antes=!!state.anoTodo;ligarAno(inteiro);
- if(antes!==inteiro&&typeof gravarRota==='function')gravarRota();
+ if(antes!==inteiro){if(typeof gravarRota==='function')gravarRota();
+  // Entrou ou saiu do Ano: o topo é redesenhado (no Ano, "Comparar com" lista anos; fora dele, meses ou fica escondido);
+  // os meses novos ganham o clique que o render liga (wireGraficos).
+  if(typeof document.getElementById==='function'){periodoOptions();document.querySelectorAll('#monthChips [data-period]').forEach(b=>b.onclick=()=>selecionarPeriodo(b.dataset.period));const pc=$$('periodCompare');if(pc){pc.open=false;pc.hidden=compararEscondido();}}}
+ document.querySelectorAll('#monthChips button').forEach(b=>{const m=F.periodo(b.dataset.period);b.setAttribute('aria-pressed',String(!inteiro&&m?.de===p?.de&&m?.ate===p?.ate));});
  document.querySelector('#anoChip button')?.setAttribute('aria-pressed',String(inteiro));
+ return inteiro;
 }
 function periodoOptions(){
- const labels=[...new Set([...state.records.map(r=>r.label),...Object.values(state.cfg.demonstrativosCompetencia?.meses||{}).map(r=>r.label),state.periodo,mesHoje()])].filter(l=>F.periodo(l)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));
+ // Anos pelos dados e pelo relógio do app (hojeRotulo/anoDeHoje): o ano novo aparece sozinho na virada.
+ const labels=[...new Set([...state.records.map(r=>r.label),...Object.values(state.cfg.demonstrativosCompetencia?.meses||{}).map(r=>r.label),state.periodo,hojeRotulo()])].filter(l=>F.periodo(l)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));
  const disponiveis=new Set([...state.records.map(r=>r.label),...Object.values(state.cfg.demonstrativosCompetencia?.meses||{}).map(r=>r.label)]);
- const year=Number(state.periodo.split('/')[1]),years=labels.map(l=>Number(l.split('/')[1])),min=Math.min(...years,new Date().getFullYear()-1),max=Math.max(...years,new Date().getFullYear());
+ const hojeAno=anoDeHoje(),year=Number(state.periodo.split('/')[1]),years=labels.map(l=>Number(l.split('/')[1])),min=Math.min(...years,hojeAno-1),max=Math.max(...years,hojeAno);
  $$('yearSelect').innerHTML=Array.from({length:max-min+1},(_,i)=>max-i).map(y=>`<option ${year===y?'selected':''}>${y}</option>`).join('');
  const comp=state.view==='dre'&&dreUI.base==='competencia',temAno=ANO_TELAS.includes(state.view)&&!comp,ano=temAno&&anoAtivo();
  // O foco fica no botão que estava com ele (a barra é redesenhada a cada render).
@@ -549,6 +653,9 @@ function periodoOptions(){
  if(!chipAno&&barra?.parentNode&&typeof document.createElement==='function'){chipAno=document.createElement('div');chipAno.id='anoChip';chipAno.className='month-chips';chipAno.setAttribute('role','group');chipAno.setAttribute('aria-label','Ano inteiro');chipAno.style.cssText='flex:0 0 auto;min-width:0;order:0';barra.after(chipAno);chipAno.addEventListener('click',e=>{const b=e.target.closest?.('[data-ano]');if(b)selecionarAno(b.dataset.ano);});}
  if(chipAno){chipAno.style.display=temAno?'flex':'none';chipAno.innerHTML=temAno?`<button type="button" data-ano="${year}" aria-pressed="${ano}" class="has-data" style="min-width:44px;padding:5px 12px" title="${year}: de janeiro até o último mês com dados">Ano</button>`:'';}
  if(focoSel)document.querySelector?.(focoSel)?.focus?.({preventScroll:true});
+ // No Ano, "Comparar com" escolhe o ANO (padrão: o anterior); no mês, os meses como sempre.
+ if(ano){const ac=anoComparado();$$('compareSummary').textContent=ac!=null?'Comparar: '+ac:'Comparação';
+  $$('compareSelect').innerHTML=`<option value="nenhum" ${ac==null?'selected':''}>Sem comparação</option>`+anosComparaveis().map(y=>`<option value="${y}" ${ac===y?'selected':''}>${y}</option>`).join('');return;}
  $$('compareSummary').textContent=state.comparar?'Comparar: '+state.comparar:'Comparação';
  $$('compareSelect').innerHTML='<option value="">Sem comparação</option>'+labels.filter(l=>l!==state.periodo).map(l=>`<option ${state.comparar===l?'selected':''}>${esc(l)}</option>`).join('');
 }
@@ -591,19 +698,20 @@ function render(){
   if(typeof gravarRota==='function')gravarRota();periodoOptions();
   // Controle que não muda nada na tela fica escondido: mês em Glossário, Configurações, Ajuda, Giro e Recebíveis
   // (fotos da carteira); Comparar onde ninguém lê state.comparar; cobertura onde o mês não conta.
-  document.querySelector('.period').hidden=['glossario','config','ajuda','giro','recebiveis'].includes(state.view);$$('periodCompare').hidden=['indicadores','detalhe','glossario','caixa','conferencia','config','ajuda',...TELAS_CONTROLE].includes(state.view);$$('qualityBar').hidden=['glossario','indicadores','config','ajuda','giro','recebiveis'].includes(state.view)||(state.view==='dre'&&dreUI.base==='competencia');const reg=regAtual(),q=F.qualidade(reg);
+  document.querySelector('.period').hidden=['glossario','config','ajuda','giro','recebiveis'].includes(state.view);$$('periodCompare').hidden=compararEscondido();$$('qualityBar').hidden=['glossario','indicadores','config','ajuda','giro','recebiveis'].includes(state.view)||(state.view==='dre'&&dreUI.base==='competencia');const reg=regAtual(),q=F.qualidade(reg);
   const trocouTela=state.view!==telaAnterior,veio=telaAnterior;telaAnterior=state.view;if(trocouTela&&$$('periodCompare'))$$('periodCompare').open=false;
   const [title,desc]=METADATA_TELAS[state.view]||METADATA_TELAS.inicio;$$('pageTitle').textContent=title;$$('pageDesc').textContent=desc;document.title=title+' · DRE Impresilk';
   const pai=MENU_PAI[state.view];document.querySelectorAll('[data-view]').forEach(b=>{const v=b.dataset.view;b.classList.toggle('active',v===state.view||v===pai);b.setAttribute('aria-current',v===state.view?'page':v===pai?'true':'false');});if(typeof sincronizarMenu==='function')sincronizarMenu();
   const semContrato=reg?.qualidade?.apiContratoValidado===false;
   // Com o Ano ligado, o chip diz o ano até o mês; em Preço, o mês parcial fica fora da média.
-  const noAno=anoAtivo()&&ANO_TELAS.includes(state.view)&&!anoCompetencia(),pm=noAno&&state.view==='precos'&&typeof dfcMes==='function'?dfcMes(state.periodo):null,parcialFora=pm?.parcial?` · ${state.periodo} (${pm.emAndamento?'mês em andamento':'mês incompleto'}) fica fora da média`:'';
+  const noAno=telaNoAno(),pm=noAno&&state.view==='precos'&&typeof dfcMes==='function'?dfcMes(state.periodo):null,parcialFora=pm?.parcial?` · ${state.periodo} (${pm.emAndamento?'mês em andamento':'mês incompleto'}) fica fora da média`:'';
   const rotuloPeriodo=noAno?`${String(state.periodo).split('/')[1]} até ${state.periodo}`:state.periodo;
   $$('qualityBar').innerHTML=`<details class="status quality-details chip-details est-${esc(q.estado||'sem-dados')} ${q.comparavel?'good':''}"><summary aria-label="${esc(`Qualidade de ${rotuloPeriodo}: ${q.rotulo}${parcialFora}${semContrato?'. Limites da API ainda não validados':''}. Ver cobertura`)}"><span class="quality-dot"></span><span>${esc(rotuloPeriodo)} · <b>${esc(q.rotulo)}</b>${esc(parcialFora)}</span>${semContrato?'<span class="st-ressalva">° API a validar</span>':''}<span class="quality-action">cobertura ▾</span></summary><div><p>${esc(q.mensagem)}</p><small>Última coleta/registro: ${esc(dataBR(q.coletadoEm))} · Fonte: ${!reg?'Não disponível':reg.origem==='erp'?'Mubisys':'Histórico / planilha'} · Base: caixa filtrado por “compõe DRE”. Conciliação bancária: ${reg?.qualidade?.conciliado?'registrada':'não comprovada'}.</small></div></details>`;
   const pages=paginasDoApp();
   const focoSel=seletorFocoConteudo();
   $$('pageContent').innerHTML=(pages[state.view]||renderInicio)(reg,q)+(typeof navContexto==='function'?navContexto():'');
-  $$('cfoTools').hidden=['config','ajuda','indicadores','dre','giro','recebiveis','parametros'].includes(state.view);$$('cfoPDF').hidden=['glossario','dfc','balanco','precos'].includes(state.view);wireContent();if(typeof wirePlanoContas==='function')wirePlanoContas();if(focoSel&&!trocouTela){const alvo=document.querySelector(focoSel);alvo?.focus?.({preventScroll:true});if(document.activeElement!==alvo)$$('pageTitle')?.focus?.({preventScroll:true});}document.body.dataset.screen=state.view;if(state.view==='indicadores')window.DREIndicadores?.mount($$('indicadoresRoot'),{records:state.records,cfg:state.cfg,periodo:state.anoTodo?fimDoAno(String(state.periodo).split('/')[1]):state.periodo,ano:!!state.anoTodo,api,dialog,refresh:()=>pullCloud(true),onPeriodo:selecionarPeriodo,onIntervalo:atualizarChipsPeriodo,rota:state.indicadoresRota||null,onDRE:periodo=>{dreUI.base='competencia';state.view='dre';ligarAno(false);if(periodo?.de){const [y,m]=periodo.de.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;}render();}});if(state.view==='indicadores'){state.indicadoresRota=null;if(typeof gravarRota==='function')gravarRota();}$$('footMeta').hidden=state.view==='glossario';state.rotuloQualidade=q.rotulo;escreverRodape();
+  // Indicadores: anoComparado e mesesComparaveis são lidos na hora, porque o intervalo escolhido lá dentro liga ou desliga o Ano depois do mount.
+  $$('cfoTools').hidden=['config','ajuda','indicadores','dre','giro','recebiveis','parametros'].includes(state.view);$$('cfoPDF').hidden=['glossario','dfc','balanco','precos'].includes(state.view);wireContent();if(typeof wirePlanoContas==='function')wirePlanoContas();if(focoSel&&!trocouTela){const alvo=document.querySelector(focoSel);alvo?.focus?.({preventScroll:true});if(document.activeElement!==alvo)$$('pageTitle')?.focus?.({preventScroll:true});}document.body.dataset.screen=state.view;if(state.view==='indicadores')window.DREIndicadores?.mount($$('indicadoresRoot'),{records:state.records,cfg:state.cfg,periodo:state.anoTodo?fimDoAno(String(state.periodo).split('/')[1]):state.periodo,ano:!!state.anoTodo,get anoComparado(){return state.anoTodo?anoComparado():null;},get mesesComparaveis(){const ac=state.anoTodo?anoComparado():null;return ac!=null?mesesComparaveisAno(anoDaTela(),ac):[];},api,dialog,refresh:()=>pullCloud(true),onPeriodo:selecionarPeriodo,onIntervalo:atualizarChipsPeriodo,rota:state.indicadoresRota||null,onDRE:periodo=>{dreUI.base='competencia';state.view='dre';ligarAno(false);if(periodo?.de){const [y,m]=periodo.de.split('-');state.periodo=PT_MON[Number(m)-1]+'/'+y;}render();}});if(state.view==='indicadores'){state.indicadoresRota=null;if(typeof gravarRota==='function')gravarRota();}$$('footMeta').hidden=state.view==='glossario';state.rotuloQualidade=q.rotulo;escreverRodape();
   if(trocouTela&&veio&&!voltandoHistorico){if(typeof window!=='undefined'&&typeof window.scrollTo==='function')window.scrollTo(0,0);$$('pageTitle')?.focus?.({preventScroll:true});}
   // Seção pedida pelo "Ver em" do Glossário ou pelo link secao=<chave> (N24): depois do topo, rola até ela.
   if(typeof irSecaoPendente==='function')irSecaoPendente();
@@ -612,6 +720,7 @@ function render(){
 // em andamento ou incompleto; sem saldo, "Não apurado" e o caminho para informar.
 function saldoFimDoMes(reg){const s=reg&&typeof dfcSaldo==='function'?dfcSaldo(reg.label):null;return s?.final==null?'Não apurado · <button type="button" class="text-button" data-go="parametros">informe em Parâmetros</button>':`<span class="${s.final>0?'tom-entra':s.final<0?'tom-sai':''}">${esc(money(s.final))}</span>`+(s.parcial?` <span title="${s.emAndamento?'Mês em andamento':'Mês incompleto'}: saldo até a última coleta">*</span>`:'');}
 function renderInicio(reg,q){
+ if(telaNoAno())return renderInicioAno(reg,q);
  const latest=[...state.records].sort((a,b)=>monthSortKey(b.label)-monthSortKey(a.label))[0];
  let h=!reg?`<div class="month-empty"><div><b>${esc(state.periodo)} ainda não tem dados.</b><span>O histórico abaixo continua disponível para consulta.</span></div>${latest?`<button data-period="${esc(latest.label)}">Abrir ${esc(latest.label)} →</button>`:''}</div>`:'';
  h+=resumoMovimento(reg)+comparativoMovimento(reg);
@@ -643,10 +752,12 @@ function caixaEmBlocos(reg){
 }
 // Último saldo do Fluxo de caixa (DFC), oferecido no planejamento: só entra no campo pelo botão Usar.
 function saldoReferenciaPlano(){return typeof dfcSaldos==='function'?[...dfcSaldos().values()].filter(x=>x.final!=null).pop()||null:null;}
-function renderCaixa(reg){let h=resumoMovimento(reg);const b=caixaEmBlocos(reg),ref=saldoReferenciaPlano();
+// O planejamento das 13 semanas é o mesmo no mês e no Ano (não depende do realizado).
+function cardPlanejamento(ref=saldoReferenciaPlano()){return card('Planejar as próximas 13 semanas',`<p>Planejamento independente do realizado. Informe saldo e compromissos e use Salvar planejamento para compartilhar na nuvem. Nenhum lançamento é enviado ao Mubisys.</p><div class="form-grid"><div><label>Saldo inicial considerado (R$)<input id="planSaldo" type="number" step="0.01" placeholder="Informe o saldo" value="${esc(plano.saldo??'')}"></label>${ref?`<p class="hint" id="planSaldoRef">Fluxo de caixa: <b>${esc(money(ref.final))}</b> (${esc(ref.label)}${ref.parcial?', mês em andamento ou incompleto':''}, não conciliado) <button type="button" class="text-button" id="planUsarSaldo">Usar</button></p>`:''}</div><label>Reserva mínima (R$)<input id="planReserva" type="number" step="0.01" min="0" value="${esc(plano.reserva)}"></label><label>Início da projeção<input id="planData" type="date" value="${esc(plano.inicio)}"></label><label>Cenário de recebimento<select id="planCenario"><option value="1">100% dos recebimentos previstos</option><option value="0.8">80% dos recebimentos previstos</option><option value="0.6">60% dos recebimentos previstos</option></select></label></div><div class="actions"><button id="planCarteira">Trazer da carteira do Mubisys</button><button id="planAdicionar">+ Compromisso previsto</button><button id="planCalcular" class="primary">Calcular cenário</button><button id="planSalvar" ${state.permissoes.admin?'':'disabled'}>Salvar planejamento</button><span id="planEstado" role="status">${plano.atualizadoEm?'Salvo: '+esc(dataBR(plano.atualizadoEm)):'Rascunho não salvo'}</span></div><div id="planMovimentos"></div><div id="planResultado"></div><p class="hint">Valores vencidos não resolvidos são considerados no início da projeção. O cenário reduz os recebimentos previstos; não altera saídas. Revise as premissas. "Trazer da carteira" soma, semana a semana, o que vence a receber e a pagar no Mubisys (carga do Painel) e as despesas previstas (fixas, cartão, folha); a pagar vencido entra na 1ª semana, a receber vencido fica de fora por prudência; trazer de novo troca só essas linhas.</p>`,plano.saldo!==''&&plano.saldo!=null,'secao-caixa-plano');}
+function renderCaixa(reg){if(telaNoAno())return renderCaixaAno(reg);let h=resumoMovimento(reg);const b=caixaEmBlocos(reg),ref=saldoReferenciaPlano();
   if(reg)h+=`<div class="cash-context"><span>Recebimentos de vendas: <b class="${b?tomDoValor('operacionais',b.m.d.valores.vendas):''}">${money(b?b.m.d.valores.vendas:null)}</b></span><span><button type="button" class="text-button" data-go="dfc">Saldo no fim do mês (Fluxo de caixa)</button>: <b>${saldoFimDoMes(reg)}</b></span><details><summary>Critérios</summary><p>Recebimentos de vendas: pagamentos recebidos de clientes (contas 1.1, 1.2, 1.5 e 1.6). Saldo no fim do mês: o saldo inicial informado em Parâmetros mais a geração de caixa, como no Fluxo de caixa DFC; * marca o mês em andamento ou incompleto. Não substitui a conciliação bancária. A variação do período aparece no resumo acima e considera o movimento da base salva.</p></details></div>`+(b?`<div class="split">${card('Operação · '+reg.label+b.andamento,b.operacao)}${card('Investimento e financiamento · '+reg.label+b.andamento,b.outros)}</div>${b.rodape}`:`<p class="empty">Operação, investimento e financiamento: não apurados em ${esc(reg.label)}: o mês não tem contas válidas para a classificação.</p>`);
   else h+='<div class="empty"><h2>Este mês ainda não foi coletado.</h2><p>Abra um mês do histórico ou confira a integração.</p></div>';
-  h+=card('Planejar as próximas 13 semanas',`<p>Planejamento independente do realizado. Informe saldo e compromissos e use Salvar planejamento para compartilhar na nuvem. Nenhum lançamento é enviado ao Mubisys.</p><div class="form-grid"><div><label>Saldo inicial considerado (R$)<input id="planSaldo" type="number" step="0.01" placeholder="Informe o saldo" value="${esc(plano.saldo??'')}"></label>${ref?`<p class="hint" id="planSaldoRef">Fluxo de caixa: <b>${esc(money(ref.final))}</b> (${esc(ref.label)}${ref.parcial?', mês em andamento ou incompleto':''}, não conciliado) <button type="button" class="text-button" id="planUsarSaldo">Usar</button></p>`:''}</div><label>Reserva mínima (R$)<input id="planReserva" type="number" step="0.01" min="0" value="${esc(plano.reserva)}"></label><label>Início da projeção<input id="planData" type="date" value="${esc(plano.inicio)}"></label><label>Cenário de recebimento<select id="planCenario"><option value="1">100% dos recebimentos previstos</option><option value="0.8">80% dos recebimentos previstos</option><option value="0.6">60% dos recebimentos previstos</option></select></label></div><div class="actions"><button id="planCarteira">Trazer da carteira do Mubisys</button><button id="planAdicionar">+ Compromisso previsto</button><button id="planCalcular" class="primary">Calcular cenário</button><button id="planSalvar" ${state.permissoes.admin?'':'disabled'}>Salvar planejamento</button><span id="planEstado" role="status">${plano.atualizadoEm?'Salvo: '+esc(dataBR(plano.atualizadoEm)):'Rascunho não salvo'}</span></div><div id="planMovimentos"></div><div id="planResultado"></div><p class="hint">Valores vencidos não resolvidos são considerados no início da projeção. O cenário reduz os recebimentos previstos; não altera saídas. Revise as premissas. "Trazer da carteira" soma, semana a semana, o que vence a receber e a pagar no Mubisys (carga do Painel) e as despesas previstas (fixas, cartão, folha); a pagar vencido entra na 1ª semana, a receber vencido fica de fora por prudência; trazer de novo troca só essas linhas.</p>`,plano.saldo!==''&&plano.saldo!=null,'secao-caixa-plano');
+  h+=cardPlanejamento(ref);
   h+=card('Planilha de caixa · evolução mensal e acumulado',historicoTabela(),true);
   return h;
 }
@@ -666,11 +777,19 @@ function historicoTabela(){const year=state.periodo.split('/')[1];const recs=sta
 }
 const normalizarBusca=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR');
 function filtrarContas(reg){return (reg?.cells||[]).filter(c=>(state.tipo==='todos'||c.code===state.tipo||c.code.startsWith(state.tipo+'.'))&&(state.grupo==='todos'||c.code===state.grupo||c.code.startsWith(state.grupo+'.'))&&(!state.consulta||normalizarBusca(c.name+' '+c.code).includes(normalizarBusca(state.consulta))));}
-function renderResultado(reg){const b=caixaEmBlocos(reg);return resumoMovimento(reg)+graficoPonte(reg)+card('Resultado por competência',`<div class="actions"><button data-go="dre">Abrir a DRE de caixa e de competência →</button></div><div class="note"><h3>Consulte a apuração na DRE</h3><p>Esta base contém recebimentos e pagamentos. A apuração por competência está na DRE, com preenchimento revisado de receitas, custos, despesas, depreciação e tributos.</p></div><p>A leitura gerencial de caixa continua disponível abaixo, com critérios e origem explícitos.</p>`,false)+card('Demonstrativo gerencial de caixa',reg?`<p>${esc(reg.label)} · ${esc(F.qualidade(reg).rotulo)} · ${esc(reg.origem==='erp'?'Impresilk + Universo':reg.company||'Empresa não informada')}${b?esc(b.andamento):''}</p>${b?b.operacao+b.outros+b.rodape:`<p class="empty">Operação, investimento e financiamento: não apurados em ${esc(reg.label)}: o mês não tem contas válidas para a classificação.</p>`}<p class="hint">Não comprova conciliação com extrato nem lucro contábil.</p><div class="actions"><button id="printReport">Imprimir / salvar PDF</button><button data-go="detalhe">Ver contas</button></div>`:'<p>Selecione um período com dados.</p>');}
+function cardCompetenciaResultado(){return card('Resultado por competência',`<div class="actions"><button data-go="dre">Abrir a DRE de caixa e de competência →</button></div><div class="note"><h3>Consulte a apuração na DRE</h3><p>Esta base contém recebimentos e pagamentos. A apuração por competência está na DRE, com preenchimento revisado de receitas, custos, despesas, depreciação e tributos.</p></div><p>A leitura gerencial de caixa continua disponível abaixo, com critérios e origem explícitos.</p>`,false);}
+function renderResultado(reg){if(telaNoAno())return renderResultadoAno(reg);const b=caixaEmBlocos(reg);return resumoMovimento(reg)+graficoPonte(reg)+cardCompetenciaResultado()+card('Demonstrativo gerencial de caixa',reg?`<p>${esc(reg.label)} · ${esc(F.qualidade(reg).rotulo)} · ${esc(reg.origem==='erp'?'Impresilk + Universo':reg.company||'Empresa não informada')}${b?esc(b.andamento):''}</p>${b?b.operacao+b.outros+b.rodape:`<p class="empty">Operação, investimento e financiamento: não apurados em ${esc(reg.label)}: o mês não tem contas válidas para a classificação.</p>`}<p class="hint">Não comprova conciliação com extrato nem lucro contábil.</p><div class="actions"><button id="printReport">Imprimir / salvar PDF</button><button data-go="detalhe">Ver contas</button></div>`:'<p>Selecione um período com dados.</p>');}
 function renderDetalhe(reg){if(!reg)return '<div class="empty">Este mês não tem dados. Escolha um período do histórico.</div>';const cells=reg.cells||[],groups=cells.filter(c=>c.code.split('.').length===2);const filtered=filtrarContas(reg);const pag=Math.min(state.contasPagina||0,Math.max(0,Math.ceil(filtered.length/50)-1));const cmp=state.records.find(r=>r.label===state.comparar),comp=F.comparacao(reg,cmp);const sameMap=(reg.origem||'planilha')===(cmp?.origem||'planilha');
  return card('Contas, produtos e centros',`<div class="filterbar"><input id="searchAccounts" aria-label="Buscar conta ou produto" placeholder="Buscar conta, produto, energia, frota…" value="${esc(state.consulta)}"><select id="accountType" aria-label="Tipo de movimento"><option value="todos">Entradas e saídas</option><option value="1">Entradas</option><option value="2">Saídas</option></select><select id="accountGroup" aria-label="Categoria"><option value="todos">Todas as categorias</option>${groups.map(c=>`<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('')}</select></div><p class="hint">${filtered.length} contas. Totais e subcontas são níveis da mesma árvore; não devem ser somados entre si.</p><div class="table-scroll"><table><thead><tr><th scope="col">Conta / produto</th><th scope="col" class="num">${esc(reg.label)}</th><th scope="col" class="num">${esc(state.comparar||'Comparação')}</th><th scope="col" class="num">Variação</th></tr></thead><tbody>${filtered.slice(pag*50,pag*50+50).map(c=>{const old=cmp?.cells?.find(x=>x.code===c.code),ok=comp.permitida&&!!old&&c.value!=null&&old.value!=null&&(sameMap||c.code.split('.').length<=2)&&old.name===c.name;return `<tr><td style="padding-left:${12+Math.min(c.code.split('.').length-1,5)*12}px"><button data-account="${esc(c.code)}">${esc(c.name)}</button><small> ${esc(c.code)}</small></td><td class="num">${botaoConta(c.code,money(c.value))}</td><td class="num">${ok?money(old.value):'—'}</td><td class="num">${ok?money(c.value-old.value):'—'}</td></tr>`;}).join('')}</tbody></table></div><p class="hint">${!state.comparar?'Escolha “Comparar com” no topo para ver a variação conta a conta.':comp.permitida?`Diferenças calculadas contra ${esc(state.comparar)}.${comp.ressalva?' A cobertura da coleta ainda não foi validada nos dois meses: o cálculo está feito, falta conferir se a base está completa antes de decidir.':''}${sameMap?' Conta renomeada ou ausente no outro mês fica em <b>—</b>.':` Os dois meses vieram de bases diferentes: abaixo do segundo nível as contas não se comparam e ficam em <b>—</b>.`}`:esc(comp.motivo||'')} Nomes são os de cada mês, preservados no histórico.</p><div class="actions"><button id="exportAccounts">Baixar seleção em CSV</button><button data-contas-pagina="${pag-1}" ${pag===0?'disabled':''}>Anterior</button><span>Página ${pag+1} / ${Math.max(1,Math.ceil(filtered.length/50))}</span><button data-contas-pagina="${pag+1}" ${(pag+1)*50>=filtered.length?'disabled':''}>Próxima</button></div>`)+card('Totais sem detalhamento',F.residuos(reg).length?F.residuos(reg).map(x=>linha(x.name+' · '+x.code,x.value)).join('')+'<p class="hint">Pode haver lançamento direto na conta-pai. Conferir antes de distribuir qualquer valor.</p>':'<p>Os totais com filhos fecham com o detalhamento disponível.</p>',false);
 }
-function renderConferencia(reg,q){const p=reg?.pendencias||[],dup=dedupePeriods(state.records).dropped;let h=faixaCobertura()+card('Saúde da informação',`<div class="fatos">${fato('Cobertura do período',q.rotulo)}${fato('Última coleta ou registro',dataBR(q.coletadoEm))}${fato('Conciliação bancária',reg?.qualidade?.conciliado?'Registrada':'Não comprovada')}${fato('Edições locais pendentes',String(getQueue().length))}</div>`+`<p class="hint">O botão “Atualizar Mubisys” solicita a coleta do mês atual e do anterior. Acompanhe a execução no aviso acima. “Ler base salva”, em Sistemas e configurações, apenas relê a nuvem.</p>`);
+// Edições guardadas no aparelho e períodos repetidos: iguais no mês e no Ano.
+function conferenciaRodape(dup){let h='';
+ if(localStorage.getItem('impresilk_dre_queue')&&!['[]','null'].includes(localStorage.getItem('impresilk_dre_queue')))h+=card('Edições da versão anterior',`<p>Este aparelho conserva uma fila da versão anterior. Ela não será enviada automaticamente.</p><button id="legacyBackup">Baixar para revisão</button>`);
+ if(getQueue().length)h+=card('Edições preservadas no aparelho',getQueue().map(it=>`<div class="line"><span>${esc(it.registro.label)} · ${it.conflito?'Conflito com a nuvem':esc(it.erro||'Aguardando envio')}</span><button data-conflict="${esc(it.opId)}">Revisar</button></div>`).join(''));
+ if(dup.length)h+=card('Períodos com mais de um registro',`<p>${dup.length} registro(s) representam períodos repetidos. Foram preservados. A exclusão exige revisão da origem e do conteúdo.</p>`);
+ return h;
+}
+function renderConferencia(reg,q){if(telaNoAno())return renderConferenciaAno(reg,q);const p=reg?.pendencias||[],dup=dedupePeriods(state.records).dropped;let h=faixaCobertura()+card('Saúde da informação',`<div class="fatos">${fato('Cobertura do período',q.rotulo)}${fato('Última coleta ou registro',dataBR(q.coletadoEm))}${fato('Conciliação bancária',reg?.qualidade?.conciliado?'Registrada':'Não comprovada')}${fato('Edições locais pendentes',String(getQueue().length))}</div>`+`<p class="hint">O botão “Atualizar Mubisys” solicita a coleta do mês atual e do anterior. Acompanhe a execução no aviso acima. “Ler base salva”, em Sistemas e configurações, apenas relê a nuvem.</p>`);
 // Fechamento do mês escolhido (Fase 11.4, fechamento.js).
  h+=typeof renderFechamento==='function'?renderFechamento():'';
  h+=typeof painelPendencias==='function'?painelPendencias(reg):'';
@@ -678,9 +797,68 @@ function renderConferencia(reg,q){const p=reg?.pendencias||[],dup=dedupePeriods(
  h+=typeof renderAuditoria==='function'?renderAuditoria():'';
  h+=card('Movimentos na origem',reg?.eventos?.length?`<p>${reg.eventos.length} movimentos com empresa, título, pagamento e conta de origem.</p><button id="originEvents">Consultar movimentos</button>`:'<p>A trilha por pagamento estará disponível após uma nova coleta. O histórico atual conserva os totais e as contas.</p>',false);
  h+=card('Conferir com o Mubisys',`<p>Consulta de leitura. Compara o período com o retrato de origem guardado na coleta. Não transforma diferenças em ajustes.</p><div class="actions"><button id="auditMubi" ${!reg?'disabled':''}>Consultar período</button></div><div id="auditResult"></div><p class="hint">Históricos sem retrato de origem recebem somente confronto dos totais, sem comparar códigos antigos com novos.</p>`);
- if(localStorage.getItem('impresilk_dre_queue')&&!['[]','null'].includes(localStorage.getItem('impresilk_dre_queue')))h+=card('Edições da versão anterior',`<p>Este aparelho conserva uma fila da versão anterior. Ela não será enviada automaticamente.</p><button id="legacyBackup">Baixar para revisão</button>`);
- if(getQueue().length)h+=card('Edições preservadas no aparelho',getQueue().map(it=>`<div class="line"><span>${esc(it.registro.label)} · ${it.conflito?'Conflito com a nuvem':esc(it.erro||'Aguardando envio')}</span><button data-conflict="${esc(it.opId)}">Revisar</button></div>`).join(''));
- if(dup.length)h+=card('Períodos com mais de um registro',`<p>${dup.length} registro(s) representam períodos repetidos. Foram preservados. A exclusão exige revisão da origem e do conteúdo.</p>`);
+ h+=conferenciaRodape(dup);
+ return h;
+}
+/* ---------- Telas no Ano (Dashboard, Caixa, Composição do caixa, Conferência) ----------
+   De janeiro ao último mês com dados (fimDoAno), com o mês em andamento marcado por *. Somas pelo
+   registro do ano (registroDoAno) e pelos blocos da DFC (dfcBlocosAno); comparação só nos meses
+   completos dos dois anos (comparacaoDoAno). Mês faltando nunca vira zero: a tela diz qual falta. */
+const mesesAteFimDoAno=ano=>{const ate=PT_MON.indexOf(String(fimDoAno(ano)).split('/')[0]);return PT_MON.slice(0,Math.max(0,ate)+1).map(m=>m+'/'+ano);};
+const mesCompleto=(r,l)=>{const per=F.periodo(l),hoje=typeof dfcHoje==='function'?dfcHoje():new Date().toISOString().slice(0,10);return !!r&&!!per&&per.ate<hoje&&!F.qualidade(r).parcial;};
+// Δ do Ano: seta, cor pela direção (tomDelta) e valor sem sinal; sem número, "—".
+const deltaAnoCelula=(d,dir)=>d==null||!Number.isFinite(Number(d))?'<td class="num">—</td>':`<td class="num ${tomDelta(dir,d)||'delta-neutro'}">${d>0?'▲':d<0?'▼':'■'} ${esc(money(Math.abs(d)))}</td>`;
+function renderInicioAno(reg,q){
+ const ano=anoDaTela(),meses=mesesAteFimDoAno(ano),regs=meses.map(regDoMes),fim=fimDoAno(ano),ra=registroDoAno(ano);
+ const latest=[...state.records].sort((a,b)=>monthSortKey(b.label)-monthSortKey(a.label))[0];
+ let h=!regs.some(Boolean)?`<div class="month-empty"><div><b>${esc(ano)} ainda não tem dados.</b><span>O histórico abaixo continua disponível para consulta.</span></div>${latest?`<button data-period="${esc(latest.label)}">Abrir ${esc(latest.label)} →</button>`:''}</div>`:'';
+ h+=resumoMovimento(reg)+comparativoMovimento(reg);
+ h+=`<div class="dashboard-grid">${typeof evolucaoCompacta==='function'?evolucaoCompacta():graficoEvolucao()}${painelGrafico('Para onde foi o dinheiro',`${rotuloAno(ano)} · principais grupos de saídas`,ra.disponivel?rankingCustos(ra.reg):`<p class="empty">${esc(ra.motivo)}</p>`,'<button data-go="custos" class="text-button">Ver todas →</button>')}</div>`;
+ h+=cfoResumo(reg)+resumoGestao(reg)+'<p class="hint"><button type="button" class="text-button" data-go="caixa">Planilha de caixa mês a mês: ver em Caixa e planejamento →</button></p>';
+ const completos=regs.filter((r,i)=>mesCompleto(r,meses[i])).length,pend=regs.reduce((n,r)=>n+(r?.pendencias||[]).length,0);
+ h+=card('Conferência e próximos passos',`<div class="review-grid"><div><span class="label">Cobertura da base</span><b>${completos} de ${meses.length} ${meses.length===1?'mês coletado':'meses coletados'} até o último dia</b></div><div><span class="label">Pendências a conferir</span><b><button type="button" class="text-button" data-go="conferencia" aria-label="${pend} pendência(s) a conferir em ${esc(ano)}: abrir a Conferência">${pend}</button></b></div><div><span class="label"><button type="button" class="text-button" data-go="dfc">Saldo no fim de ${esc(fim)} (Fluxo de caixa)</button></span><b>${saldoFimDoMes(regDoMes(fim))}</b></div></div><div class="actions"><button data-go="conferencia">Conferir dados →</button><button data-go="caixa">Planejar o caixa →</button></div>`,false);
+ h+=(typeof renderComparativos==='function'?renderComparativos():'');
+ return h;
+}
+// Blocos do caixa no Ano contra o ano comparado, nos mesmos meses completos (dfcComparacaoAno).
+function caixaComparacaoAno(ano){
+ const c=comparacaoDoAno(ano),titulo=c.anoComp!=null?`Blocos do caixa · ${ano} contra ${c.anoComp}`:`Blocos do caixa · ${ano}`;
+ const x=!c.motivo&&typeof dfcComparacaoAno==='function'?dfcComparacaoAno(ano,c.anoComp,c.indices):null;
+ if(!x?.linhas)return card(titulo,`<p class="hint">${esc(c.motivo||'A comparação dos blocos do caixa não está disponível nesta versão.')}</p>`);
+ const dir=typeof DFC_DIR_ANO!=='undefined'?DFC_DIR_ANO:{},tom=(id,v)=>typeof dfcTomLinha==='function'?dfcTomLinha(id,v):tomDoValor('variacao',v);
+ const linhas=[['fco','Caixa da operação (FCO)'],['fci','Investimentos (FCI)'],['fcf','Financiamentos (FCF)'],['geracao','(=) Geração de caixa']];
+ const corpo=linhas.map(([id,nome])=>{const l=x.linhas[id]||{};return `<tr${id==='geracao'?' class="total"':''}><th scope="row">${esc(nome)}</th><td class="${['num',l.atual==null?'':tom(id,l.atual)].filter(Boolean).join(' ')}">${esc(money(l.atual))}</td><td class="${['num',l.anterior==null?'':tom(id,l.anterior)].filter(Boolean).join(' ')}">${esc(money(l.anterior))}</td>${deltaAnoCelula(l.delta,dir[id]??0)}</tr>`;}).join('');
+ return card(titulo,`<div class="table-scroll"><table class="tabela-controle tabela-ano"><thead><tr><th scope="col">Bloco</th><th scope="col" class="num">${esc(ano)} · ${esc(c.meses)}</th><th scope="col" class="num">${esc(c.anoComp)} · ${esc(c.meses)}</th><th scope="col" class="num">Δ</th></tr></thead><tbody>${corpo}</tbody></table></div><p class="hint">Só os meses completos nos dois anos, da mesma base e com plano de contas${c.ressalva?'; cobertura a conferir em algum mês':''}. Mude o ano em “Comparar com”, no topo.</p>`);
+}
+const blocosDoAno=ano=>typeof dfcBlocosAno==='function'?dfcBlocosAno(ano):null;
+const blocosNaoApurados=(ano,b)=>`<p class="empty">Operação, investimento e financiamento: não apurados em ${esc(ano)}: ${esc(b?.motivo||'o ano não tem contas válidas para a classificação.')}</p>`;
+function renderCaixaAno(reg){
+ const ano=anoDaTela(),fim=fimDoAno(ano),rot=rotuloAno(ano),ref=saldoReferenciaPlano(),b=blocosDoAno(ano);
+ let vendas=null;
+ if(typeof dfcMes==='function'&&typeof dfcAcumulado==='function'&&typeof dfcSaldos==='function'){const ms=PT_MON.map(m=>dfcMes(m+'/'+ano)),todos=dfcSaldos(),saldos=ms.map(m=>todos.get(monthSortKey(m.label))||null);vendas=dfcAcumulado(ms,saldos,PT_MON.indexOf(String(fim).split('/')[0]),'vendas');}
+ let h=resumoMovimento(reg);
+ h+=`<div class="cash-context"><span>Recebimentos de vendas · ${esc(rot)}: <b class="${tomDoValor('operacionais',vendas)}">${money(vendas)}</b></span><span><button type="button" class="text-button" data-go="dfc">Saldo no fim de ${esc(fim)} (Fluxo de caixa)</button>: <b>${saldoFimDoMes(regDoMes(fim))}</b></span><details><summary>Critérios</summary><p>Recebimentos de vendas: pagamentos recebidos de clientes (contas 1.1, 1.2, 1.5 e 1.6), somados de janeiro ao último mês com dados. Saldo no fim do ano: o saldo inicial informado em Parâmetros mais a geração de caixa, como no Fluxo de caixa DFC; * marca o mês em andamento ou incompleto. Não substitui a conciliação bancária. A variação do período aparece no resumo acima e considera o movimento da base salva.</p></details></div>`;
+ h+=b?.operacao?`<div class="split">${card('Operação · '+rot,b.operacao)}${card('Investimento e financiamento · '+rot,b.outros)}</div>${b.rodape||''}`:blocosNaoApurados(ano,b);
+ h+=caixaComparacaoAno(ano);
+ h+=cardPlanejamento(ref);
+ h+=card('Planilha de caixa · evolução mensal e acumulado',historicoTabela(),true);
+ return h;
+}
+function renderResultadoAno(reg){
+ const ano=anoDaTela(),rot=rotuloAno(ano),ra=registroDoAno(ano),b=blocosDoAno(ano),base=ra.reg||regDoMes(fimDoAno(ano));
+ const ponte=ra.disponivel?graficoPonte(ra.reg):painelGrafico('Do recebimento à variação do caixa',rot,`<p class="empty">${esc(ra.motivo)}</p>`);
+ const empresa=base?.origem==='erp'?'Impresilk + Universo':base?.company||'Empresa não informada';
+ return resumoMovimento(reg)+comparativoMovimento(reg)+ponte+cardCompetenciaResultado()+card('Demonstrativo gerencial de caixa',`<p>${esc(rot)} · ${esc(ra.disponivel?F.qualidade(ra.reg).rotulo:'Ano não somado')} · ${esc(empresa)}</p>${b?.operacao?b.operacao+b.outros+(b.rodape||''):blocosNaoApurados(ano,b)}<p class="hint">Não comprova conciliação com extrato nem lucro contábil.</p><div class="actions"><button id="printReport">Imprimir / salvar PDF</button><button data-go="detalhe">Ver contas</button></div>`);
+}
+function renderConferenciaAno(reg,q){
+ const ano=anoDaTela(),meses=mesesAteFimDoAno(ano),dup=dedupePeriods(state.records).dropped;
+ const linhas=meses.map(l=>{const r=regDoMes(l),qq=F.qualidade(r);return `<tr><th scope="row"><button type="button" class="text-button" data-period="${esc(l)}" aria-label="Abrir ${esc(l)}${qq.parcial?' (mês em andamento ou incompleto)':''}">${esc(l)}${qq.parcial?' *':''}</button></th><td>${esc(r?qq.rotulo:'Sem dados')}</td><td>${esc(r?dataBR(qq.coletadoEm):'—')}</td><td>${r?(r.qualidade?.conciliado?'Registrada':'Não comprovada'):'—'}</td><td class="num">${r?(r.pendencias||[]).length:'—'}</td></tr>`;}).join('');
+ let h=faixaCobertura()+card(`Saúde da informação · ${ano}`,`<div class="table-scroll"><table class="tabela-controle tabela-ano"><thead><tr><th scope="col">Mês</th><th scope="col">Cobertura</th><th scope="col">Última coleta</th><th scope="col">Conciliação bancária</th><th scope="col" class="num">Pendências a conferir</th></tr></thead><tbody>${linhas}</tbody></table></div><div class="fatos">${fato('Edições locais pendentes',String(getQueue().length))}</div><p class="hint">* mês em andamento ou incompleto. O botão “Atualizar Mubisys” solicita a coleta do mês atual e do anterior. Acompanhe a execução no aviso acima. “Ler base salva”, em Sistemas e configurações, apenas relê a nuvem.</p>`);
+ h+=typeof renderFechamento==='function'?renderFechamento():'';
+ h+=typeof painelPendencias==='function'?painelPendencias(reg):'';
+ h+=typeof renderAuditoria==='function'?renderAuditoria():'';
+ h+=card('Movimentos e conferência com o Mubisys','<p>São por mês: escolha um mês na barra para consultar os movimentos e conferir com o Mubisys.</p>');
+ h+=conferenciaRodape(dup);
  return h;
 }
 function renderConfig(){return card('Integração e atualização',`<p>O coletor revisa o mês atual e o anterior, conserva o histórico de planilha e rejeita gravações com totais inconsistentes.</p><div class="actions"><a href="https://github.com/leogpereira-afk/impresilk-dre/actions/workflows/erp-previa.yml" target="_blank" rel="noopener">Ver execuções no GitHub ↗</a><button id="cloudReadBtn">Ler base salva</button></div><p class="hint">Após a ativação, o servidor revisa os meses às 06h, 12h e 18h (Brasília) e verifica os pedidos do botão a cada 10 minutos. O GitHub pode atrasar esses horários. O acompanhamento acima mostra se a rotina está ativa e quando terminou.</p>`)+card('Importação e recuperação',`<p>Antes de alterar um mês, confira a prévia. Restaurar um backup exige escolher os períodos e confirmar o envio.</p><div class="actions"><button id="backupBtn">💾 Baixar backup do DRE</button><button id="addMonthBtn" ${state.permissoes.edicao?'':'disabled'}>📥 Importar mês</button><button id="restoreBtn" ${state.permissoes.edicao?'':'disabled'}>📂 Revisar backup</button></div><p class="hint">O backup contém meses, metadados, regras de classificação e configurações não secretas. Credenciais não são exportadas.</p>`)+card('Acesso e regras',`<p>Seu acesso permite: ${state.permissoes.admin?'administração e edição':state.permissoes.edicao?'leitura e edição':'leitura'}. As permissões são conferidas no servidor.</p><a href="https://leogpereira-afk.github.io/painel-impresilk/acessos" target="_blank" rel="noopener">Abrir Sistemas e configurações da central ↗</a><p class="hint">A troca de senha permanece na central de acesso. Regras contratuais de arrendamento, dívidas e custos devem ser validadas antes de reclassificação.</p>`,false);}
@@ -755,7 +933,7 @@ function wireContent(){
   document.querySelectorAll('[data-account]').forEach(b=>b.onclick=()=>abrirConta(b.dataset.account));
   document.querySelectorAll('[data-conflict]').forEach(b=>b.onclick=()=>revisarConflito(b.dataset.conflict));
   const on=(id,fn)=>{if($$(id))$$(id).onclick=fn;};
-  on('legacyBackup',()=>download('dre-fila-anterior.json',localStorage.getItem('impresilk_dre_queue')));on('printReport',()=>exportarCFO({tipo:'executivo',periodo:state.periodo},$$('printReport')));on('backupBtn',exportarBackup);on('addMonthBtn',()=>$$('monthFileInput').click());on('restoreBtn',()=>$$('restoreInput').click());on('auditMubi',conferirMubi);on('cloudReadBtn',()=>pullCloud(true));on('originEvents',()=>mostrarEventos());
+  on('legacyBackup',()=>download('dre-fila-anterior.json',localStorage.getItem('impresilk_dre_queue')));on('printReport',()=>exportarCFO({tipo:'executivo',periodo:state.periodo,...(telaNoAno()?{ano:true}:{})},$$('printReport')));on('backupBtn',exportarBackup);on('addMonthBtn',()=>$$('monthFileInput').click());on('restoreBtn',()=>$$('restoreInput').click());on('auditMubi',conferirMubi);on('cloudReadBtn',()=>pullCloud(true));on('originEvents',()=>mostrarEventos());
   if($$('searchAccounts')){$$('accountType').value=state.tipo;$$('accountGroup').value=state.grupo;$$('searchAccounts').oninput=e=>{state.contasPagina=0;state.consulta=e.target.value;const pos=e.target.selectionStart;render();$$('searchAccounts').focus();$$('searchAccounts').setSelectionRange(pos,pos);};$$('accountType').onchange=e=>{state.contasPagina=0;state.tipo=e.target.value;state.grupo='todos';render();};$$('accountGroup').onchange=e=>{state.contasPagina=0;state.grupo=e.target.value;render();};}
   on('ritmoMetas',formularioMetas);on('planCarteira',aplicarCarteira);
   on('planAdicionar',()=>{dialog('Compromisso previsto',`<form id="planForm"><label>Descrição<input name="descricao" required maxlength="120"></label><div class="form-grid"><label>Data<input name="data" type="date" value="${esc(plano.inicio)}" required></label><label>Movimento<select name="tipo"><option value="saida">Saída</option><option value="entrada">Entrada</option></select></label><label>Valor (R$)<input name="valor" type="number" min="0.01" step="0.01" required></label></div><button class="primary" type="submit">Adicionar à simulação</button></form>`);$$('planForm').onsubmit=e=>{e.preventDefault();const f=new FormData(e.target);plano.movimentos.push({id:crypto.randomUUID(),descricao:f.get('descricao'),data:f.get('data'),tipo:f.get('tipo'),valor:Number(f.get('valor'))});$$('detailDialog').close();mostrarPlano();};});
@@ -894,8 +1072,10 @@ function initApp(){
  if(typeof restaurarRota==='function')restaurarRota();
   $$('loginForm').onsubmit=async e=>{e.preventDefault();$$('loginErr').textContent='';const b=e.target.querySelector('button');b.disabled=true;try{await AUTH.entrar($$('loginPass').value);$$('loginPass').value='';await onAuthed();}catch(err){$$('loginErr').textContent=err.message||'Não foi possível entrar.';}finally{b.disabled=false;}};
   document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{state.view=b.dataset.view;render();});$$('settingsBtn').onclick=()=>{state.view='config';render();};$$('helpBtn').onclick=()=>{state.view='ajuda';render();};$$('logoutBtn').onclick=logout;{const marca=document.querySelector?.('.brand');if(marca)marca.onclick=e=>{e.preventDefault();state.view='inicio';render();};}$$('syncBtn').onclick=()=>coletaControle?.solicitar();
-  $$('yearSelect').onchange=e=>{if(ANO_TELAS.includes(state.view)&&anoAtivo()&&!anoCompetencia())return selecionarAno(e.target.value);const labels=state.records.map(r=>r.label).filter(l=>l.endsWith('/'+e.target.value)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));const desired=state.periodo.split('/')[0]+'/'+e.target.value;state.comparar='';selecionarPeriodo(labels.includes(desired)?desired:(labels[0]||desired));};
-  $$('compareSelect').onchange=e=>{state.comparar=e.target.value;$$('periodCompare').open=false;render();$$('compareSummary').focus();};
+  $$('yearSelect').onchange=e=>{if(telaNoAno())return selecionarAno(e.target.value);const labels=state.records.map(r=>r.label).filter(l=>l.endsWith('/'+e.target.value)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));const desired=state.periodo.split('/')[0]+'/'+e.target.value;state.comparar='';selecionarPeriodo(labels.includes(desired)?desired:(labels[0]||desired));};
+  $$('compareSelect').onchange=e=>{if(telaNoAno())return selecionarAnoComparado(e.target.value);
+  // Fora do Ano, só um mês vai para state.comparar (um ano é do state.anoComparar).
+  if(!e.target.value||F.periodo(e.target.value))state.comparar=e.target.value;$$('periodCompare').open=false;render();$$('compareSummary').focus();};
   $$('detailClose').onclick=()=>$$('detailDialog').close();$$('themeToggle').onclick=()=>{document.body.classList.toggle('dark');localStorage.setItem(THEME_KEY,document.body.classList.contains('dark')?'dark':'light');};document.body.classList.toggle('dark',localStorage.getItem(THEME_KEY)==='dark');
   $$('monthFileInput').onchange=async e=>{if(e.target.files[0])await previewImport(e.target.files[0]);e.target.value='';};$$('restoreInput').onchange=async e=>{if(e.target.files[0])await importarBackup(e.target.files[0]);e.target.value='';};
   window.addEventListener('online',()=>{pullCloud();if(AUTH.temCracha())coletaControle?.consultar();});window.addEventListener('offline',()=>{setSyncState('off','Offline · dados locais');coletaControle?.show();});

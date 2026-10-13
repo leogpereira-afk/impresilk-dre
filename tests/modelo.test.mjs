@@ -77,3 +77,56 @@ test('referência aceita mês coletado até o fim mesmo sem contrato validado',(
 });
 
 test('totais ausentes não viram zero nem subtotais artificiais',()=>{assert.equal(F.resumo(null).entradas,null);assert.equal(F.resumo(rec({'1':100})).variacao,null);assert.equal(F.resumo(rec({'1':100,'2':0})).variacao,100);});
+
+// Ano (chip "Ano" em todas as telas): F.somarMeses soma os meses em centavos e não inventa zero.
+const qm=(ate,extra={})=>({estado:'aguardando-conferencia',ate,escopo:'compõe DRE',regra:'v2',...extra});
+const mesAno=(label,ate,cells,extra={})=>({label,origem:'erp',company:'Impresilk + Universo',basis:'Caixa gerencial',atualizadoEm:ate+'T23:00:00Z',qualidade:qm(ate),cells:Object.entries(cells).map(([code,v])=>Array.isArray(v)?{code,value:v[0],name:v[1]}:{code,value:v,name:'Conta '+code}),...extra});
+const TRES=()=>[mesAno('Mar/2026','2026-03-31',{'1':300,'1.1':300,'2':30.2,'2.5':0.2,'2.5.3':0.2,'2.12':30}),mesAno('Jan/2026','2026-01-31',{'1':100,'1.1':100,'2':10.1,'2.5':0.1,'2.5.3':0.1,'2.12':10}),mesAno('Fev/2026','2026-02-28',{'1':200,'1.1':200,'2':20,'2.12':20},{pendencias:[{tipo:'x',texto:'conferir'}]})];
+test('somarMeses: centavos exatos, conta ausente num mês com registro é zero e a ordem é a do calendário',()=>{
+ const r=F.somarMeses(TRES(),{label:'2026',rotulo:'2026 · Jan a Mar'});
+ assert.equal(r.disponivel,true);const g=r.reg;
+ assert.equal(g.id,'ano_2026');assert.equal(g.label,'2026');assert.equal(g.rotulo,'2026 · Jan a Mar');
+ assert.equal(F.valorConta(g,'2.5.3'),0.3,'0,1 + 0,2 = 0,3, sem 0,30000000000000004');
+ assert.equal(F.valorConta(g,'1'),600);assert.equal(F.valorConta(g,'2'),60.3);
+ assert.deepEqual([...g.ano.meses],['Jan/2026','Fev/2026','Mar/2026']);
+ assert.deepEqual([...g.cells.map(c=>c.code)],['1','1.1','2','2.5','2.5.3','2.12'],'ordem de código numérica');
+ assert.equal(g.company,'Impresilk + Universo');assert.equal(g.basis,'Caixa gerencial');assert.equal(g.origem,'erp');
+ assert.equal(g.qualidade.estado,'ano');assert.equal(g.qualidade.ate,'2026-03-31','corte do último mês');assert.equal(g.qualidade.coletadoEm,'2026-03-31T23:00:00Z','a coleta mais recente');
+ assert.equal(g.pendencias.length,1);assert.equal(g.pendencias[0].mes,'Fev/2026');assert.deepEqual([...g.eventos],[]);
+ const c=F.composicao(g,'2');assert.equal(c.itens.reduce((s,x)=>s+Math.round(x.value*100),0),Math.round(c.total*100),'a composição do ano fecha com o total');
+});
+test('somarMeses: valor inválido em qualquer mês deixa a soma sem valor; vazio e escopo diferente recusam com o motivo',()=>{
+ const m=TRES();m[1].cells.find(c=>c.code==='2.5.3').value=null;
+ assert.equal(F.valorConta(F.somarMeses(m,{label:'2026'}).reg,'2.5.3'),null,'null propaga');
+ assert.equal(F.valorConta(F.somarMeses(m,{label:'2026'}).reg,'2.12'),60,'as outras contas continuam');
+ assert.deepEqual({...F.somarMeses([],{label:'2026'})},{disponivel:false,motivo:'Nenhum mês no período.'});
+ const d=TRES();d[2].company='Outra';
+ assert.deepEqual({...F.somarMeses(d,{label:'2026'})},{disponivel:false,motivo:'Empresas ou critérios diferentes dentro do ano: os meses não se somam.'});
+ const e=TRES();e[0].qualidade.regra='v3';assert.equal(F.somarMeses(e,{label:'2026'}).disponivel,false,'regra diferente também recusa');
+ const o=TRES();o[0].origem='planilha';assert.equal(F.somarMeses(o,{label:'2026'}).reg.origem,'misto');
+});
+test('somarMeses: código renomeado pelo robô com nomes diferentes soma e fica misturado; compararConta não compara',()=>{
+ const m=TRES();m[1].cells.push({code:'2.1.51',value:5,name:'Agência'});m[0].cells.push({code:'2.1.51',value:7,name:'Acabamento'});
+ const g=F.somarMeses(m,{label:'2026'}).reg,cel=g.cells.find(c=>c.code==='2.1.51');
+ assert.equal(cel.value,12);assert.equal(cel.misturado,true);assert.equal(cel.name,'Acabamento','nome do último mês');
+ assert.equal(g.cells.find(c=>c.code==='2.5.3').misturado,undefined);
+ const outro=F.somarMeses(TRES().map(r=>({...r,label:r.label.replace('2026','2025')})),{label:'2025'}).reg;
+ const r=F.compararConta(g,outro,'2.1.51');assert.equal(r.permitida,false);assert.equal(r.motivo,'O código foi usado para contas diferentes no ano: não se compara.');assert.equal(r.delta,null);
+ const n=TRES();n[1].cells.push({code:'2.1.4',value:5,name:'Salário'});n[0].cells.push({code:'2.1.4',value:7,name:'Salários'});
+ assert.equal(F.somarMeses(n,{label:'2026'}).reg.cells.find(c=>c.code==='2.1.4').misturado,undefined,'abaixo de 51, o nome muda sem misturar');
+});
+test('qualidade do registro do ano: mês em andamento, cobertura a conferir e cobertura registrada',()=>{
+ const agora=new Date('2026-04-12T12:00:00Z');
+ const ok=F.somarMeses(TRES().map(r=>({...r,qualidade:{...r.qualidade,estado:'fechado'}})),{label:'2026',agora}).reg,q=F.qualidade(ok,agora);
+ assert.deepEqual({e:q.estado,r:q.rotulo,c:q.comparavel,p:q.parcial,m:q.mensagem},{e:'ano',r:'Cobertura registrada',c:true,p:false,m:'Cobertura registrada em todos os meses do ano.'});
+ const res=F.somarMeses(TRES().map((r,i)=>({...r,qualidade:{...r.qualidade,estado:i?'fechado':'cobertura-nao-validada'}})),{label:'2026',agora}).reg,qr=F.qualidade(res,agora);
+ assert.deepEqual([qr.rotulo,qr.comparavel,qr.mensagem],['Cobertura a conferir',false,'Cobertura da coleta ainda não validada em algum mês do ano: confira antes de decidir.']);
+ const p=TRES();p.push(mesAno('Abr/2026','2026-04-10',{'1':10,'2':5}));const qp=F.qualidade(F.somarMeses(p,{label:'2026',agora}).reg,agora);
+ assert.deepEqual([qp.rotulo,qp.parcial,qp.comparavel,qp.mensagem],['Inclui mês em andamento',true,false,'O ano inclui o mês em andamento: os valores ainda mudam.']);
+ assert.equal(qp.corte,null);assert.equal(qp.coletadoAte,null);
+});
+test('DRE Simples sobre o registro do ano: as vendas são a soma das vendas dos meses',()=>{
+ const c={};vm.createContext(c);for(const f of ['financeiro.js','dre-modelo.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c);
+ c.__m=TRES();const v=vm.runInContext(`(()=>{const g=DREFinancas.somarMeses(__m,{label:'2026'}).reg;return [DRESimples.apurar(g).linhas.vendas,__m.reduce((t,r)=>t+Math.round(DRESimples.apurar(r).linhas.vendas*100),0)/100];})()`,c);
+ assert.equal(v[0],600);assert.equal(v[0],v[1]);
+});

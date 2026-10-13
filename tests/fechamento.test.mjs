@@ -56,3 +56,24 @@ test('status da lista: conferido em verde, atenção em âmbar, e "pendência(s)
  const t=p.json(`fechConferir('Set/2026')`).find(x=>x.id==='classificacao');assert.equal(t.titulo,'Contas e pendências conferidas');assert.match(t.texto,/2 pendência\(s\) a conferir na Fila de conferência/);
  const hp=p.run('renderFechamento()');assert.match(hp,/<li class="st-atencao"><b>⚠️ Contas e pendências conferidas<\/b>/);assert.match(hp,/<li class="st-ok">/);
 });
+// Ano (PLANO-ANO §4.7): uma linha por mês de janeiro ao último mês com dados, com o botão que leva
+// ao mês; fechar e reabrir continuam por mês. telaNoAno e anoDaTela vêm do app (aqui, se faltarem).
+test('Ano: fechamento por mês, de janeiro ao último mês, sem botões de gravar',()=>{
+ const regs=['Jan','Mar','Abr','Mai','Jun','Jul','Ago'].map((m,i)=>reg(m+'/2026',`2026-${String([1,3,4,5,6,7,8][i]).padStart(2,'0')}-${['31','31','30','31','30','31','31'][i]}`)).concat([reg('Set/2026','2026-09-30'),reg('Out/2026','2026-10-12')]);
+ const cfg=structuredClone(CFG_OK);cfg.gestao={'fechamento:Mar_2026':{estado:'fechado',mes:'Mar/2026',por:'leonardo',em:'2026-04-05T10:00:00Z'}};
+ const c=app({regs,cfg});
+ c.run(`if(typeof telaNoAno!=='function')globalThis.telaNoAno=()=>!!state.anoTodo&&['inicio','cfo','dre','caixa','resultado','custos','detalhe','conferencia','dfc','balanco','precos','parametros','indicadores'].includes(state.view);if(typeof anoDaTela!=='function')globalThis.anoDaTela=()=>Number(String(state.periodo).split('/')[1])||null;state.anoTodo=true;state.periodo='Out/2026';`);
+ const h=c.run('renderFechamento()');
+ assert.match(h,/<h2 class="card-titulo">Fechamento por mês · 2026<\/h2>/);
+ const linhas=[...h.matchAll(/<li class="(st-ok|st-atencao)"><b>(?:✅|⚠️) ([^<]+)<\/b> <button type="button" data-period="([^"]+)">Abrir ([^<]+)<\/button><\/li>/g)].map(m=>({cls:m[1],texto:m[2],periodo:m[3],botao:m[4]}));
+ assert.deepEqual(linhas.map(x=>x.periodo),['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out'].map(m=>m+'/2026'),'janeiro até o último mês com dados');
+ assert.ok(linhas.every(x=>x.botao===x.periodo));
+ const t=Object.fromEntries(linhas.map(x=>[x.periodo,x]));
+ assert.equal(t['Mar/2026'].texto,'Mar/2026 · Fechado');assert.equal(t['Mar/2026'].cls,'st-ok');
+ assert.equal(t['Fev/2026'].texto,'Fev/2026 · Sem dados coletados');assert.equal(t['Fev/2026'].cls,'st-atencao');
+ const n=c.json(`fechConferir('Set/2026')`),ok=n.filter(x=>x.ok).length;assert.equal(t['Set/2026'].texto,`Set/2026 · ${ok} de ${n.length} itens certos`);
+ assert.match(t['Out/2026'].texto,/^Out\/2026 · \d+ de 8 itens certos$/);assert.equal(t['Out/2026'].cls,'st-atencao','mês em andamento não está todo certo');
+ assert.doesNotMatch(h,/data-fech-fechar|data-fech-reabrir|data-fech-just|<textarea/,'no Ano não se fecha nem reabre');
+ // fora do Ano, o fechamento do mês de sempre
+ c.run('state.anoTodo=false;state.periodo="Set/2026"');assert.match(c.run('renderFechamento()'),/Fechamento de Set\/2026[\s\S]*data-fech-fechar/);
+});

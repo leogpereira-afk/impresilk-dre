@@ -330,3 +330,57 @@ test('origem em Parâmetros vira link para o mês de onde o valor veio (N14)',()
  assert.equal(ir('Contas a receber'),null,'valor do Mubisys não leva a Parâmetros');
  const sem=tela().run('renderBalanco()');assert.equal((linha(sem,'Caixa e bancos')?.ir||''),'','caixa do Fluxo de caixa: sem link');
 });
+
+// ── Ano: posição do fim do último mês do ano contra o mesmo mês do ano comparado (GES-4) ──
+// Contrato do app e do graficos.js (outras frentes): só o que ainda não existir.
+const CONTRATO_ANO=`
+if(typeof telaNoAno==='undefined')globalThis.telaNoAno=()=>anoAtivo()&&!anoCompetencia();
+if(typeof TEXTO_SEM_ANO_COMPARADO==='undefined')globalThis.TEXTO_SEM_ANO_COMPARADO='Sem comparação: escolha um ano em “Comparar com”, no topo.';
+if(typeof anosComparaveis==='undefined')globalThis.anosComparaveis=(ano=Number(String(state.periodo).split('/')[1]))=>[...new Set(state.records.map(r=>Number(String(r.label).split('/')[1])))].filter(y=>y&&y!==Number(ano)).sort((a,b)=>b-a);
+if(typeof anoPadraoComparado==='undefined')globalThis.anoPadraoComparado=(ano=Number(String(state.periodo).split('/')[1]))=>{const l=anosComparaveis(ano);return l.includes(ano-1)?ano-1:l.find(y=>y<ano)??null;};
+if(typeof anoComparado==='undefined')globalThis.anoComparado=()=>{const v=state.anoComparar||'';if(v==='nenhum')return null;if(/^\\d{4}$/.test(v)&&anosComparaveis().includes(Number(v)))return Number(v);return anoPadraoComparado();};
+if(typeof compLinhaAno==='undefined')globalThis.compLinhaAno=(rotulo,anterior,delta,dir,{tomAnterior='',motivo='',atual=null,rotuloAtual='',formato=money,unidade=''}={})=>'<span class="comp-ano">'+(anterior==null?rotulo+': '+motivo:rotulo+': <span class="'+tomAnterior+'">'+formato(anterior)+'</span>'+(rotuloAtual?' · '+rotuloAtual+': '+formato(atual):'')+' · <b class="'+(tomDelta(dir,delta)||'delta-neutro')+'">'+(delta>0?'▲':delta<0?'▼':'■')+' '+formato(Math.abs(delta))+unidade+(delta>0?' a mais':delta<0?' a menos':'')+'</b>')+'</span>';
+`;
+// Hoje 22/09/2026: Set/2026 em andamento. Posições do fim de Ago em 2024, 2025 e 2026; empréstimo maior em 2026.
+const REG_ANO=[reg('Ago/2024','2024-08-31',mes(1)),reg('Ago/2025','2025-08-31',mes(1)),reg('Set/2025','2025-09-30',mes(1)),reg('Ago/2026','2026-08-31',mes(1)),reg('Set/2026','2026-09-20',mes(1))];
+const OP_ANO={'2024-09':{saldoInicial:10000},'2025-09':{saldoInicial:15000},'2026-09':{saldoInicial:20000}};
+const BAL_ANO={'2024-08':{emprestimos:5000},'2025-08':{emprestimos:10000},'2026-08':{emprestimos:30000}};
+function telaAno(anoComparar='',hist=resumirHistorico([pos('2024-08'),pos('2025-08'),pos('2026-08')]).meses){
+ const c=tela({periodo:'Set/2026',registros:REG_ANO,op:OP_ANO,balanco:BAL_ANO,hist});c.run(CONTRATO_ANO);
+ c.run(`dfcHoje=()=>'2026-09-22';state.anoTodo=true;state.anoComparar=${JSON.stringify(anoComparar)}`);return c;
+}
+const compAno=(h,rotulo)=>{const i=h.indexOf(`<span class="label">${rotulo}`);const t=h.slice(i,h.indexOf('</div>',i));const m=/<\/small><span class="comp-ano">([\s\S]*?)<\/span>$/.exec(t.replace(/<\/span><\/span>$/,'</span>'));return m?m[1].replace(/\s/g,' '):null;};
+test('Balanço no Ano: último mês com posição, cartões contra o mesmo mês do ano comparado e quadro de comparação (GES-4)',()=>{
+ const c=telaAno(),h=c.run('renderBalanco()');
+ assert.equal(c.run("balMesDoAno('2026',giroUI.dados.historico.meses,dfcSaldos())"),'Ago/2026','Set em andamento, sem a posição: Ago');
+ assert.match(h,/No Ano, o balanço é a posição no fim de Ago\/2026, o último mês de 2026 com a posição gravada\. Fim de Ago\/2026, as duas empresas juntas\./);
+ const b=c.json("balApurar('Ago/2026',giroUI.dados.historico.meses,dfcSaldos())"),b0=c.json("balApurar('Ago/2025',giroUI.dados.historico.meses,dfcSaldos())");
+ assert.ok(b.apurado&&b0.apurado);assert.equal(Math.round((b.passivo-b0.passivo)*100),2000000,'passivo subiu 20.000 (empréstimo)');
+ const r=v=>c.run(`money(${v})`).replace(/\s/g,' ');
+ assert.equal(compAno(h,'Passivo total'),`Fim de Ago/2025: <span class="tom-sai">${r(b0.passivo)}</span> · <b class="delta-ruim">▲ ${r(20000)} a mais</b>`,'passivo subindo é ruim');
+ assert.equal(compAno(h,'Ativo total'),`Fim de Ago/2025: <span class="tom-entra">${r(b0.ativo)}</span> · <b class="delta-bom">▲ ${r(b.ativo-b0.ativo)} a mais</b>`);
+ assert.match(compAno(h,'Patrimônio líquido'),/^Fim de Ago\/2025: <span class="tom-(entra|sai)">[^<]*<\/span> · <b class="delta-(bom|ruim)">[▲▼] /);
+ assert.match(compAno(h,'Endividamento'),/^Fim de Ago\/2025: <span class="">[\d,]+%<\/span> · <b class="delta-ruim">▲ [\d,]+ p\.p\. a mais<\/b>$/);
+ // Quadro de comparação.
+ assert.match(h,/<h2 class="card-titulo">Balanço · fim de Ago\/2026 contra fim de Ago\/2025<\/h2>/);
+ assert.match(h,/<table class="tabela-controle tabela-ano bal-ano">[\s\S]*?<thead><tr><th scope="col">Conta<\/th><th scope="col" class="num">Ago\/2026<\/th><th scope="col" class="num">Ago\/2025<\/th><th scope="col" class="num">Δ<\/th><\/tr><\/thead>/);
+ assert.match(h,/<th scope="row">Empréstimos e financiamentos<\/th><td class="num tom-sai">R\$\s30\.000,00<\/td><td class="num tom-sai">R\$\s10\.000,00<\/td><td class="num delta-ruim">▲ R\$\s20\.000,00<\/td>/);
+ assert.match(h,/<th scope="row">Total do passivo<\/th><td class="num tom-sai">[^<]*<\/td><td class="num tom-sai">[^<]*<\/td><td class="num delta-ruim">▲ R\$\s20\.000,00<\/td>/);
+ assert.match(h,/<th scope="row">Caixa e bancos<\/th><td class="num tom-entra">[^<]*<\/td><td class="num tom-entra">[^<]*<\/td><td class="num delta-bom">▲ /,'caixa maior é bom');
+ assert.doesNotMatch(h,/NaN|undefined|Infinity/);
+ // Ano escolhido: 2024; sem comparação: nenhuma linha nem quadro, o motivo dito.
+ const h24=telaAno('2024').run('renderBalanco()');assert.match(compAno(h24,'Passivo total'),/^Fim de Ago\/2024: /);assert.match(h24,/contra fim de Ago\/2024</);assert.doesNotMatch(h24,/Ago\/2025/);
+ const hn=telaAno('nenhum').run('renderBalanco()');assert.doesNotMatch(hn,/comp-ano|tabela-ano|contra fim de/);assert.match(hn,/<p class="hint bal-sem-comparacao">Sem comparação: escolha um ano em “Comparar com”, no topo\.<\/p>/);
+ // Fora do Ano: o mês, sem nada do Ano.
+ const fm=telaAno();fm.run("state.anoTodo=false;state.periodo='Ago/2026'");const hm=fm.run('renderBalanco()');assert.doesNotMatch(hm,/comp-ano|tabela-ano|No Ano/);
+});
+test('Balanço no Ano: lado comparado não apurado é dito; ano sem posição nenhuma vira estado vazio (GES-4)',()=>{
+ // Sem a posição de Ago/2025: a linha diz por quê, sem número.
+ const h=telaAno('',resumirHistorico([pos('2026-08')]).meses).run('renderBalanco()');
+ assert.match(compAno(h,'Ativo total'),/^Fim de Ago\/2025: não apurado \(Não somado: sem a posição do fim de Ago\/2025\.\)$/);
+ assert.match(h,/<td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><\/tr>/,'Δ sem o outro lado: —');
+ // Nenhuma posição em 2026.
+ const v=telaAno('',resumirHistorico([pos('2025-08')]).meses);const hv=v.run('renderBalanco()');
+ assert.equal(v.run("balMesDoAno('2026',giroUI.dados.historico.meses,dfcSaldos())"),null);
+ assert.match(hv,/<h2>Sem a posição de fim de mês em 2026<\/h2><p>O histórico de posições vai de Ago\/2025 a Ago\/2025/);assert.match(hv,/data-rec-mes="Ago\/2025">Ver Ago\/2025<\/button>/);assert.doesNotMatch(hv,/comp-ano/);
+});

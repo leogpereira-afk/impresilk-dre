@@ -265,3 +265,45 @@ test('v135 (D21, D23, D28, I30): só Vendas aberta, grupo zerado listado sem tab
  // I30: o resultado tem nome
  const m=sec('margens');assert.match(m,/Margem, despesas fixas e resultado antes dos sócios/);assert.match(m,/<th[^>]*>Resultado antes dos sócios<\/th>/);assert.doesNotMatch(m,/<th[^>]*>Resultado<\/th>/);
 });
+
+// ── Ano em todas as telas (PLA-2): no Ano, o ano escolhido em "Comparar com" é a base do mesmo período
+// e do mês a mês; "Sem comparação" e fora do Ano, o ano anterior. O contrato vem de app.js; sem ele,
+// a regra mínima do PLANO-ANO §2.2 só para estes testes.
+const CONTRATO=`
+if(typeof telaNoAno!=='function')globalThis.telaNoAno=()=>anoAtivo()&&!anoCompetencia();
+if(typeof anoDaTela!=='function')globalThis.anoDaTela=()=>Number(String(state.periodo).split('/')[1])||null;
+if(typeof anosComparaveis!=='function')globalThis.anosComparaveis=(ano=anoDaTela())=>[...new Set(state.records.map(r=>Number(String(r.label).split('/')[1])).filter(Boolean))].filter(y=>y!==ano).sort((a,b)=>b-a);
+if(typeof anoPadraoComparado!=='function')globalThis.anoPadraoComparado=(ano=anoDaTela())=>{const l=anosComparaveis(ano);return l.includes(ano-1)?ano-1:l.find(y=>y<ano)??null;};
+if(typeof anoComparado!=='function')globalThis.anoComparado=()=>{const v=String(state.anoComparar??'');if(v==='nenhum')return null;if(/^\\d{4}$/.test(v)&&anosComparaveis().includes(Number(v)))return Number(v);return anoPadraoComparado();};
+`;
+const noAno=(comp,ano=true)=>{const c=context('Out/2026');c.run(CONTRATO);c.run(`state.view='inicio';state.anoTodo=${ano};state.anoComparar=${JSON.stringify(comp)}`);return c;};
+const base24=c=>c.json('(()=>{const M=cmpModelo();return {ref:[M.refAno,M.refMes],base:M.anoBase,mp:M.mesmoPeriodo&&{ano:M.mesmoPeriodo.ano,meses:M.mesmoPeriodo.meses},mm:M.mesAMes,cr:M.crescimento.pares.map(p=>p.a1+"×"+p.a0)}})()');
+test('Ano com "Comparar com" 2024: o mesmo período e o mês a mês contra 2024; o crescimento ano a ano não muda',()=>{
+ const c=noAno('2024'),M=base24(c);
+ assert.deepEqual(M.ref,[2026,9]);assert.equal(M.base,2024);assert.equal(M.mp.ano,2024);assert.deepEqual(M.mp.meses,[1,2,3,4,5,6,7,8,9]);
+ perto(M.mm[0].valor,(1.36/1.2-1)*100,.01);assert.equal(M.mm[9].valor,null,'outubro pela metade fica fora');
+ assert.deepEqual(M.cr,base24(noAno('')).cr,'pares seguidos, como sempre');
+ const h=c.run('renderComparativos()');
+ assert.match(h,/2026 mês a mês contra o mesmo mês de 2024\./);assert.match(h,/Contra o mesmo mês de 2024 \(o ano escolhido em “Comparar com”, no topo\)/);assert.match(h,/Acima de 2024/);assert.match(h,/>2026 × 2024</);
+ const s3=h.slice(h.indexOf('data-cmp-sec="dre"'),h.indexOf('data-cmp-sec="margens"'));
+ assert.match(s3,/<th scope="col" class="num">2024<br><small>jan a set<\/small><\/th><th scope="col" class="num">2026<br><small>jan a set<\/small><\/th>/,'2024 nos mesmos meses logo antes de 2026');
+ assert.match(s3,/2024, o ano escolhido em “Comparar com”, só nos meses que 2026 já tem/);
+ const t=c.json('cmpLeitura(cmpModelo())').pontos.join('\n');
+ assert.match(t,/nos mesmos meses de 2024 \(jan a set\)/);assert.match(t,/mesmo mês de 2024/);assert.doesNotMatch(t,/nos mesmos meses de 2025|mesmo mês de 2025/);
+ assert.doesNotMatch(h,/NaN|undefined|Infinity/);
+});
+test('Ano com "Sem comparação" ou padrão, e fora do Ano: a seção continua contra o ano anterior',()=>{
+ for(const [comp,ano] of [['nenhum',true],['',true],['2024',false]]){
+  const c=noAno(comp,ano),M=base24(c);assert.equal(M.base,2025,`${comp}/${ano}`);assert.equal(M.mp.ano,2025);
+  const h=c.run('renderComparativos()');assert.match(h,/2026 mês a mês contra o mesmo mês de 2025\./);assert.match(h,/Acima do ano anterior/);assert.match(h,/o ano anterior só nos meses que 2026 já tem/);assert.doesNotMatch(h,/escolhido em “Comparar com”/);
+ }
+ // virada (15/01/2027, Jan/2027 pela metade): a referência volta a 2026 inteiro; o ano comparado padrão (2026)
+ // é o próprio ano de referência e não vira base: fica 2025. Com 2024 escolhido, 2024.
+ const vira=comp=>{const v=context('Jan/2027',[...base(),reg(2027,1,mesClassificado(2026,1).map(x=>({...x,value:x.value/2})),'2027-01-14')]);v.run(CONTRATO);v.run(`dfcHoje=()=>'2027-01-15';state.view='inicio';state.anoTodo=true;state.anoComparar=${JSON.stringify(comp)}`);return v;};
+ const v=vira('');assert.equal(v.run('anoComparado()'),2026);const MV=base24(v);assert.deepEqual(MV.ref,[2026,12]);assert.equal(MV.base,2025);assert.equal(MV.mp,null);
+ assert.equal(base24(vira('2024')).base,2024);assert.match(vira('2024').run('renderComparativos()'),/2026 mês a mês contra o mesmo mês de 2024\./);
+});
+test('trocar o ano comparado refaz o modelo (a chave do cache inclui o ano-base)',()=>{
+ const c=noAno('');c.run('renderComparativos()');const k1=c.run('cmpUI.chave');
+ c.run("state.anoComparar='2024'");const h=c.run('renderComparativos()');assert.notEqual(c.run('cmpUI.chave'),k1);assert.equal(c.run('cmpUI.modelo.anoBase'),2024);assert.match(h,/contra o mesmo mês de 2024/);
+});

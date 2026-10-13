@@ -196,3 +196,33 @@ test('revisão 12.2: virada do ano, comparação só nos mesmos meses, sem equil
  const a=tela({registros:ANOS,periodo:'Set/2026'});a.run('state.anoTodo=true;__r=null;download=(n,x)=>{};');const rows=a.json('precosCSV()');
  assert.ok(rows.some(r=>/^Distância do equilíbrio \(vendas médias de 2026\)$/.test(r[0])&&r[1]==='6000,00'));assert.ok(rows.some(r=>r[0]==='Margem de segurança'&&r[1]==='60,00%'));
 });
+
+// ── Ano: o ano de comparação vem de "Comparar com" (GES-3) ──────────────────────
+// Contrato do app (outra frente): só o que ainda não existir.
+const CONTRATO_ANO=`
+if(typeof telaNoAno==='undefined')globalThis.telaNoAno=()=>anoAtivo()&&!anoCompetencia();
+if(typeof TEXTO_SEM_ANO_COMPARADO==='undefined')globalThis.TEXTO_SEM_ANO_COMPARADO='Sem comparação: escolha um ano em “Comparar com”, no topo.';
+if(typeof anosComparaveis==='undefined')globalThis.anosComparaveis=(ano=Number(String(state.periodo).split('/')[1]))=>[...new Set(state.records.map(r=>Number(String(r.label).split('/')[1])))].filter(y=>y&&y!==Number(ano)).sort((a,b)=>b-a);
+if(typeof anoPadraoComparado==='undefined')globalThis.anoPadraoComparado=(ano=Number(String(state.periodo).split('/')[1]))=>{const l=anosComparaveis(ano);return l.includes(ano-1)?ano-1:l.find(y=>y<ano)??null;};
+if(typeof anoComparado==='undefined')globalThis.anoComparado=()=>{const v=state.anoComparar||'';if(v==='nenhum')return null;if(/^\\d{4}$/.test(v)&&anosComparaveis().includes(Number(v)))return Number(v);return anoPadraoComparado();};
+`;
+const ANOS3=[...['Jul','Ago','Set'].map(m=>reg(m+'/2024',{Jul:'2024-07-31',Ago:'2024-08-31',Set:'2024-09-30'}[m],mes(.6))),...ANOS];
+const telaAno=(anoComparar,o={})=>{const c=tela({registros:ANOS3,periodo:'Set/2026',...o});c.run(CONTRATO_ANO);c.run(`state.view='precos';state.anoTodo=true;state.anoComparar=${JSON.stringify(anoComparar)}`);return c;};
+test('Preço no Ano: "Mesmos meses de" o ano escolhido, com os valores dele; sem comparação, nenhuma (GES-3)',()=>{
+ const h25=telaAno('').run('renderPrecos()');
+ assert.match(h25,/Mesmos meses de 2025 \(só 3 de 4 meses, comparados com os mesmos meses de hoje\): R\$\s1\.600,00 \(20,0% das vendas\)/,'padrão: o ano anterior');assert.doesNotMatch(h25,/Mesmos meses de 2024/);
+ const c=telaAno('2024'),h=c.run('renderPrecos()');
+ assert.match(h,/Mesmos meses de 2024 \(só 3 de 4 meses, comparados com os mesmos meses de hoje\): R\$\s1\.200,00 \(20,0% das vendas\)/,'despesas fixas de 2024 (0,6 × 2.000)');
+ assert.doesNotMatch(h,/Mesmos meses de 2025|Mesmo período/);assert.match(h,/aval-marca-ant/);
+ assert.deepEqual(c.json("precoComparacao(precoBaseTela('Set/2026'),2024).meses"),['Jul/2024','Ago/2024','Set/2024']);assert.equal(c.json("precoComparacao(precoBaseTela('Set/2026'),null)"),null);
+ // Comparativo ano a ano: a linha do ano comparado marcada.
+ assert.match(h,/<tr class="ano-comparado"><th scope="row">2024 <small>\(comparado\)<\/small> <small>\(3 meses\)<\/small><\/th>/);assert.match(h,/<tr><th scope="row">2025 <small>\(3 meses\)<\/small><\/th>/);assert.match(h,/<tr class="selected-month"><th scope="row">2026<\/th>/);
+ assert.match(h25,/<tr class="ano-comparado"><th scope="row">2025 <small>\(comparado\)<\/small>/);
+ // Sem comparação: nenhuma linha de comparação nem traço vazado; o motivo dito uma vez.
+ const hn=telaAno('nenhum').run('renderPrecos()');
+ assert.doesNotMatch(hn,/Mesmos meses de|Mesmo período de|aval-marca-ant|traço vazado|ano-comparado/);assert.match(hn,/<p class="hint precos-sem-comparacao">Sem comparação: escolha um ano em “Comparar com”, no topo\.<\/p>/);
+ assert.equal(cartoes(hn).length,4);assert.doesNotMatch(hn,/NaN|undefined|Infinity/);
+ // Fora do Ano: o ano anterior, como antes, mesmo com outro ano escolhido no Ano.
+ const fm=telaAno('2024');fm.run('state.anoTodo=false');const hm=fm.run('renderPrecos()');
+ assert.match(hm,/Mesmo período de 2025/);assert.doesNotMatch(hm,/Mesmo período de 2024|ano-comparado|precos-sem-comparacao/);
+});

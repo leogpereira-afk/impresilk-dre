@@ -17,17 +17,25 @@ const {consultarGiro} = await modulo('giro.mjs');
 export const AGORA = new Date('2026-09-22T15:00:00Z');
 export const HOJE = '2026-09-22';
 export const MES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+// k = índice do mês contado de Jan/2025 (Jan/2025 = 0; 2024 vai de -12 a -1): o ano de 2024 entrou depois
+// (comparação entre anos) sem mudar nenhum número de 2025 e 2026.
 export const MESES = [];
-for (let a = 2025; a <= 2026; a++) for (let m = 1; m <= 12; m++) { if (a === 2026 && m > 9) break; MESES.push({ano: a, m, label: `${MES[m - 1]}/${a}`, id: `${MES[m - 1]}_${a}`, chave: `${a}-${String(m).padStart(2, '0')}`}); }
+for (let a = 2024; a <= 2026; a++) for (let m = 1; m <= 12; m++) { if (a === 2026 && m > 9) break; MESES.push({ano: a, m, k: (a - 2025) * 12 + m - 1, label: `${MES[m - 1]}/${a}`, id: `${MES[m - 1]}_${a}`, chave: `${a}-${String(m).padStart(2, '0')}`}); }
+const mesK = k => MESES.find(x => x.k === k);
+// O Painel (O.S., notas, custo das O.S.) começa em 2025, como antes de 2024 entrar.
+const PAINEL = MESES.filter(x => x.k >= 0);
 const fimDoMes = (a, m) => new Date(Date.UTC(a, m, 0)).toISOString().slice(0, 10);
 const r100 = v => Math.round(v / 100) * 100;
 const pad = (n, k = 2) => String(n).padStart(k, '0');
+const mod = (a, n) => ((a % n) + n) % n;
 
 // ── Árvore de contas de um mês ─────────────────────────────────────────────
 // Folhas com valor; os pais são a soma das filhas (a árvore fecha em todos os níveis).
 // k = índice do mês (0 = Jan/2025). Set/2026 (k=20) é parcial: ~70% do mês.
+// 2024 (k < 0): o mesmo mês de 2025 com fator próprio (85%), para a comparação entre anos não repetir 2025.
 const MOV = [100000, 110000, 120000, 105000, 115000, 130000, 125000, 140000, 135000, 145000, 150000, 160000,
   120000, 125000, 140000, 130000, 150000, 155000, 165000, 170000, 120000];
+const movDe = k => k >= 0 ? MOV[k] : r100(MOV[k + 12] * .85);
 const NOMES = {
   '1': 'Entradas', '1.1': 'Comunicação visual', '1.1.1': 'Produtos vendidos', '1.1.1.51': 'Lona front fictícia', '1.1.1.52': 'Adesivo vinil fictício', '1.1.1.53': 'Placa ACM fictícia',
   '1.1.98': 'Recebimentos sem O.S. completa', '1.1.99': 'Produtos aguardando classificação', '1.1.99.51': 'Material Político 2026',
@@ -42,25 +50,25 @@ const NOMES = {
   '2.99': 'Sem plano de contas',
 };
 function folhasDoMes(k) {
-  const {ano, m} = MESES[k], V = MOV[k], parcial = k === 20, f = {};
+  const {ano, m} = mesK(k), V = movDe(k), parcial = k === 20, f = {};
   // entradas
   f['1.1.1.51'] = r100(V * .30); f['1.1.1.52'] = r100(V * .20); f['1.1.1.53'] = r100(V * .15);
   f['1.1.98'] = r100(V * .10);
   if (ano === 2026 && m >= 7) f['1.1.99.51'] = {7: 20000, 8: 30000, 9: 15000}[m];
   f['1.2'] = r100(V * .15); f['1.3'] = 500;
   if ((ano === 2025 && m === 3) || (ano === 2026 && m === 2)) f['1.4.2'] = 50000;
-  if (k % 4 === 1) f['1.7'] = 1000;
+  if (mod(k, 4) === 1) f['1.7'] = 1000;
   // saídas
   const sal = r100(V * .18);
   f['2.1.4'] = sal; f['2.1.9'] = r100(sal * .08); f['2.1.10'] = r100(sal * .20); f['2.1.12'] = r100(V * .03);
   f['2.2.2'] = 3000; f['2.2.3'] = ano === 2026 && m === 3 ? -400 : 1500; // estorno de software em Mar/2026
-  if (k % 3 === 0) f['2.2.6'] = r100(V * .01);
+  if (mod(k, 3) === 0) f['2.2.6'] = r100(V * .01);
   f['2.4.1.1'] = 2000; f['2.4.1.2'] = r100(V * .045); f['2.4.1.3'] = r100(V * .02); f['2.4.2'] = r100(V * .01); f['2.4.8'] = r100(V * .005);
   f['2.5.1'] = 400; f['2.5.2'] = 3500; f['2.5.3'] = 8000; f['2.5.4'] = ano === 2026 && m === 7 ? -200 : 600; // estorno de telefone em Jul/2026
   f['2.12.1'] = r100(V * .12); f['2.12.2'] = r100(V * .05); f['2.12.3'] = r100(V * .06);
-  f['2.13.1'] = 600; f['2.13.2'] = 1200; if (k % 2 === 0) f['2.13.6'] = k % 4 === 0 ? 25000 : 5000;
+  f['2.13.1'] = 600; f['2.13.2'] = 1200; if (mod(k, 2) === 0) f['2.13.6'] = mod(k, 4) === 0 ? 25000 : 5000;
   f['2.14.2'] = 15000; f['2.14.3'] = 3000;
-  if (k % 5 === 2 || k >= 19) f['2.99'] = 800;
+  if (mod(k, 5) === 2 || k >= 19) f['2.99'] = 800;
   // mês corrente parcial: só o que já passou
   if (parcial) for (const c of Object.keys(f)) if (Math.abs(f[c]) > 1000) f[c] = r100(f[c] * .7);
   return f;
@@ -77,7 +85,7 @@ function arvore(folhas) {
 export const OS_POLITICAS = ['20101', '20102', '20103', '20104', '20105', '20106'];
 const CLIENTES = Array.from({length: 12}, (_, i) => `Cliente Fictício ${pad(i + 1)}`);
 function eventosDoMes(k, cells, ate) {
-  const {ano, m} = MESES[k], filhas = new Set(cells.map(c => c.parent).filter(Boolean)), ev = [];
+  const {ano, m} = mesK(k), filhas = new Set(cells.map(c => c.parent).filter(Boolean)), ev = [];
   let n = 0;
   for (const c of cells) {
     if (filhas.has(c.code) || !c.value || c.code === '1' || c.code === '2') continue;
@@ -99,7 +107,7 @@ function eventosDoMes(k, cells, ate) {
 
 // ── Registros mensais (o que dre-sync devolve em list/buscar) ───────────────
 export function registros() {
-  return MESES.map(({ano, m, label, id}, k) => {
+  return MESES.map(({ano, m, k, label, id}) => {
     const cells = arvore(folhasDoMes(k)), parcial = k === 20;
     const ate = parcial ? '2026-09-21' : fimDoMes(ano, m);
     const coletadoEm = parcial ? '2026-09-22T12:00:00Z' : `${m === 12 ? ano + 1 : ano}-${pad(m === 12 ? 1 : m + 1)}-02T09:00:00Z`;
@@ -126,15 +134,16 @@ export function registros() {
 export function configuracao(regs = registros()) {
   const em = '2026-09-10T12:00:00Z';
   const simples = {}, operacao = {}, balanco = {};
-  // saldo bancário de início de mês coerente com o caixa (saldo de Jan/2025 + entradas − saídas)
-  let saldo = 80000;
-  regs.forEach((r, k) => {
-    const {chave, ano} = MESES[k];
+  // saldo bancário de início de mês coerente com o caixa (saldo de Jan/2025 + entradas − saídas);
+  // Jan/2024 começa de trás para frente, para Jan/2025 continuar com 80.000
+  const v = (r, c) => r.cells.find(x => x.code === c)?.value || 0;
+  let saldo = regs.reduce((s, r, i) => MESES[i].k < 0 ? s - (v(r, '1') - v(r, '2')) : s, 80000);
+  regs.forEach((r, i) => {
+    const {chave, ano, k} = MESES[i];
     simples[chave] = {impresilk: {anexo: 'III', rbt12: 1200000 + k * 10000, aliquota: 6.5, folha12: 300000, revisadoEm: em}, universo: {anexo: 'I', rbt12: 600000, aliquota: 4.5, folha12: 0, revisadoEm: em}};
-    operacao[chave] = {prazoRecebimento: 30, prazoPagamento: 28, estoque: 40000 + (k % 4) * 5000, saldoInicial: Math.round(saldo * 100) / 100, metaReceita: ano === 2026 ? 150000 : 130000, metaResultado: 10000, pdd90: 50, revisadoEm: em};
+    operacao[chave] = {prazoRecebimento: 30, prazoPagamento: 28, estoque: 40000 + mod(k, 4) * 5000, saldoInicial: Math.round(saldo * 100) / 100, metaReceita: ano === 2026 ? 150000 : 130000, metaResultado: 10000, pdd90: 50, revisadoEm: em};
     balanco[chave] = {imobilizado: 250000, emprestimos: 90000 - k * 2000, parcelamentoDAS: 40000 - k * 1000, revisadoEm: em};
-    const v = c => r.cells.find(x => x.code === c)?.value || 0;
-    saldo += v('1') - v('2');
+    saldo += v(r, '1') - v(r, '2');
   });
   // Mês corrente sem saldo informado no início do mês seguinte: fica para o DFC calcular.
   const tributos = {
@@ -197,8 +206,8 @@ function pagarPainel() {
   return lista;
 }
 function posicoes() {
-  return MESES.slice(0, 20).map(({ano, m, label, chave}, k) => {
-    const V = MOV[k];
+  return MESES.filter(x => x.k < 20).map(({ano, m, k, label, chave}) => {
+    const V = movDe(k);
     return {id: chave, mes: label, fim: fimDoMes(ano, m), regra: 'posicao-v1', modo: 'reconstruido', corte: '2025-01-01', geradoEm: '2026-09-15T10:00:00Z', execucaoId: 'sintetico',
       receber: {total: r100(V * .9), quantidade: 40, faixas: {avencer: r100(V * .6), d1_30: r100(V * .2), d31_60: r100(V * .05), d61_90: r100(V * .03), d91: r100(V * .02)}, antigas: {quantidade: 1, valor: 3000}, foraDRE: {quantidade: 0, valor: 0}, alemHorizonte: {quantidade: 2, valor: 4000}},
       pagar: {total: r100(V * .5), quantidade: 30, faixas: {avencer: r100(V * .4), d1_30: r100(V * .1), d31_60: 0, d61_90: 0, d91: 0},
@@ -223,7 +232,7 @@ function recorteOS(ano, m) {
 }
 function recorteNotas(tipo) {
   const itens = [];
-  MESES.forEach(({ano, m}, k) => { for (let i = 0; i < 12; i++) {
+  PAINEL.forEach(({ano, m, k}) => { for (let i = 0; i < 12; i++) {
     const em = `${ano}-${pad(m)}-${pad(3 + i * 2)}`;
     if (em > HOJE) continue;
     itens.push(tipo === 'nfe'
@@ -234,7 +243,7 @@ function recorteNotas(tipo) {
 }
 function ordensPainel() {
   const out = [];
-  MESES.forEach(({ano, m}, k) => { for (let i = 0; i < 20; i++) {
+  PAINEL.forEach(({ano, m, k}) => { for (let i = 0; i < 20; i++) {
     const data = `${ano}-${pad(m)}-${pad(2 + i)}`; if (data > HOJE) continue;
     out.push({id: k * 100 + i + 1, numero: String(10000 + k * 100 + i), data, cliente: CLIENTES[i % CLIENTES.length], vendedor: ['Vendedor Fictício A', 'Vendedor Fictício B', 'Vendedor Fictício C'][i % 3], valor: 2000 + (i % 7) * 1000,
       comercial: {cancelada: i === 19, tipo: i % 10 === 9 ? 'Retrabalho' : 'Normal', valorConfirmado: i % 13 !== 6}, atualizado_em: `${data}T18:00:00Z`});
@@ -256,7 +265,7 @@ export function bancoFalso() {
     intel_nfe: {valor: recorteNotas('nfe'), atualizado_em: AGORA.toISOString()},
     intel_compras: {valor: recorteNotas('compras'), atualizado_em: AGORA.toISOString()},
   };
-  const intelArquivo = MESES.map(({ano, m}) => { const s = recorteOS(ano, m); return {id: `intel_detalhes:${s.desde}:${s.ate}`, registro: {...s, chave: 'intel_detalhes', arquivadoEm: s.em}}; });
+  const intelArquivo = PAINEL.map(({ano, m}) => { const s = recorteOS(ano, m); return {id: `intel_detalhes:${s.desde}:${s.ate}`, registro: {...s, chave: 'intel_detalhes', arquivadoEm: s.em}}; });
   const pos = posicoes().map(p => ({id: p.id, registro: {...p, gravadoEm: '2026-09-15T10:00:00Z'}}));
   const ordens = ordensPainel(), campanhas = campanhasPainel();
   return {from(tabela) {

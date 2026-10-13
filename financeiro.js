@@ -6,6 +6,10 @@ var DREFinancas = (() => {
   function periodo(label){const m=String(label||'').match(/^([A-Za-zç]{3})\w*\/(\d{4})$/);if(!m)return null;const i=meses.findIndex(x=>x.toLowerCase()===m[1].toLowerCase());if(i<0)return null;return {de:iso(new Date(Date.UTC(+m[2],i,1))),ate:iso(new Date(Date.UTC(+m[2],i+1,0)))};}
   function qualidade(reg,agora=new Date()){
     if(!reg)return {estado:'sem-dados',rotulo:'Sem dados',comparavel:false,coletadoEm:null,mensagem:'Este período ainda não foi coletado.'};
+    // Registro do ano (somarMeses): a qualidade vem dos meses somados.
+    if(reg.ano){const parcial=!!reg.ano.parcial,ressalva=!!reg.ano.ressalva;
+      return {estado:'ano',rotulo:parcial?'Inclui mês em andamento':ressalva?'Cobertura a conferir':'Cobertura registrada',comparavel:!parcial&&!ressalva,parcial,coletadoEm:reg.qualidade?.coletadoEm||null,corte:null,coletadoAte:null,
+        mensagem:parcial?'O ano inclui o mês em andamento: os valores ainda mudam.':ressalva?'Cobertura da coleta ainda não validada em algum mês do ano: confira antes de decidir.':'Cobertura registrada em todos os meses do ano.'};}
     const per=periodo(reg.label),q=reg.qualidade||{},ts=q.coletadoEm||reg.previaERP?.geradoEm||reg.atualizadoEm;
     const corte=q.ate||String(ts||'').slice(0,10);
     const parcial=reg.origem==='erp' && per && corte<per.ate;
@@ -87,8 +91,40 @@ var DREFinancas = (() => {
       return {label,reg,name,value:valorConta(reg,code),qualidade:qualidade(reg)};
     });
   }
+  // Soma de meses (o Ano): células em centavos; conta ausente num mês com registro é
+  // movimento zero (a regra do planoAno); valor inválido em qualquer mês deixa a soma sem
+  // valor. Código renomeado pelo robô (segmento 51 em diante) com nomes diferentes no ano
+  // soma, mas fica marcado: não se compara.
+  const ordemMes=l=>periodo(l)?.de||'';
+  const tsDe=r=>r?.qualidade?.coletadoEm||r?.previaERP?.geradoEm||r?.atualizadoEm||null;
+  function somarMeses(regs,{label='',rotulo='',agora=new Date()}={}){
+    const ms=(regs||[]).filter(Boolean).sort((x,y)=>ordemMes(x.label).localeCompare(ordemMes(y.label)));
+    if(!ms.length)return {disponivel:false,motivo:'Nenhum mês no período.'};
+    const b=ms[0],mesmo=r=>r.company===b.company&&r.basis===b.basis&&r.qualidade?.escopo===b.qualidade?.escopo&&r.qualidade?.regra===b.qualidade?.regra;
+    if(!ms.every(mesmo))return {disponivel:false,motivo:'Empresas ou critérios diferentes dentro do ano: os meses não se somam.'};
+    const contas=new Map();
+    for(const r of ms){const vistos=new Set();for(const c of r.cells||[]){
+      const code=String(c?.code??'');if(!code||vistos.has(code))continue;vistos.add(code);
+      const k=contas.get(code)||{code,soma:0,invalido:false,nomes:new Set(),name:''};
+      if(c.value==null||c.value===''||!Number.isFinite(Number(c.value)))k.invalido=true;else k.soma+=cents(c.value);
+      k.name=c.name;k.nomes.add(String(c.name??''));contas.set(code,k);
+    }}
+    const cells=[...contas.values()].sort((x,y)=>x.code.localeCompare(y.code,'pt-BR',{numeric:true})).map(k=>{
+      const cell={code:k.code,name:k.name,value:k.invalido?null:reais(k.soma)+0};
+      if(k.nomes.size>1&&k.code.split('.').slice(1).some(x=>Number(x)>=51))cell.misturado=true;
+      return cell;
+    });
+    const qs=ms.map(r=>qualidade(r,agora)),origens=new Set(ms.map(r=>r.origem)),ult=ms[ms.length-1];
+    const coletas=ms.map(tsDe).filter(Boolean).sort();
+    const reg={id:'ano_'+label,label,rotulo,ano:{meses:ms.map(r=>r.label),parcial:qs.some(q=>q.parcial),ressalva:qs.some(q=>!q.comparavel)},
+      company:b.company,basis:b.basis,origem:origens.size===1?b.origem:'misto',
+      qualidade:{escopo:b.qualidade?.escopo,regra:b.qualidade?.regra,estado:'ano',coletadoEm:coletas[coletas.length-1]||null,ate:ult.qualidade?.ate||qs[qs.length-1].coletadoAte||null},
+      cells,pendencias:ms.flatMap(r=>(r.pendencias||[]).map(p=>({...p,mes:r.label}))),eventos:[]};
+    return {disponivel:true,reg};
+  }
   function compararConta(a,b,code){
     const atual=valorConta(a,code),anterior=valorConta(b,code),ca=a?.cells?.find(c=>c.code===code),cb=b?.cells?.find(c=>c.code===code);
+    if(ca?.misturado||cb?.misturado)return {permitida:false,ressalva:false,motivo:'O código foi usado para contas diferentes no ano: não se compara.',atual,anterior,delta:null,percentual:null};
     const mesmaOrigem=(a?.origem||'planilha')===(b?.origem||'planilha');
     const c=comparacao(a,b);
     const permitida=c.permitida && atual!=null && anterior!=null && ca.name===cb.name && (mesmaOrigem||code.split('.').length<=2);
@@ -123,6 +159,9 @@ var DREFinancas = (() => {
     // Mês pela metade não é questão de conferência, é de aritmética: comparar
     // uma semana com um mês fechado faz qualquer despesa parecer ter caído.
     const meio=[[a,qa],[b,qb]].filter(([r,q])=>q.parcial);
+    // Ano com o mês em andamento: o pedaço é do ano, não de um mês.
+    const anoMeio=meio.find(([r])=>r.ano);
+    if(anoMeio)return {pode:false,ressalva:false,motivo:`${anoMeio[0].rotulo||anoMeio[0].label} inclui o mês em andamento: compare só os meses completos dos dois anos.`};
     if(meio.length===2)return {pode:false,ressalva:false,
       motivo:`${meio[0][0].label} (até ${diaBR(meio[0][1].coletadoAte)}) e ${meio[1][0].label} (até ${diaBR(meio[1][1].coletadoAte)}) foram coletados só até o meio do mês. Pedaços de tamanhos diferentes não se comparam.`};
     if(meio.length)return {pode:false,ressalva:false,
@@ -140,5 +179,5 @@ var DREFinancas = (() => {
       return !!per&&!!q.corte&&q.corte>=per.ate&&!['parcial','desatualizado','sem-dados'].includes(q.estado);
     });
   }
-  return {nomeDoGrupo,periodo,qualidade,resumo,comparacao,residuos,margemAcumulada,projecao,valorConta,composicao,serieAnual,compararConta,comparavelComRessalva,mesesDeReferencia};
+  return {nomeDoGrupo,periodo,qualidade,resumo,comparacao,residuos,margemAcumulada,projecao,valorConta,composicao,serieAnual,somarMeses,compararConta,comparavelComRessalva,mesesDeReferencia};
 })();

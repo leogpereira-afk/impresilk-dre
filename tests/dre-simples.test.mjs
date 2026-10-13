@@ -291,7 +291,7 @@ test('DRE Simples mês a mês: região com nome, valores sem "R$" e a célula le
 });
 test('Ano: a nota diz "somado" e o mês em andamento (I16); percentuais e p.p. com uma casa, sem "-0" (D16)',()=>{
  const c=context(),r=c.run("(()=>{const ms=dreMesesDoAno('Out/2026').map(dreMesCaixa);return dreSimplesAno('Out/2026',ms,9,'').resto;})()");
- assert.match(r,/2026 somado de janeiro a Out, com Out\/2026 em andamento\. A comparação entre meses/);assert.doesNotMatch(r,/inteiro, de janeiro|inteiro: de janeiro/);
+ assert.match(r,/2026 somado de janeiro a Out, com Out\/2026 em andamento\. As contas de cada linha são por mês: escolha um mês na barra para vê-las\./);assert.doesNotMatch(r,/inteiro, de janeiro|inteiro: de janeiro/);
  assert.equal(c.run('drePct(15.87)'),'15,9%');assert.equal(c.run('drePct(61)'),'61,0%');assert.equal(c.run('drePct(-0.04)'),'0,0%');
  assert.equal(c.run('valorDRE(15.87,true)'),'15,9%');assert.equal(c.run('valorDRE(-0.01,true)'),'0,0%');
  const h=comparacao(context().run('renderDRE()'));assert.doesNotMatch(h,/-0 p\.p\.|>0 p\.p\.|-0,0/);assert.match(h,/\d,\d p\.p\.|0,0 p\.p\./);

@@ -352,3 +352,38 @@ body.dark .cmp-tinta-1{color:#fff}body.dark .cmp-tinta-3{color:#1b2333}body.dark
 .dre-simples-meses td>.cfo-value{display:inline-flex;align-items:flex-start;justify-content:flex-end;padding:0}@media (pointer:fine){.dre-simples-meses td>.cfo-value{min-height:0}}@media (max-width:900px),(pointer:coarse){.dre-simples-meses td>.cfo-value{min-height:44px}}
 /* seção aberta pelo "Ver em" do Glossário (N24): o título não cola na borda de cima */
 [id^="secao-"]{scroll-margin-top:12px}
+/* ── Ano em todas as telas com meses (v136) ── */
+/* linha de comparação com o ano escolhido, depois do texto do cartão: cinza; o Δ pega a cor de delta-bom/delta-ruim/delta-neutro */
+.comp-ano{display:block;font-size:11px;line-height:1.45;color:var(--muted);margin-top:2px;font-weight:400}.comp-ano span,.comp-ano b{font-size:inherit}.comp-ano b{font-weight:650;white-space:nowrap}.metric>.comp-ano{grid-column:1/-1}
+/* topo no Ano: o chip "Ano" logo depois dos meses e o "Comparar com" na mesma linha; nada abre linha nova */
+#anoChip{flex-wrap:nowrap;overflow:visible;scroll-snap-type:none}#anoChip button{white-space:nowrap}
+@media(min-width:701px){.pagehead .period>#monthChips{max-width:max-content}}
+/* 701 a 1179 px: os meses rolam numa linha só, para o Ano e o Comparar caberem ao lado (a barra de rolagem fica, para o mouse achar os meses cortados) */
+@media(min-width:701px) and (max-width:1179px){.pagehead .period{flex-wrap:nowrap}.pagehead .period>#monthChips{flex:1 1 0;min-width:0;flex-wrap:nowrap;overflow-x:auto}.pagehead .period>#monthChips button{flex:0 0 auto}}
+/* mouse entre 701 e 900 px: o Comparar na altura dos meses (o alvo de 44 px fica para o toque), e o topo no Ano não passa o do mês */
+@media(min-width:701px) and (max-width:900px) and (pointer:fine){.pagehead #periodCompare>summary{min-height:0;padding-block:6px}}
+#compareSelect{max-width:calc(100vw - 32px)}.period-compare>label{max-width:calc(100vw - 32px);box-sizing:border-box}
+@media(max-width:700px),(pointer:coarse){#anoChip button,#periodCompare>summary{min-height:44px}}
+/* tablet com toque: os meses com a mesma altura do Ano (44 px) */
+@media (min-width:701px) and (pointer:coarse){.pagehead .period>#monthChips button{min-height:44px}}
+/* tabelas do Ano: rolam dentro do .table-scroll com a primeira coluna parada */
+.tabela-ano,.param-ano-tabela{min-width:520px;font-variant-numeric:tabular-nums}
+.tabela-ano tr>:first-child,.param-ano-tabela tr>:first-child{position:sticky;left:0;z-index:1;background:var(--surface);box-shadow:1px 0 var(--line);min-width:110px;max-width:220px;white-space:normal}.tabela-ano thead tr>:first-child,.param-ano-tabela thead tr>:first-child{background:var(--bg)}
+.tabela-ano td.num,.tabela-ano th.num,.param-ano-tabela td,.param-ano-tabela thead th{white-space:nowrap}
+.param-ano-tabela th,.param-ano-tabela td{padding:7px 8px}.param-ano-tabela td{text-align:right}.param-ano-tabela thead th{text-align:center}.param-ano-tabela tr>:first-child{text-align:left;min-width:150px}
+/* mês clicável (Saúde da informação) e cabeçalho do mês (Parâmetros): botão de texto, 44 px no toque */
+.param-ano-tabela th button,.tabela-ano button[data-period]{font:inherit;font-weight:600;color:inherit;border:0;border-bottom:1px dashed var(--line);border-radius:0;background:transparent;padding:0 2px;min-height:28px;cursor:pointer}
+/* linha com botão de mês e cabeçalho de Parâmetros: o texto do botão na mesma altura das outras células */
+.tabela-ano tr:has(> * > button[data-period])>*,.param-ano-tabela thead th{vertical-align:middle}
+.param-ano-tabela th button:hover,.tabela-ano button[data-period]:hover{border-bottom-color:currentColor;background:var(--selected)}
+.param-ano-tabela th button:focus-visible,.tabela-ano button[data-period]:focus-visible{outline:2px solid var(--text);outline-offset:2px;border-radius:3px}
+@media (max-width:900px),(pointer:coarse){.param-ano-tabela th button,.tabela-ano button[data-period]{min-height:44px;min-width:44px}}
+/* Conferência no Ano: um grupo recolhível por mês */
+details.conf-ano-mes{border-top:1px solid var(--line)}details.conf-ano-mes:first-of-type{border-top:0}
+details.conf-ano-mes>summary{cursor:pointer;font-size:13px;font-weight:600;padding:8px 2px}
+details.conf-ano-mes>summary:focus-visible{outline:2px solid var(--text);outline-offset:-2px;border-radius:4px}
+@media (max-width:900px),(pointer:coarse){details.conf-ano-mes>summary{min-height:44px;display:list-item;padding-block:12px;box-sizing:border-box}}
+/* Fechamento por mês no Ano: o texto à esquerda e o "Abrir <mês>" sempre à direita */
+.fech-ano>li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:4px 12px}
+/* linha do ano comparado: o mesmo fundo neutro do mês selecionado, nunca cor de dinheiro */
+tbody tr.ano-comparado>*,.tabela-ano tr.ano-comparado>*,.param-ano-tabela tr.ano-comparado>*{background:var(--selected)}tr.ano-comparado small{font-weight:400;color:var(--muted)}

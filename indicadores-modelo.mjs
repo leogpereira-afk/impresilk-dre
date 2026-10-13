@@ -43,11 +43,13 @@ export function contasDoMes(r,rp,natureza){
  for(const c of cells){const p=codigo(c).split('.');for(let i=p.length-1;i>0;i--){const a=p.slice(0,i).join('.');if(valor.has(a)){filhas.set(a,(filhas.get(a)||0)+valor.get(codigo(c)));break;}}}
  return cells.map(c=>{const code=codigo(c),proprio=valor.get(code)-(filhas.get(code)||0);return proprio?{id:`mes:${r.id}:${code}`,numero:code,data:rp.de,nome:c.name||code,grupo:c.name||code,valor:proprio/100,conta:code,origem:`DRE / ${r.label} / conta ${code} · total do mês, sem trilha por pagamento`,agregado:true}:null;}).filter(Boolean);
 }
-// O mesmo intervalo um ano antes. Fim de mês continua fim de mês (29/02 ↔ 28/02).
-export function periodoAnterior(p){
- const um=d=>{const [y,m,dd]=d.split('-').map(Number),ultimo=new Date(Date.UTC(y,m,0)).getUTCDate(),ultAnt=new Date(Date.UTC(y-1,m,0)).getUTCDate();return `${y-1}-${String(m).padStart(2,'0')}-${String(dd===ultimo?ultAnt:Math.min(dd,ultAnt)).padStart(2,'0')}`;};
+// O mesmo intervalo levado ao ano dado (pelo ano do início). Fim de mês continua fim de mês (29/02 ↔ 28/02).
+export function periodoNoAno(p,ano){
+ const k=Number(ano)-Number(p.de.slice(0,4)),um=d=>{const [y,m,dd]=d.split('-').map(Number),ultimo=new Date(Date.UTC(y,m,0)).getUTCDate(),ultAlvo=new Date(Date.UTC(y+k,m,0)).getUTCDate();return `${y+k}-${String(m).padStart(2,'0')}-${String(dd===ultimo?ultAlvo:Math.min(dd,ultAlvo)).padStart(2,'0')}`;};
  return {de:um(p.de),ate:um(p.ate)};
 }
+// O mesmo intervalo um ano antes.
+export function periodoAnterior(p){return periodoNoAno(p,Number(p.de.slice(0,4))-1);}
 export function caixa(records,p,natureza){
  validarPeriodo(p.de,p.ate);const meses=[];let d=new Date(p.de+'T00:00:00Z');d.setUTCDate(1);while(d.toISOString().slice(0,10)<=p.ate){meses.push(d.toISOString().slice(0,7));d.setUTCMonth(d.getUTCMonth()+1);}
  const rows=[],fontes=[],vistos=new Set(),diferencas=[];let ausentes=0,semTrilha=0,semTrilhaCortado=0,duplicados=0,invalidos=0;
@@ -101,9 +103,10 @@ function baseCaixa(records,p,fonte){
 const dataBR=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'')?d.split('-').reverse().join('/'):'data não registrada';
 // Fonte coletada só até antes do fim do mês (ou do fim do intervalo): o mês está pela metade.
 export function mesCortado(f,ate){const rp=periodoRotulo(f?.periodo);if(!rp)return false;const fim=ate&&ate<rp.ate?ate:rp.ate;return !f.corte||f.corte<fim;}
-export function compararAno(records,p,fonte,filtros={}){
+// Com {ano}: compara com o mesmo intervalo no ano dado (o ano escolhido em "Comparar com"); sem ele, um ano antes.
+export function compararAno(records,p,fonte,filtros={},{ano}={}){
  const comFiltro=!!(filtros.query||filtros.grupo);
- const pa=periodoAnterior(p),tot=per=>{let base;try{base=baseCaixa(records,per,fonte);}catch{return {motivo:'intervalo inválido'};}
+ const pa=ano!=null&&/^\d{4}$/.test(String(ano))?periodoNoAno(p,Number(ano)):periodoAnterior(p),tot=per=>{let base;try{base=baseCaixa(records,per,fonte);}catch{return {motivo:'intervalo inválido'};}
   if(base.semTrilhaCortado)return {motivo:`${base.semTrilhaCortado} mês(es) sem trilha cortado(s) pelo intervalo; escolha meses inteiros`};
   if(!base.disponivel)return {motivo:'sem fonte'};if(base.faltam)return {motivo:`${base.faltam} mês(es) sem fonte`};
   const cortado=(base.fontes||[]).find(f=>mesCortado(f,per.ate));if(cortado)return {motivo:`${cortado.periodo} tem lançamentos só até ${dataBR(cortado.corte)}; o comparativo espera o mês terminar`};

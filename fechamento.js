@@ -42,7 +42,23 @@ function fechConferir(label){
  add('auditoria','Auditoria do mês sem falha',!falhas.length,falhas.length?`${falhas.length} falha(s): ${falhas.slice(0,2).map(x=>x.texto).join('; ')}.`:'Nenhuma falha na estrutura, no caixa e na coleta do mês.');
  return I;
 }
+// Ano (chip "Ano"): uma linha por mês de janeiro ao último mês com dados, com a
+// situação de cada um e o botão que leva ao mês. Fechar e reabrir continuam por mês.
+function renderFechamentoAno(ano){
+ const y=String(ano),fim=typeof fimDoAno==='function'?fimDoAno(y):null,ate=fim&&String(fim).endsWith('/'+y)?PT_MON.indexOf(String(fim).split('/')[0]):11;
+ if(typeof giroUI!=='undefined'&&!giroUI.dados&&!giroUI.busy&&typeof carregarGiro==='function')carregarGiro();
+ const linhas=PT_MON.slice(0,ate+1).map(m=>{
+  const label=m+'/'+y,tem=state.records.some(r=>r.label===label);
+  let texto,ok;
+  if(fechFechado(label)){texto=`${label} · Fechado`;ok=true;}
+  else if(!tem){texto=`${label} · Sem dados coletados`;ok=false;}
+  else{const itens=fechConferir(label),n=itens.filter(x=>x.ok).length;texto=`${label} · ${n} de ${itens.length} itens certos`;ok=n===itens.length;}
+  return `<li class="${ok?'st-ok':'st-atencao'}"><b>${ok?'✅':'⚠️'} ${esc(texto)}</b> <button type="button" data-period="${esc(label)}">Abrir ${esc(label)}</button></li>`;
+ }).join('');
+ return card(`Fechamento por mês · ${y}`,`<p>O fechamento é por mês: abra um mês para ver a lista completa e marcá-lo como fechado. Fechar não muda nenhum número.</p><ul class="fech-lista fech-ano" style="list-style:none;padding:0;margin:0 0 12px;display:grid;gap:8px">${linhas}</ul>`,true);
+}
 function renderFechamento(){
+ if(typeof telaNoAno==='function'&&telaNoAno())return renderFechamentoAno(typeof anoDaTela==='function'?anoDaTela():String(state.periodo).split('/')[1]);
  const label=state.periodo,reg=fechRegistro(label),fechado=reg?.estado==='fechado',itens=fechConferir(label),pend=itens.filter(x=>!x.ok),admin=!!state.permissoes?.admin;
  if(typeof giroUI!=='undefined'&&!giroUI.dados&&!giroUI.busy&&typeof carregarGiro==='function')carregarGiro();
  const lista=`<ul class="fech-lista" style="list-style:none;padding:0;margin:0 0 12px;display:grid;gap:8px">${itens.map(x=>`<li class="${x.ok?'st-ok':'st-atencao'}"><b>${x.ok?'✅':'⚠️'} ${esc(x.titulo)}</b><br><small>${esc(x.texto)}</small></li>`).join('')}</ul>`;

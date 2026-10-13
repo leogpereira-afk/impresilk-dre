@@ -96,3 +96,37 @@ test('o leitor de CSS separa regra, @media e comentário',()=>{
  const r=regras('/* .x{} */:root{--a:1}@media print{.b{font-size:9px}}@media(max-width:650px){.c,.d{color:red}}');
  assert.deepEqual(r.map(x=>[x.sel,x.pais]),[[':root',[]],['.b',['@media print']],['.c,.d',['@media(max-width:650px)']]]);
 });
+
+// Anos futuros (pedido do dono: "ele alimenta os próximos anos quando ele vier"): as listas de anos e as regras
+// do Ano saem dos dados e do relógio do app (hojeRotulo/anoDeHoje, que passam por dfcHoje), nunca de um ano escrito.
+const SEM_ANO_NO_CODIGO=['periodoOptions','anosComparaveis','anoPadraoComparado','anoComparado','mesesComparaveisAno','registroDoAno','comparacaoDoAno','rotuloAno','rotuloMesesAno','anoDeHoje','selecionarAnoComparado','fimDoAno'];
+// Corpo de "function nome(" ou de "const nome=" (arrow com chaves ou de uma linha), sem os comentários.
+function corpoDe(txt,nome){
+ const m=txt.match(new RegExp(`(?:^|\\n)\\s*(?:function\\s+${nome}\\s*\\(|(?:const|let|var)\\s+${nome}\\s*=)`));if(!m)return null;
+ const ini=m.index+m[0].length;let i=ini;
+ if(/function/.test(m[0])){let p=1;for(;i<txt.length&&p;i++){if(txt[i]==='(')p++;else if(txt[i]===')')p--;}}
+ else{const seta=txt.indexOf('=>',ini),fimLinha=txt.indexOf('\n',ini);if(seta<0||(fimLinha>=0&&seta>fimLinha))return txt.slice(ini,fimLinha<0?undefined:fimLinha);i=seta+2;while(/\s/.test(txt[i]))i++;if(txt[i]!=='{'){const f=txt.indexOf('\n',i);return txt.slice(ini,f<0?undefined:f);}}
+ const a=txt.indexOf('{',i);if(a<0)return null;let d=0;
+ for(let j=a;j<txt.length;j++){if(txt[j]==='{')d++;else if(txt[j]==='}'&&--d===0)return txt.slice(ini,j+1);}
+ return null;
+}
+const semComentarioJS=t=>t.replace(/\/\*[\s\S]*?\*\//g,'').replace(/(^|[^:'"`\\])\/\/[^\n]*/g,'$1');
+function anoNoCodigo(txt){
+ const achados=[];
+ for(const nome of SEM_ANO_NO_CODIGO){
+  const c=corpoDe(txt,nome);if(c==null){achados.push(`${nome}: não encontrada no app.js`);continue;}
+  const corpo=semComentarioJS(c),ano=corpo.match(/\b(19|20)\d\d\b/);if(ano)achados.push(`${nome}: ano escrito (${ano[0]})`);
+  if(nome==='periodoOptions')for(const relogio of ['new Date(','mesHoje('])if(corpo.includes(relogio))achados.push(`periodoOptions: relógio direto (${relogio})`);
+ }
+ return achados;
+}
+test('anos futuros: nenhuma função das listas de anos e do Ano tem ano escrito; o seletor de ano não lê o relógio direto',()=>{
+ assert.deepEqual(anoNoCodigo(ler('app.js')),[],'use anoDeHoje()/hojeRotulo() e os rótulos dos registros');
+});
+test('o leitor de funções acha o corpo e pega ano escrito ou relógio direto',()=>{
+ const base=['function periodoOptions(){const y=anoDeHoje();if(a){b()}return y;}',...SEM_ANO_NO_CODIGO.filter(n=>n!=='periodoOptions'&&n!=='anoDeHoje').map(n=>`function ${n}(a=x()){return {a}; // 2026 só no comentário\n}`),'const anoDeHoje=()=>Number(hojeRotulo().split(\'/\')[1]);'].join('\n');
+ assert.deepEqual(anoNoCodigo(base),[],'comentário com ano não conta');
+ assert.equal(corpoDe(base,'periodoOptions'),'){const y=anoDeHoje();if(a){b()}return y;}');
+ assert.deepEqual(anoNoCodigo(base.replaceAll('return {a};','return a>2026?1:{a};').replace('const y=anoDeHoje()','const y=new Date().getFullYear(),m=mesHoje()')).sort(),['periodoOptions: relógio direto (mesHoje()','periodoOptions: relógio direto (new Date()',...SEM_ANO_NO_CODIGO.filter(n=>n!=='periodoOptions'&&n!=='anoDeHoje').map(n=>`${n}: ano escrito (2026)`)].sort());
+ assert.deepEqual(anoNoCodigo(base.replace("split('/')[1]","split('/')[1]||2027")),['anoDeHoje: ano escrito (2027)'],'arrow de uma linha');
+});

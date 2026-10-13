@@ -1,4 +1,4 @@
-import * as M from './indicadores-modelo.mjs?v=135';
+import * as M from './indicadores-modelo.mjs?v=136';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Sinal de menos tipográfico (−) e sem "-0" em toda a tela.
 const br=v=>v==null?'Não informado':(Math.abs(Number(v))<.005?0:Number(v)).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}).replace('-','−');
@@ -64,7 +64,20 @@ function montarLocal(todos=false){
  if(ui.fonte==='competencia')return competencia();
  const a=M.caixa(ui.ctx.records,ui.periodo,'entrada'),b=M.caixa(ui.ctx.records,ui.periodo,'saida');let base=ui.fonte==='recebimentos'?a:b;
  if(ui.fonte==='variacao')base={...a,disponivel:a.disponivel&&b.disponivel,qualidade:a.qualidade==='Apurado'&&b.qualidade==='Apurado'?'Apurado':'Parcial',rows:[...a.rows.map(r=>({...r,grupo:'Recebimentos'})),...b.rows.map(r=>({...r,valor:r.valor==null?null:-r.valor,grupo:'Pagamentos'}))],avisos:[...new Set([...a.avisos,...b.avisos])],limite:M.DICIONARIO.variacao.limite};
- return {...base,...M.resumir(base.rows,{...filtros(),pagina:todos?0:ui.pagina,tamanho:todos?Math.max(1,base.rows.length):50}),allRows:base.rows,anoAnterior:M.compararAno(ui.ctx.records,ui.periodo,ui.fonte,{query:ui.query,grupo:ui.grupo,dimensao:ui.dimensao})};
+ return {...base,...M.resumir(base.rows,{...filtros(),pagina:todos?0:ui.pagina,tamanho:todos?Math.max(1,base.rows.length):50}),allRows:base.rows,anoAnterior:comparacao()};
+}
+// Ano do chip com o contrato do app (ctx.anoComparado): o ano escolhido em "Comparar com" (null = sem comparação).
+// Fora do Ano, ou app sem o contrato, o ano anterior.
+const anoComparadoTela=()=>ui.anoApp&&ui.ctx&&ui.ctx.anoComparado!==undefined?ui.ctx.anoComparado:Number(ui.periodo.de.slice(0,4))-1;
+// No Ano, só os meses completos e da mesma base nos dois anos (ctx.mesesComparaveis), seguidos desde janeiro.
+function comparacao(){
+ const f={query:ui.query,grupo:ui.grupo,dimensao:ui.dimensao};
+ if(!ui.anoApp||ui.ctx.anoComparado===undefined)return M.compararAno(ui.ctx.records,ui.periodo,ui.fonte,f);
+ const anoComp=ui.ctx.anoComparado;if(anoComp==null)return {disponivel:false,semAno:true,motivo:'Escolha um ano em “Comparar com”, no topo.'};
+ const ano=Number(ui.periodo.de.slice(0,4)),ult=Number(ui.periodo.ate.slice(5,7)),meses=new Set((ui.ctx.mesesComparaveis||[]).map(Number));let k=0;while(k<ult&&meses.has(k))k++;
+ if(!k)return {disponivel:false,anoComp,motivo:`Sem meses completos, da mesma base, desde janeiro em ${ano} e ${anoComp}.`};
+ const pc={de:ui.periodo.de,ate:new Date(Date.UTC(ano,k,0)).toISOString().slice(0,10)};
+ return {...M.compararAno(ui.ctx.records,pc,ui.fonte,f,{ano:anoComp}),anoComp,rotulo:pc.ate===ui.periodo.ate?'':k===1?'Jan':`Jan a ${MES3[k-1]}`};
 }
 async function consultarIndicadores(todos){
  const ex=ui.fonte==='margem'&&ui.excecao!=='todas';
@@ -146,9 +159,11 @@ function historicoCompetencia(){
 function analises(m){
  const saida=['custos','compras','pagamentos'].includes(ui.fonte);let html='';
  if(['recebimentos','pagamentos','variacao'].includes(ui.fonte)){
-  const serie=M.historicoCaixa(ui.ctx.records,ui.periodo,ui.fonte,filtros()),ant=M.historicoCaixa(ui.ctx.records,M.periodoAnterior(ui.periodo),ui.fonte,filtros()),ano=ui.periodo.ate.slice(0,4);
-  const comAnt=serie.map((x,i)=>{const a=ant[i]||{},motivo=x.valor==null||a.valor==null?'':!x.fechado||!a.fechado?'mês pela metade':x.chave!==a.chave?'base diferente':a.valor<=0||x.valor<0?'sem base percentual':'';return {...x,anterior:a.valor??null,notaAnterior:a.nota,variacao:motivo||x.valor==null||a.valor==null?null:Math.round((x.valor-a.valor)/Math.abs(a.valor)*1000)/10,semVariacao:motivo};});
-  html+=painelGrafico(ui.fonte==='variacao'?'Evolução da variação de caixa':'Comparativo mensal',`Janeiro a dezembro de ${ano}, com ${ano-1} ao lado (barra cinza) · mesmos filtros. * Mês em andamento ou incompleto · ° Cobertura a conferir.`,comAnt,{saida,anterior:`${ano-1}`,atual:ano});
+  const serie=M.historicoCaixa(ui.ctx.records,ui.periodo,ui.fonte,filtros()),anoComp=anoComparadoTela(),ant=anoComp==null?[]:M.historicoCaixa(ui.ctx.records,M.periodoNoAno(ui.periodo,anoComp),ui.fonte,filtros()),ano=ui.periodo.ate.slice(0,4);
+  // No Ano, a variação mês a mês fica só nos meses que o app compara (completos e da mesma base).
+  const doAno=ui.anoApp&&anoComp!=null&&Array.isArray(ui.ctx.mesesComparaveis)?new Set(ui.ctx.mesesComparaveis.map(Number)):null;
+  const comAnt=serie.map((x,i)=>{const a=ant[i]||{},motivo=x.valor==null||a.valor==null?'':!x.fechado||!a.fechado?'mês pela metade':x.chave!==a.chave?'base diferente':doAno&&!doAno.has(i)?'fora dos meses comparáveis':a.valor<=0||x.valor<0?'sem base percentual':'';return {...x,anterior:a.valor??null,notaAnterior:a.nota,variacao:motivo||x.valor==null||a.valor==null?null:Math.round((x.valor-a.valor)/Math.abs(a.valor)*1000)/10,semVariacao:motivo};});
+  html+=painelGrafico(ui.fonte==='variacao'?'Evolução da variação de caixa':'Comparativo mensal',`Janeiro a dezembro de ${ano}${anoComp==null?'':`, com ${anoComp} ao lado (barra cinza)`} · mesmos filtros. * Mês em andamento ou incompleto · ° Cobertura a conferir.`,comAnt,{saida,anterior:anoComp==null?'':`${anoComp}`,atual:ano});
   if(ui.fonte!=='variacao'&&!ui.query&&!ui.grupo){
    const cp=M.compararCaixa(ui.ctx.records,ui.periodo,saida?'saida':'entrada');
    if(cp.disponivel)html+=painelGrafico('Mês atual × anterior',`Mesmos ${cp.dias} dias · variação ${br(cp.delta)} (${pct(cp.percentual)}).`,[{nome:'Anterior',valor:cp.anterior},{nome:'Atual',valor:cp.atual}],{saida});else html=html.replace('</section>',`<p class="ind-comparison-limit"><b>Variação percentual indisponível.</b> ${esc(cp.motivo)}</p></section>`);
@@ -200,11 +215,11 @@ function resultado(m){
   const dv=ca?.disponivel&&typeof tomDelta==='function'?tomDelta(dir,ca.delta):'',tomVar=dv==='delta-bom'?'entra':dv==='delta-ruim'?'sai':'';
   // O cartão do ano anterior tem a cor do sentido do valor; bom ou ruim fica só na variação.
   const tomAnterior=!ca?.disponivel||!ca.anterior?'':ui.fonte==='pagamentos'?'sai':ca.anterior>0?'entra':'sai';
-  const varTxt=ca?.disponivel?`<b class="ind-var${tomVar?' tom-'+tomVar:''}">${esc(`${ca.percentual==null?'':`${Math.round(ca.percentual*10)>0?'+':Math.round(ca.percentual*10)<0?'−':''}${pct(Math.abs(ca.percentual))} · `}${ca.delta>0?'+':ca.delta<0?'−':''}${br(Math.abs(ca.delta))}`)}</b> ${esc(`contra ${data(ca.periodo.de)} a ${data(ca.periodo.ate)}${ca.percentual==null&&ca.delta?' · sem base percentual':''}${ca.parcial?' · cobertura a conferir':ca.semTrilha?' · total do mês, sem trilha por pagamento':''}`)}`:esc(ca?.motivo||'Sem comparação.');
+  const varTxt=ca?.disponivel?`<b class="ind-var${tomVar?' tom-'+tomVar:''}">${esc(`${ca.percentual==null?'':`${Math.round(ca.percentual*10)>0?'+':Math.round(ca.percentual*10)<0?'−':''}${pct(Math.abs(ca.percentual))} · `}${ca.delta>0?'+':ca.delta<0?'−':''}${br(Math.abs(ca.delta))}`)}</b> ${esc(`contra ${data(ca.periodo.de)} a ${data(ca.periodo.ate)}${ca.percentual==null&&ca.delta?' · sem base percentual':''}${ca.rotulo?` · nos mesmos meses (${ca.rotulo})`:''}${ca.parcial?' · cobertura a conferir':ca.semTrilha?' · total do mês, sem trilha por pagamento':''}`)}`:esc(ca?.motivo||'Sem comparação.');
   // Média só com todos os meses presentes e fechados: mês sem fonte não vira zero, mês pela metade não vale inteiro.
   const pelaMetade=(m.fontes||[]).filter(f=>M.mesCortado(f,ui.periodo.ate)).map(f=>f.periodo),mediaOk=m.disponivel&&m.valor!=null&&inteiro(ui.periodo)&&!m.faltam&&!pelaMetade.length;
   metrics=metric(M.DICIONARIO[ui.fonte].nome,m.disponivel?br(m.valor):'Indisponível',m.somaCompleta===false?'Soma conhecida, há valores ausentes':`${M.DICIONARIO[ui.fonte].base} · ${data(ui.periodo.de)} a ${data(ui.periodo.ate)}`,'',tomTotal)
-   +metric(`Mesmo período de ${ca?.periodo?.de?.slice(0,4)||Number(ui.periodo.de.slice(0,4))-1}`,ca?.disponivel?br(ca.anterior):'Sem comparação',varTxt,'',tomAnterior,true)
+   +metric(ca?.semAno?'Comparação':ca?.rotulo?`${ca.rotulo} de ${ca.anoComp}`:`Mesmo período de ${ca?.anoComp??(ca?.periodo?.de?.slice(0,4)||Number(ui.periodo.de.slice(0,4))-1)}`,ca?.disponivel?br(ca.anterior):'Sem comparação',varTxt,'',tomAnterior,true)
    +metric('Média por mês',mediaOk?br(Math.round(m.valor/n*100)/100):'Não apurado',!inteiro(ui.periodo)?'Só para meses inteiros':m.faltam?`${m.faltam} ${m.faltam===1?'mês':'meses'} sem fonte no intervalo`:pelaMetade.length?`${pelaMetade.join(', ')} ainda pela metade`:`${n} ${n===1?'mês':'meses'} · ${m.comValor} de ${m.total} registros com valor${m.semTrilha?` · ${m.semTrilha} ${m.semTrilha===1?'mês':'meses'} pelas contas da DRE`:''}`,'',mediaOk?tomTotal:'');
  }
  else metrics=metric(M.DICIONARIO[ui.fonte].nome,m.disponivel?br(m.valor):'Indisponível',m.somaCompleta===false?'Soma conhecida, há valores ausentes':M.DICIONARIO[ui.fonte].base)+metric('Registros no filtro',m.disponivel?String(m.total):'Indisponível','Recorte consultado, não universo do ERP')+metric('Com valor informado',m.disponivel?`${m.comValor} de ${m.total}`:'Indisponível','Cobertura dentro dos registros filtrados');
@@ -231,6 +246,9 @@ function pintar(){
  ui.ctx.onIntervalo?.(ui.periodo);ligar();window.wireGlossario?.();
  if(foco)ui.container.querySelector(foco)?.focus({preventScroll:true});
 }
+// Intervalo escolhido aqui: o app diz se é o ano dele (onIntervalo liga ou desliga o chip Ano e redesenha o topo);
+// no Ano, a comparação segue o "Comparar com" do topo. Sem o app, só o mesmo intervalo mantém o vínculo.
+const vincularAno=antes=>{const r=ui.ctx?.onIntervalo?.(ui.periodo);ui.anoApp=typeof r==='boolean'?r:!!ui.anoApp&&antes?.de===ui.periodo.de&&antes?.ate===ui.periodo.ate;};
 function ligar(){const c=ui.container,all=(s,fn)=>c.querySelectorAll(s).forEach(fn);
  all('[data-ind-period]',b=>{const select=()=>{const label=b.dataset.indPeriod;if(!mesGrafico(label))return;ui.label=label;ui.periodo=M.periodoRotulo(label);ui.preset='mes';ui.rangeOpen=false;ui.pagina=0;ui.seq++;ui.modelo=null;ui.erro='';if(ui.ctx.onPeriodo)ui.ctx.onPeriodo(label);else carregar();ui.container.querySelector(`[data-ind-period="${label}"]`)?.focus({preventScroll:true});};b.onclick=select;b.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();select();}};});
  all('[data-area]',b=>b.onclick=()=>{ui.area=b.dataset.area;ui.fonte=config[ui.area].fontes[0][0];reset();window.gravarRota?.();carregar();});
@@ -238,9 +256,9 @@ function ligar(){const c=ui.container,all=(s,fn)=>c.querySelectorAll(s).forEach(
  const range=c.querySelector('.ind-range');range.ontoggle=()=>{ui.rangeOpen=range.open;};
  const form=c.querySelector('#indFilters');form.elements.preset.onchange=e=>{if(e.target.value!=='personalizado'){const p=M.periodoPreset(ui.label,e.target.value);form.elements.de.value=p.de;form.elements.ate.value=p.ate;}};
  for(const k of ['de','ate'])form.elements[k].oninput=()=>form.elements.preset.value='personalizado';
- form.onsubmit=e=>{e.preventDefault();try{ui.periodo=M.validarPeriodo(form.elements.de.value,form.elements.ate.value);ui.preset=form.elements.preset.value;ui.anoApp=false;ui.excecao=form.elements.excecao?.value||'todas';ui.query=form.elements.query?.value.trim()||'';ui.dimensao=form.elements.dimensao?.value||'grupo';ui.grupo='';ui.pagina=0;ui.seq++;carregar();}catch(e){ui.erro=e.message;pintar();}};
+ form.onsubmit=e=>{e.preventDefault();try{const antes=ui.periodo;ui.periodo=M.validarPeriodo(form.elements.de.value,form.elements.ate.value);ui.preset=form.elements.preset.value;vincularAno(antes);ui.excecao=form.elements.excecao?.value||'todas';ui.query=form.elements.query?.value.trim()||'';ui.dimensao=form.elements.dimensao?.value||'grupo';ui.grupo='';ui.pagina=0;ui.seq++;carregar();}catch(e){ui.erro=e.message;pintar();}};
  all('[data-group]',b=>b.onclick=()=>{ui.grupo=b.dataset.group;ui.pagina=0;carregar();});all('[data-clear]',b=>b.onclick=()=>{ui.grupo='';carregar();});all('[data-page]',b=>b.onclick=()=>{ui.pagina=Number(b.dataset.page);carregar();});
- all('[data-recorte]',b=>b.onclick=()=>{ui.periodo={...ui.modelo.recorte};ui.preset='personalizado';ui.anoApp=false;ui.pagina=0;ui.seq++;carregar();});
+ all('[data-recorte]',b=>b.onclick=()=>{ui.periodo={...ui.modelo.recorte};ui.preset='personalizado';vincularAno(null);ui.pagina=0;ui.seq++;carregar();});
  all('[data-refresh]',b=>b.onclick=async()=>{if(fonteLocal()){b.disabled=true;if(ui.fonte==='rentabilidade'&&typeof carregarGiro==='function')carregarGiro(true);await ui.ctx.refresh();}else carregar(true);});all('[data-formula]',b=>b.onclick=formula);all('[data-row]',b=>b.onclick=()=>detalhe(ui.modelo.rows[Number(b.dataset.row)]));
  all('[data-dre]',b=>b.onclick=()=>ui.ctx.onDRE(ui.periodo));all('[data-export]',b=>b.onclick=()=>exportar(false,b));all('[data-pdf]',b=>b.onclick=()=>exportar(true,b));
 }

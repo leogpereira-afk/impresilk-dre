@@ -423,9 +423,68 @@ function paramHistorico(){
  const corpo=h.length?`<div class="table-scroll"><table class="tabela-controle"><thead><tr><th scope="col">O que mudou</th><th scope="col">Quando</th><th scope="col">Mudança</th></tr></thead><tbody>${h.map(x=>`<tr><th scope="row">${esc(paramDescreveCaminho(x.caminho))}</th><td>${esc(dataBR(x.em))}</td><td>${esc(paramMudancas(x).join('; ')||'sem diferença')}</td></tr>`).join('')}</tbody></table></div>`:'<p class="hint">Nenhuma alteração gravada ainda.</p>';
  return card(`Histórico de alterações${h.length?` (${h.length}${todos.length>60?' mais recentes':''})`:''}`,corpo,false);
 }
+// ── chip Ano: visão do ano, sem formulário (o cadastro é por mês) ────────
+// "Fev/2026" ou "Fev/2026 a Mar/2026", em lista.
+function paramFaixas(labels){
+ const g=[];for(const l of labels){const u=g[g.length-1];if(u&&paramMesDesloca(u.fim,1)===l)u.fim=l;else g.push({ini:l,fim:l});}
+ const t=g.map(x=>x.ini===x.fim?x.ini:`${x.ini} a ${x.fim}`);return t.length>1?t.slice(0,-1).join(', ')+' e '+t[t.length-1]:t[0]||'';
+}
+// Meses do ano de janeiro ao mês da tela (no Ano, o último com dados: fimDoAno).
+const paramMesesAte=fim=>{const [m,a]=String(fim).split('/'),i=PT_MON.indexOf(m);return i<0?[]:PT_MON.slice(0,i+1).map(x=>x+'/'+a);};
+// Somas do ano em centavos: o Simples pago (guias das duas empresas) e o que foi pago fora dele.
+// Mês sem dados: o total não é somado; mês em andamento: entra e é dito.
+function paramSomaAno(fim){
+ const meses=paramMesesAte(fim),faltam=meses.filter(m=>!paramMesInfo(m)),parcial=meses.find(m=>paramMesInfo(m)?.parcial)||null;
+ if(faltam.length)return {meses,faltam,parcial};
+ const c=v=>Math.round((v||0)*100);let guias=0,resto=0,parc=0,fora=0,comGuia=false;
+ for(const m of meses){const d=paramDasMes(m),info=paramMesInfo(m),tot=F.valorConta(info.reg,PARAM_IMPOSTOS);
+  for(const e of PARAM_EMPRESAS)if(d.guias[e.id]!=null){guias+=c(d.guias[e.id]);comGuia=true;}
+  resto+=c(d.resto);parc+=c(d.parc);fora+=tot==null?0:c(tot)-c(paramSimplesPago(info.reg));}
+ return {meses,faltam,parcial,guias:guias/100,resto:resto/100,parc:parc/100,fora:fora/100,comGuia};
+}
+function paramCardsAno(ano,fim){
+ const aliq=PARAM_EMPRESAS.map(e=>{const p=paramSimples(e.id,fim),a=paramAliquota(e.id,fim);return paramMetric(`Alíquota efetiva · ${e.nome} · ${fim}`,paramPct(a.valor,4),`Competência ${fim}${p?.anexo?' · Anexo '+p.anexo:''}`,{chip:a.origem==='padrao'?paramChipPadrao:''});});
+ const s=paramSomaAno(fim),periodo=s.meses.length>1?`de ${s.meses[0]} a ${fim}`:`em ${fim}`,inclui=s.parcial?`; inclui ${s.parcial} (mês em andamento)`:'';
+ const falta=s.faltam.length?`${paramFaixas(s.faltam)} sem dados coletados: o total de ${ano} não é somado.`:'';
+ const das=falta?paramMetric(`Simples pago em ${ano}`,'Não apurado',falta)
+  :paramMetric(`Simples pago em ${ano}`,s.guias?money(s.guias):s.resto?'A conferir':'Sem guia no ano',`DAS e DARF pagos ${periodo}, cada guia da competência anterior${inclui}. Parcelamento à parte: ${s.parc?money(s.parc):'sem parcela no ano'}.${s.resto?` ${money(s.resto)} lançados no DAS e no DARF fora das subcontas da Impresilk e da Universo.`:''}`,{tom:s.guias?paramTom(s.guias):'',chip:s.resto?paramChipConferir:''});
+ const fora=falta?paramMetric(`Impostos e taxas fora do Simples · ${ano}`,'Não apurado',falta)
+  :paramMetric(`Impostos e taxas fora do Simples · ${ano}`,s.fora?money(s.fora):'Sem lançamento',`IPTU, taxas, ICMS e DIFAL das compras, IOF e ISSQN (conta 2.4 sem o DAS e o DARF), pagos ${periodo}${inclui}.`,{tom:paramTom(s.fora)});
+ return `<div class="cards cards-controle">${aliq.join('')}${das}${fora}</div>`;
+}
+// Parâmetros do ano mês a mês: só o valor cadastrado no próprio mês (nada herdado); vazio, "—".
+// O cabeçalho de cada mês leva ao mês (sai do Ano): é lá que se edita.
+function paramAnoTabela(ano){
+ const meses=PT_MON.map(m=>m+'/'+ano),fimK=paramMesChave(state.periodo)||'',nada='<td class="num">—</td>';
+ const tomSaldo=(lado,v)=>typeof saldoTom==='function'?saldoTom(lado,v):'';
+ const din=(v,tom='')=>paramNum(v)?`<td class="num${tom?' '+tom:''}">${esc(money(Number(v)))}</td>`:nada;
+ const mar=m=>paramMesInfo(m)?.parcial?' *':'';
+ const linhas=[
+  ...PARAM_EMPRESAS.map(e=>[`Alíquota efetiva ${e.nome}`,m=>{const p=paramSimples(e.id,m);return paramNum(p?.aliquota)?`<td class="num">${esc(paramPct(Number(p.aliquota),4))}</td>`:paramMesChave(m)<=fimK?`<td class="num">${esc(paramPct(PARAM_ALIQUOTA_PADRAO,4))} <small>(padrão)</small></td>`:nada;}]),
+  ['Simples pago',m=>{const d=paramDasMes(m);if(!d)return nada;const v=PARAM_EMPRESAS.reduce((t,e)=>t+Math.round((d.guias[e.id]||0)*100),0)/100,algum=PARAM_EMPRESAS.some(e=>d.guias[e.id]!=null);return !algum&&d.resto?`<td class="num">A conferir${mar(m)}</td>`:v?`<td class="num ${paramTom(v)}">${esc(money(v)+mar(m))}</td>`:`<td class="num">Sem guia${mar(m)}</td>`;}],
+  ['Impostos e taxas fora do Simples',m=>{const i=paramMesInfo(m);if(!i)return nada;const t=F.valorConta(i.reg,PARAM_IMPOSTOS),v=t==null?0:Math.round((t-paramSimplesPago(i.reg))*100)/100;return v?`<td class="num ${paramTom(v)}">${esc(money(v)+mar(m))}</td>`:`<td class="num">Sem lançamento${mar(m)}</td>`;}],
+  ['Saldo bancário no início do mês',m=>{const v=paramOperacao(m)?.saldoInicial;return din(v,tomSaldo('receber',v));}],
+  ['Estoque no fim do mês',m=>{const v=paramOperacao(m)?.estoque;return din(v,tomSaldo('receber',v));}],
+  ['Prazo médio de recebimento (dias)',m=>{const v=paramOperacao(m)?.prazoRecebimento;return paramNum(v)?`<td class="num">${esc(String(Number(v)))}</td>`:nada;}],
+  ['Prazo médio de pagamento (dias)',m=>{const v=paramOperacao(m)?.prazoPagamento;return paramNum(v)?`<td class="num">${esc(String(Number(v)))}</td>`:nada;}],
+  ['Meta de resultado do mês',m=>{const v=paramOperacao(m)?.metaResultado;return din(v,tomSaldo('receber',v));}],
+  ['Imobilizado',m=>{const v=paramBalanco(m)?.imobilizado;return din(v,tomSaldo('receber',v));}],
+  ['Saldo devedor de empréstimos',m=>{const v=paramBalanco(m)?.emprestimos;return din(v,tomSaldo('pagar',v));}],
+  ['Saldo do parcelamento do DAS',m=>{const v=paramBalanco(m)?.parcelamentoDAS;return din(v,tomSaldo('pagar',v));}]];
+ const titulo=`Parâmetros de ${ano} mês a mês`;
+ return card(titulo,`<div class="table-scroll" role="region" tabindex="0" aria-label="${esc(titulo)}"><table class="tabela-controle param-ano-tabela"><caption>${esc(`Valor cadastrado em cada mês, sem herdar de outro mês · — = não informado ou sem dados · * = mês em andamento`)}</caption><thead><tr><th scope="col">Parâmetro</th>${meses.map(m=>`<th scope="col" class="num"><button type="button" data-period="${esc(m)}" aria-label="Editar os parâmetros de ${esc(m)}">${esc(m.split('/')[0])}</button></th>`).join('')}</tr></thead><tbody>${linhas.map(([n,f])=>`<tr><th scope="row">${esc(n)}</th>${meses.map(f).join('')}</tr>`).join('')}</tbody></table></div><p class="hint">Para editar, toque no mês: o app sai do Ano e abre os parâmetros daquele mês.</p>`,true);
+}
+function renderParametrosAno(fim){
+ const ano=fim.split('/')[1];
+ return paramCardsAno(ano,fim)
+  +`<section class="param-bloco bloco-simples" id="secao-param-simples" aria-labelledby="param-simples-titulo"><div class="param-bloco-topo"><h2 id="param-simples-titulo">Simples Nacional · ${esc(ano)}</h2><p>DAS e DARF pagos em cada mês do ano e a alíquota efetiva de cada empresa. O cadastro é por mês: para editar, escolha o mês na barra ou na tabela abaixo.</p></div>${paramGraficosSimples(fim)}</section>`
+  +paramAnoTabela(ano)+paramHistorico();
+}
 function renderParametros(){
  const label=state.periodo,admin=!!state.permissoes?.admin;
  if(!paramMesChave(label))return '<p class="hint">Escolha um mês para ver os parâmetros.</p>';
+ // No Ano, nada é gravado diferente: os formulários são por mês e não aparecem.
+ if(typeof telaNoAno==='function'&&telaNoAno())return renderParametrosAno(label);
  const consolidado=paramAvisoConsolidado(label);
  return paramCards(label)
   +`${admin?'':'<p class="note">Somente administradores alteram parâmetros. Os valores abaixo são de consulta.</p>'}`

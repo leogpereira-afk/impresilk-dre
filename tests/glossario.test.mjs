@@ -67,3 +67,8 @@ test('v135 (D36, N22, N24): marca do termo pelo CSS, link de seção que abre em
  assert.equal(c.run('glossarioUI.busca'),'Margem de contribuição');assert.equal(c.run('glossarioUI.grupo'),'todos');
  assert.match(c.run('resultadosGlossario()'),/<details class="glossary-item" open data-termo="Margem de contribuição">/);
 });
+test('Ano em todas as telas: "Mesmo período do ano anterior" explica a comparação com o ano escolhido',()=>{
+ const c=ctx(),t=c.json("GlossarioFinanceiro.termos.find(t=>t.nome==='Mesmo período do ano anterior')");
+ assert.match(t.definicao,/No Ano, a comparação é com o ano escolhido em “Comparar com”, nos mesmos meses completos dos dois anos\.$/);
+ assert.doesNotMatch(t.definicao,/—/);assert.ok(c.json("GlossarioFinanceiro.buscar('ano escolhido','todos')").some(x=>x.nome===t.nome),'a busca encontra');
+});

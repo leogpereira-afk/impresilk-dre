@@ -141,6 +141,11 @@ function cmpRotuloItem(linha, it, nomes) {
   const k3 = p.length >= 3 ? p.slice(0, 3).join('.') : code;
   return nomes.get(k3) || it.name || code;
 }
+// No Ano (telaNoAno do app), o ano escolhido em "Comparar com" é a base do mesmo período e do mês a mês;
+// sem escolha ("Sem comparação") ou fora do Ano, o ano anterior. O crescimento ano a ano não muda.
+function cmpAnoEscolhido() {
+  return typeof telaNoAno === 'function' && typeof anoComparado === 'function' && telaNoAno() ? anoComparado() : null;
+}
 function cmpModelo() {
   const meses = cmpMeses(); if (!meses.some(x => x.fechado)) return null;
   // Referência: o ano do mês escolhido, até o último mês fechado dele.
@@ -149,6 +154,7 @@ function cmpModelo() {
   const fechRef = meses.filter(x => x.ano === refAno && x.mes <= refMes && x.fechado).map(x => x.mes);
   if (fechRef.length) refMes = Math.max(...fechRef); else { refAno -= 1; refMes = 12; }
   const primeiro = meses.find(x => x.fechado).ano;
+  const escolhido = cmpAnoEscolhido(), anoBase = escolhido != null && escolhido !== refAno ? escolhido : refAno - 1;
   const anos = []; for (let a = primeiro; a <= refAno; a++) anos.push(a);
   if (!anos.length) return null;
   const doAno = (a, ateMes) => meses.filter(x => x.ano === a && x.fechado && x.mes <= ateMes);
@@ -167,8 +173,8 @@ function cmpModelo() {
     return { ano, meses: todos.map(x => x.mes), mesesCls: cls.map(x => x.mes), todos, cls, vendas, politico, vendasBase: cmpSoma(todos, vb), politicoCls: cmpSoma(cls, x => x.politico), vendasCls: vc, linhas, pct };
   };
   const porAno = anos.map(a => resumoAno(a, a < refAno ? 12 : refMes)).filter(p => p.todos.length);
-  // Ano de referência pela metade: o anterior nos mesmos meses é a base justa da tabela da DRE e da leitura.
-  const mesmoPeriodo = refMes < 12 ? resumoAno(refAno - 1, refMes) : null;
+  // Ano de referência pela metade: o ano-base (o anterior ou o escolhido no Ano) nos mesmos meses é a base justa da tabela da DRE e da leitura.
+  const mesmoPeriodo = refMes < 12 ? resumoAno(anoBase, refMes) : null;
   // Índice de vendas nos mesmos meses (janeiro até o mês de referência), em todos os anos que os têm.
   const idx = porAno.map(p => { const xs = meses.filter(x => x.ano === p.ano && x.fechado && x.mes <= refMes); return xs.length === refMes ? { ano: p.ano, vendas: cmpSoma(xs, x => x.vendas), politico: cmpSoma(xs, x => x.politico) } : null; }).filter(Boolean);
   const base = idx[0] ? idx[0].vendas - (sem ? idx[0].politico : 0) : null;
@@ -198,9 +204,9 @@ function cmpModelo() {
     const vs = cheios.map(p => { const media = p.vendasBase / 12, x = p.todos.find(t => t.mes === i + 1); return media > 0 && x ? vb(x) / media * 100 : null; }).filter(cmpNum);
     return vs.length ? { mes: i + 1, indice: vs.reduce((t, v) => t + v, 0) / vs.length, min: Math.min(...vs), max: Math.max(...vs) } : null;
   }) : [];
-  // O ano de referência mês a mês contra o mesmo mês do ano anterior.
+  // O ano de referência mês a mês contra o mesmo mês do ano-base.
   const mesAMes = []; for (let m = 1; m <= 12; m++) {
-    const a = meses.find(x => x.ano === refAno && x.mes === m && x.fechado && m <= refMes), b = meses.find(x => x.ano === refAno - 1 && x.mes === m && x.fechado);
+    const a = meses.find(x => x.ano === refAno && x.mes === m && x.fechado && m <= refMes), b = meses.find(x => x.ano === anoBase && x.mes === m && x.fechado);
     mesAMes.push({ mes: m, valor: a && b && vb(b) > 0 ? vb(a) / vb(b) * 100 - 100 : null });
   }
   // Mix da receita: as contas de venda de 2º nível (1.1, 1.2, 1.5, 1.6...).
@@ -258,7 +264,7 @@ function cmpModelo() {
   }
   // De onde veio o material político: meses medidos pelas O.S. das campanhas do Painel.
   const pelasOS = meses.filter(x => x.fechado && x.pol.porOS != null);
-  return { refAno, refMes, meses, porAno, mesmoPeriodo: mesmoPeriodo?.cls.length ? mesmoPeriodo : null, indice, crescimento, saz, mesAMes, mix, produtos, prodAnos: prodAnos.map(p => p.ano), semOS, produtoPolitico, detalhes, semPolitica: sem, pelasOS };
+  return { refAno, refMes, anoBase, meses, porAno, mesmoPeriodo: mesmoPeriodo?.cls.length ? mesmoPeriodo : null, indice, crescimento, saz, mesAMes, mix, produtos, prodAnos: prodAnos.map(p => p.ano), semOS, produtoPolitico, detalhes, semPolitica: sem, pelasOS };
 }
 
 // ── Gráficos (as mesmas peças do app: GX, classes de cor, dica e tabela) ────
@@ -300,7 +306,7 @@ function cmpGrafVariacao(itens, op) {
     svg += `<rect class="g-marca-dado g-cor-${it.valor >= 0 ? 'entrada' : 'saida'}" x="${x.toFixed(2)}" y="${ya.toFixed(2)}" width="${bw.toFixed(2)}" height="${Math.max(1.5, yb - ya).toFixed(2)}" vector-effect="non-scaling-stroke" data-dica="${e(`${it.dica}\n${cmpVar(it.valor)}`)}"/>`;
     rot += `<span class="g-rot g-rot-forte g-opcional" style="left:${p(cx, GX.W)};top:${p(it.valor >= 0 ? ya : yb, H)};transform:translate(-50%,${it.valor >= 0 ? '-125%' : '25%'})">${e(cmpVar(it.valor, 0))}</span>`;
   });
-  return GX.figura('cmp-var g-cartesiano', op.leitura, `<div class="g-area" style="height:${H}px">${GX.svg(H, svg)}<div class="g-rotulos">${rot}${lacunas}</div></div>`, GX.legenda([{ rotulo: 'Acima do ano anterior', cor: 'entrada' }, { rotulo: 'Abaixo', cor: 'saida' }, ...(lacunas ? [{ rotulo: 'sem mês completo', semDado: true }] : [])]), op.tabela || '');
+  return GX.figura('cmp-var g-cartesiano', op.leitura, `<div class="g-area" style="height:${H}px">${GX.svg(H, svg)}<div class="g-rotulos">${rot}${lacunas}</div></div>`, GX.legenda([{ rotulo: op.acima || 'Acima do ano anterior', cor: 'entrada' }, { rotulo: 'Abaixo', cor: 'saida' }, ...(lacunas ? [{ rotulo: 'sem mês completo', semDado: true }] : [])]), op.tabela || '');
 }
 // Linhas de % das vendas, um eixo só, rótulo do último valor e dica por ano.
 function cmpGrafLinhas(rotulos, series, op) {
@@ -425,8 +431,8 @@ function cmpLeitura(M) {
   }
   if (D.length >= 2) {
     const a = D[0], iR = P.indexOf(R);
-    // Ano de referência pela metade: o veredito vem do ano anterior nos mesmos meses; o ano anterior inteiro fica como contexto.
-    const MP = R.mesesCls.length < 12 && M.mesmoPeriodo && M.mesmoPeriodo.ano === R.ano - 1 ? M.mesmoPeriodo : null;
+    // Ano de referência pela metade: o veredito vem do ano-base nos mesmos meses; o ano-base inteiro fica como contexto.
+    const MP = R.mesesCls.length < 12 && M.mesmoPeriodo && M.mesmoPeriodo.ano === (M.anoBase ?? R.ano - 1) && P.some(p => p.ano === M.mesmoPeriodo.ano && p.cls.length) ? M.mesmoPeriodo : null;
     const AI = MP ? P.find(p => p.ano === MP.ano && p.cls.length) : null;
     const txtMP = MP ? `nos mesmos meses de ${MP.ano} (${cmpMesesTexto(MP.mesesCls)})` : '';
     const ctxAno = p => p.mesesCls.length === 12 ? `no ano inteiro de ${p.ano}` : `em ${txtAnoCls(p)}`;
@@ -490,9 +496,10 @@ function cmpLeitura(M) {
     if (mm.length >= 3) {
       const acima = mm.filter(x => x.valor > 1), abaixo = mm.filter(x => x.valor < -1).sort((a, b) => a.valor - b.valor);
       const pior = abaixo.length ? ` (o pior, ${CMP_MES[abaixo[0].mes - 1]}: ${cmpVar(abaixo[0].valor, 0)})` : '';
-      t += acima.length === mm.length ? ` Em ${M.refAno}, os ${mm.length} meses completos ficaram acima do mesmo mês de ${M.refAno - 1}.`
-        : abaixo.length === mm.length ? ` Em ${M.refAno}, os ${mm.length} meses completos ficaram abaixo do mesmo mês de ${M.refAno - 1}${pior}.`
-        : ` Em ${M.refAno}, ${acima.length} ${acima.length === 1 ? 'mês ficou' : 'meses ficaram'} acima do mesmo mês de ${M.refAno - 1} e ${abaixo.length} abaixo${pior}.`;
+      const base = M.anoBase ?? M.refAno - 1;
+      t += acima.length === mm.length ? ` Em ${M.refAno}, os ${mm.length} meses completos ficaram acima do mesmo mês de ${base}.`
+        : abaixo.length === mm.length ? ` Em ${M.refAno}, os ${mm.length} meses completos ficaram abaixo do mesmo mês de ${base}${pior}.`
+        : ` Em ${M.refAno}, ${acima.length} ${acima.length === 1 ? 'mês ficou' : 'meses ficaram'} acima do mesmo mês de ${base} e ${abaixo.length} abaixo${pior}.`;
     }
     pontos.push(t);
   }
@@ -541,7 +548,7 @@ function cmpLeitura(M) {
 // ── A seção no Dashboard ────────────────────────────────────────────────────
 function cmpChave() {
   const recente = state.records.reduce((m, r) => String(r?.atualizadoEm || '') > m ? String(r.atualizadoEm) : m, '');
-  return [state.records.length, recente, state.periodo, typeof dfcHoje === 'function' ? dfcHoje() : '', cmpUI.semPolitica ? 'sem' : 'com', cmpUI.campanhas ? `c${cmpUI.campanhas.atualizadoEm || ''}:${cmpUI.campanhas.campanhas.length}` : '', cmpUI.campErro].join('|');
+  return [state.records.length, recente, state.periodo, typeof dfcHoje === 'function' ? dfcHoje() : '', cmpUI.semPolitica ? 'sem' : 'com', 'base:' + (cmpAnoEscolhido() ?? ''), cmpUI.campanhas ? `c${cmpUI.campanhas.atualizadoEm || ''}:${cmpUI.campanhas.campanhas.length}` : '', cmpUI.campErro].join('|');
 }
 // As campanhas do Painel: uma leitura a cada 10 minutos, com ou sem erro (a tela redesenha
 // ao chegar e não pode pedir de novo em laço). Sem elas, vale o produto e a conta 1.5.
@@ -601,9 +608,10 @@ function renderComparativos() {
   const cv = M.crescimento.linhas.find(l => l.chave === 'vendas'), cs = M.crescimento.linhas.find(l => l.chave === 'vendasSemPolitico');
   const tCresc = cmpTabela(['Crescimento das vendas', 'Vendas', 'Sem material político'], M.crescimento.pares.map((pr, i) => [`${pr.a1} × ${pr.a0}${pr.meses.length && pr.meses.length < 12 ? ` (${cmpMesesTexto(pr.meses)})` : ''}`, cmpVarSeta(cv.valores[i]?.valor), cmpVarSeta(cs.valores[i]?.valor)]), { legenda: 'Contra os mesmos meses do ano anterior', tons: (r, c) => cmpTomVar(1, (c === 1 ? cv : cs).valores[r]?.valor) });
   const gSaz = cmpFaixaSazonal(M.saz, { leitura: 'Sazonalidade: cada mês contra a média mensal do ano, nos anos inteiros.', tabela: GX.tabela(['Mês', 'Índice', 'Menor', 'Maior'], M.saz.filter(Boolean).map(s => [CMP_MES[s.mes - 1], String(Math.round(s.indice)), String(Math.round(s.min)), String(Math.round(s.max))]), [1, 2, 3]) });
-  const gMes = cmpGrafVariacao(M.mesAMes.map(x => ({ rotulo: CMP_MES[x.mes - 1], valor: x.valor, dica: `${CMP_MES[x.mes - 1]}/${M.refAno} contra ${CMP_MES[x.mes - 1]}/${M.refAno - 1}` })), { leitura: `${M.refAno} mês a mês contra o mesmo mês de ${M.refAno - 1}.`, tabela: GX.tabela(['Mês', `${M.refAno} × ${M.refAno - 1}`], M.mesAMes.map(x => [CMP_MES[x.mes - 1], cmpNum(x.valor) ? cmpVar(x.valor) : 'sem mês completo']), [1]) });
+  const AB = M.anoBase, outroBase = AB !== M.refAno - 1;
+  const gMes = cmpGrafVariacao(M.mesAMes.map(x => ({ rotulo: CMP_MES[x.mes - 1], valor: x.valor, dica: `${CMP_MES[x.mes - 1]}/${M.refAno} contra ${CMP_MES[x.mes - 1]}/${AB}` })), { acima: outroBase ? `Acima de ${AB}` : '', leitura: `${M.refAno} mês a mês contra o mesmo mês de ${AB}.`, tabela: GX.tabela(['Mês', `${M.refAno} × ${AB}`], M.mesAMes.map(x => [CMP_MES[x.mes - 1], cmpNum(x.valor) ? cmpVar(x.valor) : 'sem mês completo']), [1]) });
   const sec1 = cmpCard('vendas', '1. Vendas', `<div class="graficos-controle">${painelGrafico(`Vendas de ${ateTxt}${sem ? ' sem material político' : ''}, índice (${ix[0]?.ano ?? ''} = 100)`, 'Os mesmos meses em todos os anos; o ano sem esses meses no Mubisys fica de fora.', gIdx)}${painelGrafico('Crescimento das vendas', 'Com e sem material político (anos de eleição).', tCresc)}</div>`
-    + `<div class="graficos-controle">${painelGrafico('Sazonalidade', `Cada mês contra a média mensal do ano (100 = mês médio), nos anos inteiros${sem ? ', sem o material político' : ''}.`, gSaz)}${painelGrafico(`${M.refAno} mês a mês`, `Contra o mesmo mês de ${M.refAno - 1}${sem ? ', sem o material político' : ''}.`, gMes)}</div>`, true);
+    + `<div class="graficos-controle">${painelGrafico('Sazonalidade', `Cada mês contra a média mensal do ano (100 = mês médio), nos anos inteiros${sem ? ', sem o material político' : ''}.`, gSaz)}${painelGrafico(`${M.refAno} mês a mês`, `Contra o mesmo mês de ${AB}${outroBase ? ' (o ano escolhido em “Comparar com”, no topo)' : ''}${sem ? ', sem o material político' : ''}.`, gMes)}</div>`, true);
   // 2. Receita
   const tMix = cmpTabela(['% das vendas', ...P.map(p => cmpCabAno(p, M, false))], M.mix.map(l => [l.rotulo, ...l.valores.map(v => cmpFmt(v))]), { destaques: M.mix.map((l, i) => l.politico ? i : -1).filter(i => i >= 0), legenda: sem ? '% das vendas sem material político' : '' });
   const tEnt = cmpTabela(['% das vendas', ...D.map(p => cmpCabAno(p, M, true))], [
@@ -624,7 +632,7 @@ function renderComparativos() {
   ];
   const sec3 = cmpCard('dre', '3. A DRE ano a ano (% das vendas)', (sem ? '<p class="hint">Esta parte continua com o material político: o custo dele está nas mesmas compras das outras vendas e não se separa.</p>' : '')
     + cmpTabela(['% das vendas', ...C3.map(p => cmpCabAno(p, M, true))], dreLinhas, { subtotais: [0, 3, 5, 14, 16, 24], destaques: [6, 17], recuo: [1, 7, 8, 9, 10, 11, 12, 13], legenda: '% das vendas · só os meses com plano de contas' })
-    + (MP ? `<p class="hint">${MP.ano} ${esc(cmpMesesTexto(MP.mesesCls))}: o ano anterior só nos meses que ${M.refAno} já tem, para comparar sem a sazonalidade dos meses que faltam.</p>` : '')
+    + (MP ? `<p class="hint">${MP.ano} ${esc(cmpMesesTexto(MP.mesesCls))}: ${outroBase ? `${MP.ano}, o ano escolhido em “Comparar com”,` : 'o ano anterior'} só nos meses que ${M.refAno} já tem, para comparar sem a sazonalidade dos meses que faltam.</p>` : '')
     + '<p class="hint">Ponto de equilíbrio = despesas fixas ÷ margem de contribuição, em % das vendas. Valores arredondados.</p>', false);
   // 4. Margens e crescimento
   const rot = D.map(p => `${p.ano}${p.mesesCls.length < 12 ? '*' : ''}`);
