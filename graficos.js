@@ -612,6 +612,8 @@ function gCascata(passos,op={}){
  // percentual só sobre base positiva: venda negativa (estorno) não vira "400%"
  const margem=b=>base>0&&num(b.valor)?Number(b.valor)/base*100:null;
  let formas='',rot='',lacunas='';
+ // v134 (decisão do dono): com op.inicio, o primeiro degrau é o dinheiro que entra e sai azul (vermelho se negativo).
+ const corDegrau=(b,i)=>op.inicio&&i===0&&b.total&&Number(b.valor)?(Number(b.valor)>0?'entrada':'saida'):b.total||!Number(b.valor)?'resultado':Number(b.valor)>0?'entrada':'saida',usadas=new Set();
  // Com muitos degraus a faixa fica estreita: o primeiro e o último rótulo se
  // alinham à borda do gráfico em vez de centralizar e vazar para fora do card.
  // Com mais de 8 degraus, o rótulo dos degraus intermediários mostra só o
@@ -624,7 +626,7 @@ function gCascata(passos,op={}){
   // no estreito, com muitos degraus, só o primeiro e o último nome ficam (o resto não cabe)
   rot+=`<span class="g-rot g-rot-x${b.total?' g-rot-forte':''}${!b.total||(n>8&&!borda(i))?' g-opcional':''}" style="${xRot(i,cx)}">${e(b.curto||b.rotulo)}</span>`;
   if(b.semDado){lacunas+=`<span class="g-sem-dado" style="left:${p(i*banda+banda*.1,GX.W)};width:${p(banda*.8,GX.W)}"></span>`;return;}
-  const y1=esc.y(Math.max(b.de,b.ate),H),y2=esc.y(Math.min(b.de,b.ate),H),cor=b.total||!Number(b.valor)?'resultado':Number(b.valor)>0?'entrada':'saida';
+  const y1=esc.y(Math.max(b.de,b.ate),H),y2=esc.y(Math.min(b.de,b.ate),H),cor=corDegrau(b,i);usadas.add(cor);
   const m=margem(b);const dica=`${b.rotulo}\n${moeda(b.valor)}${m!=null?` · ${pct(m)} da base`:''}`;
   formas+=`<rect class="g-marca-dado g-cor-${cor}" x="${x.toFixed(2)}" y="${y1.toFixed(2)}" width="${bw.toFixed(2)}" height="${Math.max(1.5,y2-y1).toFixed(2)}" vector-effect="non-scaling-stroke" data-dica="${e(dica)}"/>`;
   const prox=barras[i+1];if(prox&&!prox.semDado)formas+=`<line class="g-ligacao" x1="${(x+bw).toFixed(2)}" x2="${((i+1)*banda+(banda-bw)/2).toFixed(2)}" y1="${esc.y(b.ate,H).toFixed(2)}" y2="${esc.y(b.ate,H).toFixed(2)}" vector-effect="non-scaling-stroke"/>`;
@@ -634,7 +636,9 @@ function gCascata(passos,op={}){
  const leitura=`Cascata de ${passos[0].rotulo} até ${passos[n-1].rotulo}. `+tot.map(b=>`${b.rotulo}: ${moeda(b.valor)}${margem(b)!=null?` (${pct(margem(b))})`:''}`).join('; ')+(barras.some(b=>b.semDado)?'. Há degraus sem dado.':'.');
  // no celular não cabem dez rótulos de valor: some todos e o resultado final vira uma linha abaixo
  const resumo=ult?`<p class="g-resumo-estreito">${e(ult.rotulo)}: <b>${e(moeda(ult.valor))}</b>${margem(ult)!=null?` · ${e(pct(margem(ult)))} da base`:''}</p>`:'';
- const leg=GX.legenda([{rotulo:'Subtotal',cor:'resultado'},{rotulo:'Soma',cor:'entrada'},{rotulo:'Desconta',cor:'saida'},...(lacunas?[{rotulo:'sem dado',semDado:true}]:[])]);
+ const somaAzul=barras.some((b,i)=>!b.semDado&&!(op.inicio&&i===0)&&corDegrau(b,i)==='entrada'),inicioAzul=op.inicio&&!barras[0]?.semDado&&corDegrau(barras[0],0)==='entrada';
+ const nomeAzul=inicioAzul&&somaAzul?`${barras[0].curto||barras[0].rotulo} e soma`:inicioAzul?(barras[0].curto||barras[0].rotulo):'Soma';
+ const leg=GX.legenda([{rotulo:'Subtotal',cor:'resultado'},{rotulo:nomeAzul,cor:'entrada'},{rotulo:'Desconta',cor:'saida'}].filter(x=>usadas.has(x.cor)).concat(lacunas?[{rotulo:'sem dado',semDado:true}]:[]));
  const tab=GX.tabela(['Degrau','Valor','% da base'],barras.map(b=>[b.rotulo,b.semDado?'Não apurado':moeda(b.valor),b.semDado?'—':pct(margem(b))]),[1,2],(r,i)=>i===1&&!barras[r].semDado?tomDoValor('variacao',barras[r].valor):'');
  return GX.figura('cascata g-cartesiano',ult?leitura:leitura,`<div class="g-area">${GX.svg(H,g.svg+formas)}<div class="g-rotulos">${g.html}${lacunas}${rot}</div></div>`,resumo+leg,tab);
 }
@@ -687,7 +691,8 @@ function gCemPorCento(faixas,op={}){
  faixas.forEach((f,i)=>{const w=vs[i]/total*GX.W;if(w>0)formas+=`<rect class="g-marca-dado g-cor-${f.cor||cores[i]||'outros'}" x="${(x+(x?gap/2:0)).toFixed(2)}" y="0" width="${Math.max(1,w-(x?gap/2:0)-(x+w<GX.W-1?gap/2:0)).toFixed(2)}" height="${H}" data-dica="${e(`${f.rotulo}\n${moeda(f.valor)} · ${pc[i]}% do total`)}"/>`;x+=w;});
  const leitura=`${op.titulo||'Composição'}: `+faixas.map((f,i)=>`${f.rotulo} ${pc[i]}%`).join(', ')+`. Total ${moeda(total)}.`;
  const leg=GX.legenda(faixas.map((f,i)=>({rotulo:f.rotulo,cor:f.cor||cores[i]||'outros',valor:`${pc[i]}%`})));
- const tab=GX.tabela(['Faixa','Valor','% do total'],faixas.map((f,i)=>[f.rotulo,moeda(f.valor),pc[i]+'%']).concat([['Total',moeda(total),'100%']]),[1,2]);
+ // op.tons(faixa,i) dá a cor do valor na tabela (saldos, v134); o total usa op.tomTotal.
+ const tab=GX.tabela(['Faixa','Valor','% do total'],faixas.map((f,i)=>[f.rotulo,moeda(f.valor),pc[i]+'%']).concat([['Total',moeda(total),'100%']]),[1,2],op.tons?(r,c)=>c!==1?'':r<faixas.length?op.tons(faixas[r],r)||'':op.tomTotal||'':null);
  return GX.figura('cem',leitura,`<div class="g-cem-barra">${GX.svg(H,formas)}</div>`,leg,tab);
 }
 
@@ -835,7 +840,7 @@ const GRAFICOS_EXEMPLOS={
 function galeriaGraficos(){
  const X=GRAFICOS_EXEMPLOS,item=(t,d,h)=>painelGrafico(t,d,h);
  return `<details class="card galeria-graficos"><summary>Como ler os gráficos do painel</summary><div class="card-body"><p class="hint">Exemplos com números fictícios, só para mostrar a leitura. Mês sem dado aparece hachurado e nunca como zero. Toque numa barra ou use Tab e as setas para ver os valores; cada gráfico tem a tabela em “Ver os valores”.</p>`
-  +item('Cascata do resultado','Da receita bruta ao resultado, com a margem de cada degrau sobre a receita.',gCascata(X.cascata))
+  +item('Cascata do resultado','Da receita bruta ao resultado, com a margem de cada degrau sobre a receita.',gCascata(X.cascata,{inicio:'entrada'}))
   +item('Barras empilhadas com linha','Operação, investimento e financiamento por mês, com o saldo acumulado no mesmo eixo.',gEmpilhadas(X.empilhadas,{series:[{chave:'fco',rotulo:'Operação',sinal:true},{chave:'fci',rotulo:'Investimento'},{chave:'fcf',rotulo:'Financiamento'}],linha:{rotulo:'Saldo acumulado'},selecionado:8,titulo:'Fluxo de caixa por mês'}))
   +item('Barra 100% em escala de risco','Quanto do que está a receber já está atrasado, por faixa.',gCemPorCento(X.aging,{titulo:'Recebíveis por faixa'}))
   +item('Barras ordenadas','As maiores despesas; o excedente vira “Outros”.',gBarrasOrdenadas(X.barras,{cor:'saida',titulo:'Despesas por grupo'}))

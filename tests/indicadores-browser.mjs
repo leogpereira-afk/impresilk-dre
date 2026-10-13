@@ -45,7 +45,7 @@ try{
  await page.getByRole('button',{name:'Margem',exact:true}).click();await page.locator('[data-source="competencia"]').click();assert.match(await page.locator('.ind-analysis svg').first().getAttribute('aria-label'),/40%/);
  await page.getByRole('button',{name:'Receita',exact:true}).click();
  await page.locator('[data-formula]').first().focus();await page.keyboard.press('Enter');await page.locator('#detailDialog').waitFor({state:'visible'});await page.keyboard.press('Escape');
- await page.reload();await page.locator('[data-view="indicadores"]').click();await page.locator('#monthChips [data-period="Set/2026"]').click();assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);
+ await page.waitForFunction(()=>!history.state?.dialogo).catch(()=>{});await page.waitForTimeout(150);await page.reload();await page.locator('[data-view="indicadores"]').click();await page.locator('#monthChips [data-period="Set/2026"]').click();assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);
  // Cenários que reproduzem as telas vazias e o histórico cortado do usuário.
  await page.locator('#yearSelect').selectOption('2025');assert.equal(await page.locator('#monthChips [aria-pressed=true]').getAttribute('data-period'),'Dez/2025');
  await page.locator('#yearSelect').selectOption('2026');await page.locator('#monthChips [data-period="Set/2026"]').click();

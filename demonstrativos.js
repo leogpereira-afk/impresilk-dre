@@ -214,7 +214,7 @@ function dreCascataCaixa(m,r={}){
   {rotulo:'Receita bruta de vendas',curto:'Vendas',valor:l.vendas,total:true},{rotulo:r.simples||'(−) Simples do mês (DAS e DARF)',curto:'Simples',valor:neg(l.das)},{rotulo:'(−) ISS fora do DAS',curto:'ISS',valor:neg(l.impostosVendas)},{rotulo:'(−) Devoluções',curto:'Devol.',valor:neg(l.devolucoes)},
   {rotulo:'(=) Receita líquida',curto:'Líquida',valor:l.receitaLiquida,total:true},{rotulo:'(−) Custos variáveis',curto:'Variáveis',valor:neg(l.variaveis)},{rotulo:'(=) Margem de contribuição',curto:'Margem',valor:l.margemContribuicao,total:true},
   {rotulo:'(−) Despesas fixas',curto:'Fixas',valor:neg(l.fixas)},{rotulo:'(=) EBITDA de caixa',curto:'EBITDA',valor:l.ebitda,total:true},{rotulo:'(+/−) Financeiro',curto:'Financ.',valor:l.receitasFinanceiras-l.despesasFinanceiras},{rotulo:r.resultado||'(=) Resultado do mês',curto:'Resultado',valor:l.resultado,total:true}
- ],{base:l.vendas>0?l.vendas:0});
+ ],{base:l.vendas>0?l.vendas:0,inicio:'entrada'});
 }
 // Tabela de comparação. Linha de detalhe ou da ponte zerada nos dois meses só ocupa espaço.
 function dreComparacao(linhas,valA,valB,pctA,pctB,{rotuloA,rotuloB,pode=true,motivo='',ressalva=false,parcialB=false}){
@@ -310,7 +310,7 @@ function dreSimplesCompetencia(d){
  const linhasCmp=DREModelo.linhas.filter(r=>r.tipo!=='detail'&&r.tipo!=='ratio'&&r.tipo!=='info').map(r=>({id:r.id,nome:r.nome,tipo:r.tipo==='result'?'resultado':r.tipo,sentido:DIRECAO_DA_LINHA[r.id]||0}));
  const comparacao=!outroLabel?'':!outroComp?card(`Comparação · ${label} contra ${outroLabel}`,`<p class="hint">${esc(outroLabel)} sem apuração por competência: escolha outro mês em “Comparação”, no topo.</p>`,false):card(`Comparação · ${label} contra ${outroLabel}${pode?'':' · sem comparação'}`,dreComparacao(linhasCmp,id=>v[id]??null,id=>vb[id]??null,id=>pctBruta(v[id],v.bruta),id=>pctBruta(vb[id],vb.bruta),{rotuloA:label,rotuloB:outroLabel,pode,motivo:'empresas diferentes nas duas apurações'}),pode);
  const tendencia=gLinhaArea(d.cols.map((x,k)=>({rotulo:x.label.slice(0,3),valor:x.comp?pctBruta(d.valores[k].liquido,d.valores[k].bruta):null})),{selecionado:i,titulo:'Lucro líquido sobre a receita bruta',formato:x=>drePct(x),rotulo:'Lucro líquido / receita bruta',cor:'resultado'});
- return `<p class="note dre-das-ref">${esc(nota)}</p><div class="graficos-controle">${drePainel(`Da receita ao lucro · ${label}`,'Competência informada; cada degrau com o percentual sobre a receita bruta. No Simples, IRPJ e CSLL estão dentro do DAS.',gCascata(passos,{base:v.bruta>0?v.bruta:0}),true)}${drePainel('O lucro sobre a receita está melhorando?','Lucro líquido sobre a receita bruta, nos meses com apuração.',tendencia,true)}</div>${comparacao}<p class="hint">A composição conta a conta fica na base de caixa; na competência, as rubricas vêm da apuração informada.</p>`;
+ return `<p class="note dre-das-ref">${esc(nota)}</p><div class="graficos-controle">${drePainel(`Da receita ao lucro · ${label}`,'Competência informada; cada degrau com o percentual sobre a receita bruta. No Simples, IRPJ e CSLL estão dentro do DAS.',gCascata(passos,{base:v.bruta>0?v.bruta:0,inicio:'entrada'}),true)}${drePainel('O lucro sobre a receita está melhorando?','Lucro líquido sobre a receita bruta, nos meses com apuração.',tendencia,true)}</div>${comparacao}<p class="hint">A composição conta a conta fica na base de caixa; na competência, as rubricas vêm da apuração informada.</p>`;
 }
 // Planilha: na base de caixa, a DRE Simples vai junto do movimento do caixa.
 function dreSimplesCSV(indices,cols){

@@ -597,7 +597,7 @@ function render(){
 }
 // Saldo do fim do mês como a DFC calcula (saldo inicial de Parâmetros + geração), com * no mês
 // em andamento ou incompleto; sem saldo, "Não apurado" e o caminho para informar.
-function saldoFimDoMes(reg){const s=reg&&typeof dfcSaldo==='function'?dfcSaldo(reg.label):null;return s?.final==null?'Não apurado · <button type="button" class="text-button" data-go="parametros">informe em Parâmetros</button>':esc(money(s.final))+(s.parcial?` <span title="${s.emAndamento?'Mês em andamento':'Mês incompleto'}: saldo até a última coleta">*</span>`:'');}
+function saldoFimDoMes(reg){const s=reg&&typeof dfcSaldo==='function'?dfcSaldo(reg.label):null;return s?.final==null?'Não apurado · <button type="button" class="text-button" data-go="parametros">informe em Parâmetros</button>':`<span class="${s.final>0?'tom-entra':s.final<0?'tom-sai':''}">${esc(money(s.final))}</span>`+(s.parcial?` <span title="${s.emAndamento?'Mês em andamento':'Mês incompleto'}: saldo até a última coleta">*</span>`:'');}
 function renderInicio(reg,q){
  const latest=[...state.records].sort((a,b)=>monthSortKey(b.label)-monthSortKey(a.label))[0];
  let h=!reg?`<div class="month-empty"><div><b>${esc(state.periodo)} ainda não tem dados.</b><span>O histórico abaixo continua disponível para consulta.</span></div>${latest?`<button data-period="${esc(latest.label)}">Abrir ${esc(latest.label)} →</button>`:''}</div>`:'';

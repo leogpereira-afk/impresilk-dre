@@ -83,10 +83,10 @@ function tela({dados=null,op={},admin=true,api=null}={}){
 const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],tom:m[2],valor:m[3].replace(/\s/g,' '),nota:m[4]}));
 test('tela: quatro cards, estoque de Parâmetros do mês de hoje, cascata, classes e vencimentos',async()=>{
  const d=await payload(),h=tela({dados:d,op:{'2026-10':{estoque:1200,prazoRecebimento:30,prazoPagamento:45}}}).run('renderGiro()'),k=cartoes(h);
- assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['Necessidade de capital de giro','','R$ 1.450,00'],['A receber','','R$ 5.000,00'],['A pagar operacional','','R$ 4.750,00'],['Estoque','','R$ 1.200,00']]);
+ assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['Necessidade de capital de giro','tom-entra','R$ 1.450,00'],['A receber','tom-entra','R$ 5.000,00'],['A pagar operacional','tom-sai','R$ 4.750,00'],['Estoque','tom-entra','R$ 1.200,00']],'v134: a receber e estoque azul, a pagar vermelho, necessidade de giro pelo sinal');
  assert.match(k[0].nota,/^A receber R\$\s5\.000,00 \+ estoque R\$\s1\.200,00 − a pagar operacional R\$\s4\.750,00$/);assert.match(k[2].nota,/R\$\s1\.450,00 já vencido$/);
  assert.equal((h.match(/<figure class="g-fig g-(cascata|barras|cem)/g)||[]).length,3);assert.match(h,/g-cor-saida/,'o que se deve não usa o azul de entrada');
- assert.match(h,/<tr class=""><th scope="row">Fornecedores de produção \(1\.xx\)<\/th><td>Sim<\/td><td class="num">3<\/td><td class="num">R\$\s650,00<\/td><td class="num">R\$\s1\.000,00<\/td><td class="num">R\$\s1\.650,00<\/td><\/tr>/);
+ assert.match(h,/<tr class=""><th scope="row">Fornecedores de produção \(1\.xx\)<\/th><td>Sim<\/td><td class="num">3<\/td><td class="num tom-sai">R\$\s650,00<\/td><td class="num tom-sai">R\$\s1\.000,00<\/td><td class="num tom-sai">R\$\s1\.650,00<\/td><\/tr>/,'a pagar em vermelho');
  assert.match(h,/<tr class="giro-fora"><th scope="row">Empréstimos e financiamentos \(3\.04\)<\/th><td>Não<\/td>/);assert.match(h,/Projetado no Mubisys \(ainda não é título\)<\/th><td>Não<\/td><td class="num">2<\/td>/);
  assert.match(h,/Prazos em Parâmetros \(Out\/2026\): recebimento <b>30 dias<\/b>, pagamento <b>45 dias<\/b>/);assert.match(h,/vence em 10 dias/);
  assert.doesNotMatch(h,/Falta o estoque/);assert.match(tela({dados:d}).run("paginasDoApp().giro()"),/Necessidade/);
@@ -128,9 +128,9 @@ test('cargas de horários diferentes: aviso, as duas horas e leitura parcial',as
 test('sem as contas a pagar: gráficos dizem "Não apurado", nunca "nenhuma conta"',async()=>{
  const h=tela({dados:await payload({pag:null})}).run('renderGiro()');assert.equal((h.match(/Não apurado: faltam as contas a pagar do Painel\./g)||[]).length,2);assert.doesNotMatch(h,/Nenhuma conta/);
 });
-test('cores: na cascata, a pagar desconta em vermelho e o estoque soma em azul; barras do que se deve em vermelho',async()=>{
+test('cores: na cascata, a receber (primeiro degrau) e o estoque em azul, a pagar desconta em vermelho; barras do que se deve em vermelho',async()=>{
  const d=await payload(),h=tela({dados:d,op:{'2026-10':{estoque:1200}}}).run('renderGiro()');
- const cas=rects(h,'cascata');assert.deepEqual(cas.map(x=>[x[0],x[1]]),[['g-cor-resultado','A receber'],['g-cor-entrada','Estoque'],['g-cor-saida','A pagar operacional'],['g-cor-resultado','Necessidade de giro']]);
+ const cas=rects(h,'cascata');assert.deepEqual(cas.map(x=>[x[0],x[1]]),[['g-cor-entrada','A receber'],['g-cor-entrada','Estoque'],['g-cor-saida','A pagar operacional'],['g-cor-resultado','Necessidade de giro']]);
  assert.match(cas[2][2],/^-R\$/);const bar=rects(h,'barras');assert.ok(bar.length>0&&bar.every(x=>x[0]==='g-cor-saida'),JSON.stringify(bar));
  assert.deepEqual(rects(tela({dados:d}).run('renderGiro()'),'cascata').map(x=>x[1]),['A receber','A pagar operacional','Sem estoque']);
 });
@@ -149,7 +149,7 @@ test('o que fica fora é dito, no servidor e na tela',async()=>{
  for(const re of [/1 conta\(s\) vencida\(s\) antes de 01\/01\/2025 ficam fora/,/1 conta\(s\) sem data de vencimento válida/,/1 conta\(s\) sem saldo válido/,/1 conta\(s\) repetida\(s\)/,/foi usado o padrão 01\/01\/2025/])assert.ok(r.avisos.some(a=>re.test(a)),String(re));
  const d=await payload({pag:{valor:[...PAGAR,c(20,600,10,'Materia Prima'),c(30,9000,700,'1.01 X',{vencimento:'2024-12-31'})],atualizado_em:EM}}),h=tela({dados:d}).run('renderGiro()');
  assert.match(h,/<li>A pagar: 1 conta\(s\) sem número de centro de custo no Mubisys/);
- assert.match(h,/<tr class="giro-fora"><th scope="row">Vencidas antes de 01\/01\/2025<\/th><td>Não<\/td><td class="num">1<\/td><td class="num">R\$\s9\.000,00<\/td>/);
+ assert.match(h,/<tr class="giro-fora"><th scope="row">Vencidas antes de 01\/01\/2025<\/th><td>Não<\/td><td class="num">1<\/td><td class="num tom-sai">R\$\s9\.000,00<\/td>/);
  assert.match(h,new RegExp(`prazo concedido médio <b>${d.receber.prazo.concedido.dias} dias</b> e idade média <b>${d.receber.prazo.idade.dias} dias</b>`));
 });
 test('escapa tudo que vem do Mubisys e do servidor',async()=>{
@@ -206,8 +206,8 @@ test('tela do histórico: necessidade de giro por mês, ciclo do último fechame
  const h=tela({dados:d,op:{'2025-12':{estoque:1200}}}).run('renderGiro()');
  assert.match(h,/A necessidade de giro está crescendo\?/);assert.match(h,/data-dica="Dez\/25\nR\$\s2\.900,00"/,'5.000 − 2.100 sem estoque');
  assert.match(h,/Quantos dias o dinheiro fica preso\? · Dez\/2025/);assert.match(h,/Ciclo operacional 43 dias · ciclo financeiro 18 dias/,'estoque 18 (1.200 ÷ 6.000 × 90) + recebimento 25 (5.000 ÷ 18.000 × 90) − pagamento 25 (2.100 ÷ 7.500 × 90)');
- assert.match(h,/<tr class="giro-parcial"><th scope="row">Dez\/2025 \*<\/th><td class="num">R\$\s5\.000,00<\/td><td class="num">R\$\s2\.100,00<\/td><td class="num">R\$\s1\.200,00<\/td><td class="num">R\$\s4\.100,00<\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">18<\/td><td class="num">18<\/td><td class="num">34<\/td><td class="num">25<\/td><\/tr>/);
- assert.match(h,/<tr class="giro-parcial"><th scope="row">Nov\/2025 \*<\/th><td class="num">R\$\s5\.000,00<\/td><td class="num">R\$\s2\.100,00<\/td><td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><td class="num">R\$\s2\.900,00 <small>sem estoque<\/small><\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">—<\/td><td class="num">—<\/td>/,'sem estoque: estoque e ciclo não apurados, nunca zero');
+ assert.match(h,/<tr class="giro-parcial"><th scope="row">Dez\/2025 \*<\/th><td class="num tom-entra">R\$\s5\.000,00<\/td><td class="num tom-sai">R\$\s2\.100,00<\/td><td class="num tom-entra">R\$\s1\.200,00<\/td><td class="num tom-entra">R\$\s4\.100,00<\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">18<\/td><td class="num">18<\/td><td class="num">34<\/td><td class="num">25<\/td><\/tr>/);
+ assert.match(h,/<tr class="giro-parcial"><th scope="row">Nov\/2025 \*<\/th><td class="num tom-entra">R\$\s5\.000,00<\/td><td class="num tom-sai">R\$\s2\.100,00<\/td><td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><td class="num tom-entra">R\$\s2\.900,00 <small>sem estoque<\/small><\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">—<\/td><td class="num">—<\/td>/,'sem estoque: estoque e ciclo não apurados, nunca zero');
  assert.match(h,/<summary>Prazos e saldos por mês · 2 fechamentos<\/summary>/);assert.doesNotMatch(h,/O histórico usou o corte/);
  // C12: a necessidade de giro pode ser negativa, então a linha sai na cor de resultado, não no azul da marca
  assert.match(h.slice(h.indexOf('A necessidade de giro está crescendo?'),h.indexOf('Quantos dias o dinheiro fica preso?')),/g-cor-resultado/);assert.doesNotMatch(h.slice(h.indexOf('A necessidade de giro está crescendo?'),h.indexOf('Quantos dias o dinheiro fica preso?')),/g-cor-marca/);
@@ -247,7 +247,7 @@ test('prazos sobre a carteira inteira e mês parcial com o motivo',()=>{
 test('tela: prazos sobre a carteira inteira, mês parcial marcado e os três estados do histórico',async()=>{
  const p=posicao('2025-11',{receber:{...posicao('x').receber,total:6000,alemHorizonte:{quantidade:2,valor:3000}},pagar:{...posicao('x').pagar,porCentro:[{rotulo:'1.01 Impressão',valor:2100,quantidade:1}]}});
  const h=tela({dados:await consultarGiro(banco({posicoes:[p]}),{},AGORA)}).run('renderGiro()');
- assert.match(h,/<tr><th scope="row">Nov\/2025<\/th><td class="num">R\$\s6\.000,00<\/td><td class="num">R\$\s2\.100,00<\/td><td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><td class="num">R\$\s3\.900,00 <small>sem estoque<\/small><\/td><td class="num">45<\/td><td class="num">25<\/td>/,'recebimento 9.000 ÷ 18.000 × 90 = 45');
+ assert.match(h,/<tr><th scope="row">Nov\/2025<\/th><td class="num tom-entra">R\$\s6\.000,00<\/td><td class="num tom-sai">R\$\s2\.100,00<\/td><td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><td class="num tom-entra">R\$\s3\.900,00 <small>sem estoque<\/small><\/td><td class="num">45<\/td><td class="num">25<\/td>/,'recebimento 9.000 ÷ 18.000 × 90 = 45');
  assert.match(h,/Prazos de recebimento e de pagamento sobre a carteira inteira; a necessidade de giro, só até 60 dias de cada fechamento/);
  const parc=tela({dados:await consultarGiro(banco({posicoes:[posicao('2025-11')]}),{},AGORA)}).run('renderGiro()');assert.match(parc,/<b>Fechamentos parciais \(\*\)\.<\/b><ul><li>Nov\/2025: a pagar sem classificação \(R\$\s500,00\) fora do operacional\.<\/li><\/ul>/);
  assert.match(tela({dados:await consultarGiro(banco({erroPosicoes:true}),{},AGORA)}).run('renderGiro()'),/<h2>Histórico indisponível agora<\/h2>[\s\S]*não foram perdidos/);

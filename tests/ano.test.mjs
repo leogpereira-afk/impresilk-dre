@@ -119,12 +119,12 @@ test('v133 (N5): o mês guardado ao ligar o Ano não vale em outro ano (Voltar e
 // pendências com caminho para a Conferência, a cor no mês em andamento e o acumulado colorido.
 test('saldo do fim do mês igual ao da DFC; sem saldo, Não apurado com caminho para Parâmetros',()=>{
  const c=app({periodo:'Jan/2026',view:'inicio'});
- assert.equal(c.run('saldoFimDoMes(regAtual())'),c.run('money(13000)'),'10.000 informado + 3.000 de geração');
- c.run("state.periodo='Abr/2026'");assert.match(c.run('saldoFimDoMes(regAtual())'),/^R\$\s23\.500,00 <span title="Mês em andamento: [^"]*">\*<\/span>$/,'mês em andamento com *');
+ assert.equal(c.run('saldoFimDoMes(regAtual())'),`<span class="tom-entra">${c.run('money(13000)')}</span>`,'10.000 informado + 3.000 de geração, saldo positivo em azul');
+ c.run("state.periodo='Abr/2026'");assert.match(c.run('saldoFimDoMes(regAtual())'),/^<span class="tom-entra">R\$\s23\.500,00<\/span> <span title="Mês em andamento: [^"]*">\*<\/span>$/,'mês em andamento com *');
  const h=c.run('renderInicio(regAtual(),F.qualidade(regAtual()))');
  assert.match(h,/<span class="label">Pendências a conferir<\/span><b><button type="button" class="text-button" data-go="conferencia"[^>]*>0<\/button>/);
- assert.match(h,/data-go="dfc">Saldo no fim do mês \(Fluxo de caixa\)<\/button><\/span><b>R\$\s23\.500,00 /);assert.doesNotMatch(h,/Saldo bancário disponível|Pendências de classificação/);
- const k=c.run('renderCaixa(regAtual())');assert.match(k,/Saldo no fim do mês \(Fluxo de caixa\)<\/button>: <b>R\$\s23\.500,00 /);
+ assert.match(h,/data-go="dfc">Saldo no fim do mês \(Fluxo de caixa\)<\/button><\/span><b><span class="tom-entra">R\$\s23\.500,00<\/span> /);assert.doesNotMatch(h,/Saldo bancário disponível|Pendências de classificação/);
+ const k=c.run('renderCaixa(regAtual())');assert.match(k,/Saldo no fim do mês \(Fluxo de caixa\)<\/button>: <b><span class="tom-entra">R\$\s23\.500,00<\/span> /);
  assert.match(k,/Recebimentos de vendas: <b class="tom-entra">/,'mês em andamento com a cor do sentido (C3)');assert.doesNotMatch(k,/sem cor/);
  const s=app({op:{},periodo:'Mar/2026',view:'inicio'});assert.match(s.run('saldoFimDoMes(regAtual())'),/^Não apurado · <button type="button" class="text-button" data-go="parametros">informe em Parâmetros<\/button>$/);
 });

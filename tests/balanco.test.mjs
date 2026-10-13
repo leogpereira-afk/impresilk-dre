@@ -29,7 +29,7 @@ function tela({periodo='Set/2026',registros=REG,op=OP,balanco=BAL,hist=HIST(),da
  if(d)c.run('giroUI.dados=__d;giroUI.em=Date.now()');return c;
 }
 const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],tom:m[2],valor:m[3].replace(/\s/g,' '),nota:m[4].replace(/\s/g,' ')}));
-const linha=(h,nome)=>{const t=h.slice(h.indexOf('bal-tabela" style='));const m=new RegExp(`<tr class="dre-l-detalhe"><th scope="row">${nome.replace(/[()*]/g,'\\$&')}( ≈)?( †)?</th><td class="num">((?:(?!</td>).)*)</td><td>([^<]*)</td></tr>`).exec(t);return m?{valor:m[3].replace(/<[^>]*>/g,'').replace(/\s/g,' '),origem:m[4],marca:!!m[1],herdado:!!m[2]}:null;};
+const linha=(h,nome)=>{const t=h.slice(h.indexOf('bal-tabela" style='));const m=new RegExp(`<tr class="dre-l-detalhe"><th scope="row">${nome.replace(/[()*]/g,'\\$&')}( ≈)?( †)?</th><td class="num( tom-entra| tom-sai)?">((?:(?!</td>).)*)</td><td>([^<]*)</td></tr>`).exec(t);return m?{valor:m[4].replace(/<[^>]*>/g,'').replace(/\s/g,' '),origem:m[5],marca:!!m[1],herdado:!!m[2],tom:(m[3]||'').trim()}:null;};
 
 test('servidor: cada classe do a pagar sem o corte de 60 dias, total do a pagar e o que fica fora, à parte',()=>{
  const m=resumirHistorico([pos('2026-09')]).meses[0];
@@ -49,7 +49,7 @@ test('balanço do mês: caixa da DFC, carteira inteira, cadastro; patrimônio = 
  assert.deepEqual([b.apurado,b.parcial,b.ativo,b.passivo,b.pl,b.endiv],[true,false,140500,36800,103700,26.2]);
  assert.deepEqual(b.anteriores,['imobilizado'],'imobilizado de agosto vale em setembro, marcado');
  const h=c.run('renderBalanco()'),k=cartoes(h);
- assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['Ativo total','','R$ 140.500,00'],['Passivo total','','R$ 36.800,00'],['Patrimônio líquido','tom-entra','R$ 103.700,00'],['Endividamento','','26,2%']]);
+ assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['Ativo total','tom-entra','R$ 140.500,00'],['Passivo total','tom-sai','R$ 36.800,00'],['Patrimônio líquido','tom-entra','R$ 103.700,00'],['Endividamento','','26,2%']],'v134: ativo azul, passivo vermelho, patrimônio pelo sinal');
  assert.equal(k[0].nota,'Caixa R$ 27.500,00, a receber R$ 6.000,00, estoque R$ 7.000,00 e imobilizado R$ 100.000,00 · último informado: imobilizado de Ago/2026');assert.doesNotMatch(k[1].nota,/último informado/,'o passivo não herda nada');
  assert.equal(k[1].nota,'Contas a pagar no Mubisys R$ 2.800,00, empréstimos R$ 30.000,00 e parcelamento do DAS R$ 4.000,00');
  assert.match(k[3].nota,/^De cada R\$ 100,00 do ativo, R\$ 26,19 são de terceiros · último informado: imobilizado de Ago\/2026$/,'em reais, com centavos, das somas');
@@ -161,10 +161,10 @@ test('ano mês a mês e planilha: mesmas regras, sem fórmula executável; rota 
  assert.deepEqual(rows.find(r=>r[0]==='Patrimônio líquido').slice(7,10),['Não apurado','118700,00','103700,00']);
  assert.equal(rows.find(r=>r[0]==='Caixa e bancos')[8],'23000,00');
  const h=c.run('renderBalanco()');assert.match(h,/<summary>Balanço mês a mês · 2026<\/summary><div class="card-body"><div class="actions"><button type="button" data-bal-csv>/);assert.match(h,/<th scope="col" class="num ">Ago\/2026 \*<\/th>/);assert.match(h,/<th scope="col" class="num selected-month">Set\/2026 †<\/th>/);
- assert.match(h,/<td class="num selected-month">R\$\s100\.000,00 †<\/td>/,'célula herdada marcada');assert.match(h,/<td class="num ">R\$\s7\.500,00 ≈<\/td>/,'célula aproximada marcada');assert.match(h,/class="tabela-controle dre-simples-meses bal-meses"/);
- // C10: PL mês a mês pelo sinal, como o cartão e o balanço por conta; mês parcial sem tom
+ assert.match(h,/<td class="num selected-month tom-entra">R\$\s100\.000,00 †<\/td>/,'célula herdada marcada (ativo em azul)');assert.match(h,/<td class="num  tom-sai">R\$\s7\.500,00 ≈<\/td>/,'célula aproximada marcada (passivo em vermelho)');assert.match(h,/class="tabela-controle dre-simples-meses bal-meses"/);
+ // C10: PL mês a mês pelo sinal, como o cartão e o balanço por conta; v134: também no mês em andamento (regra do dono)
  const pl=h.match(/<tr class="dre-l-resultado"><th scope="row">Patrimônio líquido<\/th>.*?<\/tr>/)[0];
- assert.match(pl,/<td class="num ">R\$\s118\.700,00<\/td>/,'PL do mês parcial sem tom');assert.match(pl,/<td class="num selected-month tom-entra">R\$\s103\.700,00<\/td>/,'PL positivo em azul');
+ assert.match(pl,/<td class="num  tom-entra">R\$\s118\.700,00<\/td>/,'PL do mês em andamento também pelo sinal');assert.match(pl,/<td class="num selected-month tom-entra">R\$\s103\.700,00<\/td>/,'PL positivo em azul');
  // I14: * só para mês em andamento ou incompleto; aproximado com ≈
  assert.match(h,/\* = mês em andamento ou incompleto · ≈ = aproximado · † = saldo de um mês anterior/);assert.doesNotMatch(h,/\* = aproximado/);
  assert.match(c.run('paginasDoApp().balanco()'),/Ativo total/);
@@ -251,7 +251,7 @@ test('ilegíveis e entradas a identificar: marcados e avisados; marca de parcial
  assert.ok(ai.some(a=>/R\$\s5\.000,00 entraram em Set\/2026 como Entradas a identificar/.test(a)));
  const lado=tela({balanco:{'2026-09':{emprestimos:30000,parcelamentoDAS:4000}}}),k=cartoes(lado.run('renderBalanco()'));
  assert.match(k[0].nota,/ · parcial: sem imobilizado$/);assert.doesNotMatch(k[1].nota,/parcial/,'o passivo está completo');
- assert.match(lado.run('renderBalanco()'),/<tr class="dre-l-subtotal"><th scope="row">Total do passivo<\/th><td class="num">R\$\s36\.800,00<\/td><td>Completo<\/td>/);
+ assert.match(lado.run('renderBalanco()'),/<tr class="dre-l-subtotal"><th scope="row">Total do passivo<\/th><td class="num tom-sai">R\$\s36\.800,00<\/td><td>Completo<\/td>/);
 });
 test('mês encerrado sem dados nem posição não é "ainda não fechou"; subtítulos h3; dica do imobilizado',()=>{
  const c=tela({registros:[REG[0],REG[2]],hist:resumirHistorico([pos('2026-08')]).meses}),h=c.run('renderBalanco()');

@@ -110,13 +110,13 @@ const P=()=>({ok:true,versao:1,fonte:'recebiveis',...ag([...BASE,t(11,5000,700,{
 const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],tom:m[2],valor:m[3].replace(/\s/g,' '),nota:m[4]}));
 test('tela: quatro cards, provisão pelo % de Parâmetros do mês da posição, três gráficos e a data da posição',()=>{
  const h=tela({payload:P(),pdd:{'2026-10':50}}).run('renderRecebiveis()'),k=cartoes(h);
- assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['A receber','','R$ 6.600,00'],['Vencido','tom-sai','R$ 3.600,00'],['Provisão estimada (PDD)','tom-sai','R$ 750,00'],['Maior devedor','tom-sai','R$ 800,00']]);
+ assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['A receber','tom-entra','R$ 6.600,00'],['Vencido','tom-sai','R$ 3.600,00'],['Provisão estimada (PDD)','tom-sai','R$ 750,00'],['Maior devedor','tom-sai','R$ 800,00']]);
  assert.match(k[1].nota,/^54,5% do que há a receber · 8 títulos$/);assert.match(k[2].nota,/^Estimativa: 50% de Out\/2026 \(Parâmetros\) sobre R\$\s1\.500,00 vencidos há mais de 90 dias; não entra no caixa nem na DRE$/);
  assert.match(k[3].nota,/^Cliente 10 · 22,2% do vencido · atraso de até 400 dias$/);
  assert.equal((h.match(/<figure class="g-fig g-(cem|barras|linha-area)/g)||[]).length,3);
  assert.match(h,/Posição do Painel de 10\/10\/2026,? 22:49 \(a carga roda a cada 20 minutos\); dias de atraso contados até hoje, como no Painel\. Esta tela é uma foto da carteira: não muda com o mês escolhido\. Vencidos antes de 01\/01\/2025 \(1 título, R\$\s5\.000,00\) ficam fora dos números/);
  assert.match(h,/Prazo concedido médio da carteira: <b>30 dias<\/b>.*Em Parâmetros \(Out\/2026\): <b>28 dias<\/b>.*Idade média da carteira: <b>83 dias<\/b>/s,"Σ saldo × dias desde a emissão ÷ Σ saldo = 545.600 ÷ 6.600");
- assert.match(h,/<summary>Faixas e títulos vencidos · 8<\/summary>/);assert.match(h,/<tr><th scope="row">Acima de 90 dias<\/th><td class="num">2<\/td><td class="num">R\$\s1\.500,00<\/td><td class="num">22,7%<\/td><\/tr>/);
+ assert.match(h,/<summary>Faixas e títulos vencidos · 8<\/summary>/);assert.match(h,/<tr><th scope="row">Acima de 90 dias<\/th><td class="num">2<\/td><td class="num tom-sai">R\$\s1\.500,00<\/td><td class="num">22,7%<\/td><\/tr>/,'faixa vencida em vermelho');assert.match(h,/<tr><th scope="row">A vencer<\/th><td class="num">\d+<\/td><td class="num tom-entra">/,'a vencer em azul');
  assert.doesNotMatch(h,/data-go="parametros">Informar em Parâmetros/);
  assert.equal((h.match(/ficam fora/g)||[]).length,1,'a dívida antiga é dita uma vez');assert.doesNotMatch(h,/rec-avisos/,'sem aviso a repetir');
  const parc=P();parc.avisos.push('A carga do Painel está atrasada: confira a data da posição.');assert.match(tela({payload:parc}).run('renderRecebiveis()'),/<ul class="param-avisos rec-avisos"><li>A carga do Painel está atrasada: confira a data da posição\.<\/li><\/ul>/);assert.equal(tela({payload:P()}).run("paginasDoApp().recebiveis()").includes('Posição do Painel'),true);
@@ -151,7 +151,7 @@ test('planilha e nomes do ERP escapados; fórmula não executa no CSV',()=>{
  const p2=P();p2.titulosVencidos[0].cliente='=HYPERLINK("x")';const c2=tela({payload:p2});c2.run('download=(n,t)=>{__csv={n,t}}');c2.run('recCSV()');assert.match(c2.run('__csv.t'),/"'=HYPERLINK\(""x""\)"/);
 });
 test('versão publicada e a tela está no menu certo',()=>{
- assert.match(ler('sw.js'),/dre-shell-v133/);assert.equal((ler('index.html').match(/\?v=(\d+)/g)||[]).every(v=>v==='?v=133'),true);
+ assert.match(ler('sw.js'),/dre-shell-v134/);assert.equal((ler('index.html').match(/\?v=(\d+)/g)||[]).every(v=>v==='?v=134'),true);
  assert.match(ler('app.js'),/recebiveis:\['Recebíveis e aging','Quem deve, há quanto tempo e quanto está em risco, na posição que o Painel atualiza a cada 20 minutos\.'\]/);
 });
 
@@ -181,7 +181,7 @@ test('série do Painel: os 90 pontos mais recentes, não os mais antigos',()=>{
 });
 test('tela sem vencido: zeros confirmados sem vermelho e gráfico de concentração que diz isso',()=>{
  const p={ok:true,versao:1,fonte:'recebiveis',...ag([t(1,100,-5),t(2,700,-20)])};const h=tela({payload:p,pdd:{'2026-10':50}}).run('renderRecebiveis()');
- assert.deepEqual(cartoes(h).map(x=>[x.rotulo,x.tom,x.valor]),[['A receber','','R$ 800,00'],['Vencido','','R$ 0,00'],['Provisão estimada (PDD)','','R$ 0,00'],['Maior devedor','','R$ 0,00']]);
+ assert.deepEqual(cartoes(h).map(x=>[x.rotulo,x.tom,x.valor]),[['A receber','tom-entra','R$ 800,00'],['Vencido','','R$ 0,00'],['Provisão estimada (PDD)','','R$ 0,00'],['Maior devedor','','R$ 0,00']]);
  assert.match(h,/Nenhum título vencido na posição\./);assert.doesNotMatch(h,/os cinco primeiros somam|Não apurado: nenhum item/);
 });
 test('tela: textos de prazo sem dado, concentração com demais, série por semana e barras de dívida em vermelho',()=>{
@@ -196,7 +196,7 @@ test('tela: textos de prazo sem dado, concentração com demais, série por sema
 test('títulos vencidos no celular: Cliente, Valor e Dias primeiro (D10)',()=>{
  const h=tela({payload:P()}).run('renderRecebiveis()'),t=h.slice(h.indexOf('rec-titulos'));
  assert.deepEqual([...t.slice(0,t.indexOf('</thead>')).matchAll(/<th scope="col"[^>]*>([^<]*)<\/th>/g)].map(m=>m[1]),['Cliente','Valor','Dias','Vencimento','NF','O.S.']);
- assert.match(t,/<tr><th scope="row">[^<]*<\/th><td class="num">R\$\s[\d.,]+<\/td><td class="num">\d+<\/td>/,'a linha segue a mesma ordem');
+ assert.match(t,/<tr><th scope="row">[^<]*<\/th><td class="num tom-sai">R\$\s[\d.,]+<\/td><td class="num">\d+<\/td>/,'a linha segue a mesma ordem; vencido em vermelho');
 });
 test('nomes, NF e O.S. do ERP escapados em card, gráfico e tabela',()=>{
  const p=P();p.clientes.itens[0].nome='<img src=x onerror=alert(1)>';p.titulosVencidos[0].nf='<svg onload=alert(2)>';p.titulosVencidos[0].os='<b>OS</b>';

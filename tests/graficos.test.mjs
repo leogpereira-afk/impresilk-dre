@@ -122,3 +122,15 @@ test('ritmo do ano: com o mês em andamento, o veredito cita o mês completo e o
  assert.match(h,/ritmo-situacao ruim">Fora do ritmo em Fev\/2026: R\$\s200,00 de R\$\s200,00 esperados|ritmo-situacao bom">No ritmo em Fev\/2026: R\$\s200,00 de R\$\s200,00 esperados/);
  assert.match(h,/viewBox="0 0 300 210"/);
 });
+
+// v134 (decisão do dono): o primeiro degrau da cascata (Vendas, Receita bruta, A receber) sai azul; a legenda só traz as cores usadas.
+test('cascata: primeiro degrau azul com op.inicio, legenda só com as cores que aparecem',()=>{
+ const {c:v}=view(),c={run:x=>vm.runInContext(x,v)};
+ const h=c.run(`gCascata([{rotulo:'Vendas',valor:1000,total:true},{rotulo:'(−) Custos',valor:-400},{rotulo:'(=) Margem',valor:600,total:true}],{base:1000,inicio:'entrada'})`);
+ const cores=[...h.matchAll(/<rect class="g-marca-dado g-cor-(\w+)"/g)].map(m=>m[1]);
+ assert.deepEqual(cores,['entrada','saida','resultado']);
+ const leg=h.slice(h.indexOf('g-legenda'),h.indexOf('</div>',h.indexOf('g-legenda')));
+ assert.match(leg,/g-cor-entrada[^<]*<\/i>Vendas/);assert.match(leg,/Desconta/);assert.match(leg,/Subtotal/);assert.doesNotMatch(leg,/>Soma</);
+ const sem=c.run(`gCascata([{rotulo:'Vendas',valor:1000,total:true},{rotulo:'(−) Custos',valor:-400},{rotulo:'(=) Margem',valor:600,total:true}],{base:1000})`);
+ assert.match(sem,/<rect class="g-marca-dado g-cor-resultado"/,'sem op.inicio, continua subtotal');assert.doesNotMatch(sem.slice(sem.indexOf('g-legenda')),/g-cor-entrada/,'nenhuma soma azul: a legenda não promete azul');
+});

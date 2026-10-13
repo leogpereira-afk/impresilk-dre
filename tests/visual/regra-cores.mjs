@@ -63,7 +63,28 @@ function verificar() {
     //    citado no rótulo e, por fim, as palavras. Aqui o sinal não inverte: "(−) Custos: -R$ 10" é saída do mesmo jeito.
     //    Saldos (a pagar, a receber, posição, balanço) ainda não têm regra única de cor e ficam fora.
     const r = rotulos(el), texto = [r.linha, r.cartao, r.coluna].join(' | '), principal = (r.linha || r.cartao || '').trim();
-    if (['giro', 'recebiveis', 'balanco'].includes(document.body.dataset.screen) || NEUTRO.test(principal || r.coluna) || /desvio|previst/i.test(r.coluna) || /a pagar|a receber|posi[cç][aã]o|saldo|balan[cç]o|aging|vencid/i.test(secao(el))) continue;
+    // Saldos (v134, decisão do dono): a receber, estoque e ativo em azul; a pagar, passivo, vencido e provisão em vermelho;
+    // necessidade de giro, patrimônio e endividamento pelo sinal ou neutros. Saldo negativo inverte.
+    if (['giro', 'recebiveis', 'balanco'].includes(document.body.dataset.screen)) {
+      const base = `${principal} ${r.coluna} ${secao(el)}`;
+      // linhas fora do balanço não somam e ficam neutras
+      if (/necessidade|sem estoque|patrim|endivid|ciclo|prazo|dias/i.test(`${principal} ${r.coluna}`) || /fora do balan/i.test(el.closest('tbody')?.querySelector('.dre-composicao-grupo')?.innerText || '')) continue;
+      // primeiro a linha e a coluna; só sem resposta, o título do gráfico ou da seção
+      const sentido = x => /vencid|provis|devedor|a pagar|o que eu devo|passivo|fornecedor|empr[eé]stimo|banco no vermelho|parcelamento|d[ií]vida|impostos e taxas|s[oó]cios|sem classifica|projetad|\(\d\.(xx|\d\d)\)/i.test(x) ? -1
+        : /a receber|vou receber|estoque|\bativo\b|caixa e bancos|imobilizado/i.test(x) ? 1 : 0;
+      const titulo = el.closest('.chart-card,section')?.querySelector('h2,h3')?.innerText || '';
+      // "a vencer" é a receber em Recebíveis e a pagar no Capital de giro
+      const tela = document.body.dataset.screen;
+      let s = sentido(`${principal} ${r.coluna}`);
+      if (!s && /a vencer/i.test(`${principal} ${r.coluna}`)) s = tela === 'recebiveis' ? 1 : tela === 'giro' ? -1 : 0;
+      if (!s) s = sentido(`${titulo} ${secao(el)}`);
+      if (!s) continue;
+      // "-R$" de quem desconta (a pagar na cascata) continua vermelho; saldo de ativo negativo inverte
+      const esperado = s < 0 ? VERM : neg ? VERM : AZUL;
+      if (cor !== esperado) falhas.push({regra: 'saldo-fora-da-cor', rotulo: texto.replace(/\s+/g, ' ').slice(0, 80), onde: onde(el), secao: secao(el), texto: t, cor, esperado});
+      continue;
+    }
+    if (NEUTRO.test(principal || r.coluna) || /desvio|previst/i.test(r.coluna) || /a pagar|a receber|posi[cç][aã]o|saldo|balan[cç]o|aging|vencid/i.test(secao(el))) continue;
     let sentido = 0;
     const marca = principal.match(/^\(([−+=-])\)/);
     if (marca) sentido = marca[1] === '+' ? 1 : marca[1] === '=' ? 0 : -1;
