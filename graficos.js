@@ -30,6 +30,10 @@ const SENTIDO_DA_LINHA={
  continuadas:1,descontinuadas:1,liquido:1,margemLiquida:1,ebitda:1,margemEbitda:1,
 };
 function tomDoValor(id,v){const s=SENTIDO_DA_LINHA[id],n=Number(v);if(!s||v==null||!Number.isFinite(n)||n===0)return '';return n*s>0?'tom-entra':'tom-sai';}
+// Variação boa em azul e ruim em vermelho (v133): dir 1 = subir é bom, -1 = subir é ruim, 0 = neutro.
+function tomDelta(dir,d){const n=Number(d);return !dir||d==null||!Number.isFinite(n)||n===0?'':((n>0)===(dir>0)?'delta-bom':'delta-ruim');}
+// Direção de uma conta do plano: entradas sobem bem, saídas sobem mal; dívida, sócios e empréstimos ficam neutros.
+function dirConta(code){code=String(code??'');if(code==='1')return 1;if(code==='2')return -1;if(typeof DRESimples==='undefined'||typeof DIRECAO_SIMPLES==='undefined')return code.startsWith('1')?1:code.startsWith('2')?-1:0;return DIRECAO_SIMPLES[DRESimples.classificar(code).linha]??0;}
 const compacto=v=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(v===0?0:v);
 const nomeConta=(reg,code)=>reg?.cells?.find(c=>c.code===code)?.name;
 function contaConhecida(code){return nomeConta(regAtual(),code)||[...state.records].reverse().map(r=>nomeConta(r,code)).find(Boolean)||code;}
