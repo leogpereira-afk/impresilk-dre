@@ -22,8 +22,48 @@ test('"Como este painel calcula": termos da casa, cada um com a tela onde aparec
 test('tela do glossário: seções por assunto com índice; busca vira lista; link "Ver em" para a tela',()=>{
  const c=ctx();let h=c.run('resultadosGlossario()');
  assert.match(h,/<nav class="glossary-indice"/);assert.match(h,/<section class="glossary-secao" id="glossario-painel"><h3>Como este painel calcula <small>\d+ termos<\/small>/);
- assert.match(h,/data-glossario-go="precos">Ver em Preço e equilíbrio →/);
+ assert.match(h,/data-glossario-go="precos"(?: data-glossario-ir="precos-[\w-]+")?>Ver em Preço e equilíbrio →/);
  c.run("glossarioUI.busca='material politico'");h=c.run('resultadosGlossario()');assert.doesNotMatch(h,/glossary-secao/);assert.match(h,/Material político/);
  c.run("glossarioUI.busca='';glossarioUI.grupo='credito'");h=c.run('resultadosGlossario()');assert.doesNotMatch(h,/glossary-secao/);assert.match(h,/Antecipação de recebíveis/);
  c.run("glossarioUI.busca='xyz123';glossarioUI.grupo='todos'");assert.match(c.run('resultadosGlossario()'),/Nenhum termo encontrado/);
+});
+
+// ── v135 ──
+test('v135 (I20): siglas das telas com verbete, nomes exatos usados pelas outras telas e textos sem travessão',()=>{
+ const c=ctx(),todos=c.json('GlossarioFinanceiro.termos'),nomes=todos.map(t=>t.nome);
+ for(const n of ['PMR (prazo médio de recebimento, DSO)','PMPF (prazo médio de pagamento a fornecedores, DPO)','PME (prazo médio de estoque)','FCO, FCI e FCF','ROE (retorno sobre o patrimônio)','ROA (retorno sobre o ativo)','Estados do mês','PDD (provisão para devedores duvidosos)','Aging (idade da carteira)','Necessidade de capital de giro','Margem de contribuição','Ponto de equilíbrio','Margem de segurança'])assert.ok(nomes.includes(n),n);
+ assert.ok(!nomes.includes('DSO / prazo de recebimento')&&!nomes.includes('DPO / prazo de pagamento'),'nomes antigos saíram');
+ for(const q of ['PMR','PME','PMPF','FCO','FCF','ROE','ROA','Reaberto','DSO','DPO'])assert.ok(c.json(`GlossarioFinanceiro.buscar(${JSON.stringify(q)}).length`)>=1,q);
+ const t=n=>todos.find(x=>x.nome===n);
+ assert.equal(t('PMR (prazo médio de recebimento, DSO)').tela,'giro');assert.equal(t('PMPF (prazo médio de pagamento a fornecedores, DPO)').tela,'giro');assert.equal(t('PME (prazo médio de estoque)').tela,'giro');
+ assert.equal(t('PME (prazo médio de estoque)').formula,'Estoque ÷ custo do material no mês × 30');assert.equal(t('Ciclo financeiro').formula,'PME + PMR − PMPF');
+ assert.equal(t('FCO, FCI e FCF').tela,'dfc');assert.equal(t('FCO, FCI e FCF').formula,'FCO + FCI + FCF = variação do caixa');
+ assert.equal(t('ROE (retorno sobre o patrimônio)').tela,'indicadores');assert.equal(t('ROA (retorno sobre o ativo)').formula,'Resultado ÷ ativo total médio');
+ const e=t('Estados do mês');assert.equal(e.grupo,'painel');assert.equal(e.tela,'conferencia');
+ for(const s of ['Aguardando conferência','Conciliado','Fechado','Reaberto','Cobertura a conferir','Período parcial','Não apurado','Sem fonte'])assert.match(e.definicao,new RegExp(s+':'),s);
+ assert.doesNotMatch(JSON.stringify(todos),/—/,'nenhum verbete com travessão');
+ // I34: as referências usam dois-pontos
+ const h=c.run('renderGlossario()');const ref=h.slice(h.indexOf('Referências e critérios'));assert.doesNotMatch(ref.slice(0,ref.indexOf('</details>')),/—/);assert.match(h,/CPC 26: apresentação das demonstrações/);assert.match(h,/Guia de planejamento financeiro: Sebrae/);
+ assert.doesNotMatch(ler('pdf-cfo.js'),/nos dois meses — confira/);
+});
+test('v135 (D36, N22, N24): marca do termo pelo CSS, link de seção que abre em aba nova, termo aberto lembrado e "Explorar o glossário completo" com busca',()=>{
+ const els={},rolou=[];let toggle=null;
+ const el=id=>els[id]||(els[id]={id,dataset:{},open:false,value:'',innerHTML:'',close(){this.open=false;},showModal(){this.open=true;},focus(){},addEventListener(t,f){if(t==='toggle')toggle=f;},scrollIntoView(o){rolou.push([id,o]);}});
+ const c=ctx();c.document.getElementById=el;let desenhou=0;c.render=()=>{desenhou++;};
+ let h=c.run('resultadosGlossario()');
+ assert.match(h,/<span class="glossary-marca" aria-hidden="true"><\/span><\/summary>/);assert.doesNotMatch(h,/＋/);
+ assert.match(h,/<a href="#tela=glossario&secao=painel" data-glossario-secao="painel">/);assert.doesNotMatch(h,/href="#glossario-/);
+ assert.match(h,/<details class="glossary-item" data-termo="DRE">/,'fechado por padrão');
+ // link direto: a gestão grava state.glossarioSecao; o wire rola até a seção e zera
+ c.run("state.view='glossario';state.glossarioSecao='painel';wireGlossario()");
+ assert.equal(JSON.stringify(rolou),JSON.stringify([['glossario-painel',{block:'start'}]]));assert.equal(c.run('state.glossarioSecao'),'');
+ // termo aberto pela pessoa continua aberto ao redesenhar
+ toggle({target:{dataset:{termo:'Markup'},open:true}});assert.match(c.run('resultadosGlossario()'),/<details class="glossary-item" open data-termo="Markup">/);
+ toggle({target:{dataset:{termo:'Markup'},open:false}});assert.doesNotMatch(c.run('resultadosGlossario()'),/open data-termo="Markup"/);
+ // "Explorar o glossário completo": vai com a busca preenchida e o termo aberto
+ const b={dataset:{term:'Margem de contribuição'}};c.document.querySelectorAll=s=>s==='[data-term]'?[b]:[];
+ c.run("state.view='precos';wireGlossario()");b.onclick();assert.equal(els.detailDialog.open,true);els.abrirGlossario.onclick();
+ assert.equal(c.run('state.view'),'glossario');assert.equal(desenhou,1);assert.equal(els.detailDialog.open,false);
+ assert.equal(c.run('glossarioUI.busca'),'Margem de contribuição');assert.equal(c.run('glossarioUI.grupo'),'todos');
+ assert.match(c.run('resultadosGlossario()'),/<details class="glossary-item" open data-termo="Margem de contribuição">/);
 });

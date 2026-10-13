@@ -27,8 +27,10 @@ const cmpCacheAp = new WeakMap();
 function cmpAp(reg) { if (!cmpCacheAp.has(reg)) cmpCacheAp.set(reg, typeof DRESimples !== 'undefined' ? DRESimples.apurar(reg) : null); return cmpCacheAp.get(reg); }
 const cmpNorm = s => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const cmpNum = v => typeof v === 'number' && Number.isFinite(v);
-const cmpFmt = (v, d = 1) => cmpNum(v) ? (v < 0 ? '−' : '') + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }) : '·';
-const cmpVar = (v, d = 1) => cmpNum(v) ? (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }) + '%' : '·';
+// O sinal sai do valor já arredondado: -0,04 com uma casa mostra 0,0, sem "−0,0".
+const cmpArred = (v, d) => Math.round(v * 10 ** d) / 10 ** d + 0;
+const cmpFmt = (v, d = 1) => cmpNum(v) ? (cmpArred(v, d) < 0 ? '−' : '') + Math.abs(cmpArred(v, d)).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }) : '·';
+const cmpVar = (v, d = 1) => cmpNum(v) ? (cmpArred(v, d) > 0 ? '+' : cmpArred(v, d) < 0 ? '−' : '') + Math.abs(cmpArred(v, d)).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }) + '%' : '·';
 // Crescimento nas tabelas: seta e valor sem sinal; a cor (tomDelta) diz se foi boa notícia pela direção da linha.
 const cmpVarSeta = (v, d = 1) => cmpNum(v) ? (v > 0 ? '▲ ' : v < 0 ? '▼ ' : '') + cmpVar(Math.abs(v), d).replace(/^\+/, '') : '·';
 const CMP_DIR = { vendas: 1, vendasSemPolitico: 1, variaveis: -1, margem: 1, pessoal: -1, fixas: -1, resultado: 1, socios: 0, dividas: 0 };
@@ -149,11 +151,12 @@ function cmpModelo() {
   const primeiro = meses.find(x => x.fechado).ano;
   const anos = []; for (let a = primeiro; a <= refAno; a++) anos.push(a);
   if (!anos.length) return null;
-  const doAno = a => meses.filter(x => x.ano === a && x.fechado && (a < refAno || x.mes <= refMes));
+  const doAno = (a, ateMes) => meses.filter(x => x.ano === a && x.fechado && x.mes <= ateMes);
   // Marcador desmarcado: os painéis de venda usam as vendas sem o material político.
   const sem = !!cmpUI.semPolitica, vb = x => (Number(x.vendas) || 0) - (sem ? x.politico : 0);
-  const porAno = anos.map(ano => {
-    const todos = doAno(ano), cls = todos.filter(x => x.classificado);
+  // Resumo de um ano até um mês: o ano inteiro, o de referência até o mês dele ou o anterior nos mesmos meses.
+  const resumoAno = (ano, ateMes) => {
+    const todos = doAno(ano, ateMes), cls = todos.filter(x => x.classificado);
     const vendas = cmpSoma(todos, x => x.vendas), politico = cmpSoma(todos, x => x.politico), vc = cmpSoma(cls, x => x.vendas);
     const linhas = {}, pct = {};
     for (const k of CMP_LINHAS) { linhas[k] = cls.length ? cmpSoma(cls, x => x.ap.linhas[k]) : null; pct[k] = cls.length && vc > 0 ? linhas[k] / vc * 100 : null; }
@@ -162,7 +165,10 @@ function cmpModelo() {
     pct.pe = cls.length && linhas.margemContribuicao > 0 ? linhas.fixas / linhas.margemContribuicao * 100 : null;
     pct.sociosResultado = cls.length && linhas.resultado > 0 ? linhas.socios / linhas.resultado * 100 : null;
     return { ano, meses: todos.map(x => x.mes), mesesCls: cls.map(x => x.mes), todos, cls, vendas, politico, vendasBase: cmpSoma(todos, vb), politicoCls: cmpSoma(cls, x => x.politico), vendasCls: vc, linhas, pct };
-  }).filter(p => p.todos.length);
+  };
+  const porAno = anos.map(a => resumoAno(a, a < refAno ? 12 : refMes)).filter(p => p.todos.length);
+  // Ano de referência pela metade: o anterior nos mesmos meses é a base justa da tabela da DRE e da leitura.
+  const mesmoPeriodo = refMes < 12 ? resumoAno(refAno - 1, refMes) : null;
   // Índice de vendas nos mesmos meses (janeiro até o mês de referência), em todos os anos que os têm.
   const idx = porAno.map(p => { const xs = meses.filter(x => x.ano === p.ano && x.fechado && x.mes <= refMes); return xs.length === refMes ? { ano: p.ano, vendas: cmpSoma(xs, x => x.vendas), politico: cmpSoma(xs, x => x.politico) } : null; }).filter(Boolean);
   const base = idx[0] ? idx[0].vendas - (sem ? idx[0].politico : 0) : null;
@@ -252,7 +258,7 @@ function cmpModelo() {
   }
   // De onde veio o material político: meses medidos pelas O.S. das campanhas do Painel.
   const pelasOS = meses.filter(x => x.fechado && x.pol.porOS != null);
-  return { refAno, refMes, meses, porAno, indice, crescimento, saz, mesAMes, mix, produtos, prodAnos: prodAnos.map(p => p.ano), semOS, produtoPolitico, detalhes, semPolitica: sem, pelasOS };
+  return { refAno, refMes, meses, porAno, mesmoPeriodo: mesmoPeriodo?.cls.length ? mesmoPeriodo : null, indice, crescimento, saz, mesAMes, mix, produtos, prodAnos: prodAnos.map(p => p.ano), semOS, produtoPolitico, detalhes, semPolitica: sem, pelasOS };
 }
 
 // ── Gráficos (as mesmas peças do app: GX, classes de cor, dica e tabela) ────
@@ -375,10 +381,19 @@ function cmpDetalheTabela(M, linha, titulo) {
   const mostrar = itens.slice(0, 10), resto = itens.slice(10);
   const linhas = mostrar.map(it => [it.rotulo, ...idx.map(i => cmpFmt(it.valores[i]))]);
   const total = idx.map(i => M.porAno[i].pct[linha]);
+  // Grupo sem lançamento em nenhum ano: sem tabela (quem chama lista o nome numa linha só).
+  if (itens.every(it => idx.every(i => !it.valores[i])) && total.every(v => !v)) return '';
   const outros = idx.map((i, k) => { const s = mostrar.reduce((t, it) => t + (it.valores[i] || 0), 0); const o = (total[k] ?? 0) - s; return Math.abs(o) >= .05 ? o : 0; });
   if (resto.length || outros.some(o => Math.abs(o) >= .3)) linhas.push([`Outros${resto.length ? ` (${resto.length})` : ''}`, ...outros.map(o => cmpFmt(o))]);
   linhas.push([`Total ${titulo.toLowerCase()}`, ...total.map(v => cmpFmt(v))]);
-  return cmpTabela(['% das vendas', ...anos.map(p => cmpCabAno(p, M, true))], linhas, { subtotais: [linhas.length - 1], legenda: '· = nenhum lançamento na conta naquele ano' });
+  return cmpTabela(['% das vendas', ...anos.map(p => cmpCabAno(p, M, true))], linhas, { subtotais: [linhas.length - 1] });
+}
+// O "·" explicado uma vez por seção, e não em cada mini-tabela.
+const CMP_NOTA_PONTO = '<p class="hint">· = nenhum lançamento na conta naquele ano.</p>';
+// As mini-tabelas de uma seção: só os grupos com lançamento; os zerados numa linha no fim.
+function cmpDetalheGrupos(M, chaves, comTitulo = true) {
+  const vazios = [], html = chaves.map(k => { const nome = CMP_DETALHES.find(d => d[0] === k)[1], t = cmpDetalheTabela(M, k, nome); if (!t) { vazios.push(nome); return ''; } return (comTitulo ? `<h3 class="cmp-h3">${esc(nome)}</h3>` : '') + t; }).join('');
+  return html + (vazios.length ? `<p class="hint">Sem lançamento em nenhum ano: ${esc(vazios.join(', '))}.</p>` : '');
 }
 
 // ── A leitura em texto, dos próprios números ────────────────────────────────
@@ -410,23 +425,38 @@ function cmpLeitura(M) {
   }
   if (D.length >= 2) {
     const a = D[0], iR = P.indexOf(R);
+    // Ano de referência pela metade: o veredito vem do ano anterior nos mesmos meses; o ano anterior inteiro fica como contexto.
+    const MP = R.mesesCls.length < 12 && M.mesmoPeriodo && M.mesmoPeriodo.ano === R.ano - 1 ? M.mesmoPeriodo : null;
+    const AI = MP ? P.find(p => p.ano === MP.ano && p.cls.length) : null;
+    const txtMP = MP ? `nos mesmos meses de ${MP.ano} (${cmpMesesTexto(MP.mesesCls)})` : '';
+    const ctxAno = p => p.mesesCls.length === 12 ? `no ano inteiro de ${p.ano}` : `em ${txtAnoCls(p)}`;
     // 2. Margem de contribuição e custos variáveis
     const topVar = (M.detalhes.variaveis || []).map(it => ({ rot: it.rotulo, v: it.valores[iR] })).filter(x => cmpNum(x.v) && !/renomeadas|sem subgrupo/i.test(x.rot)).sort((x, y) => y.v - x.v).slice(0, 3).map(x => x.rot.toLowerCase());
-    const dm = R.pct.margemContribuicao - a.pct.margemContribuicao, mesmaVar = pc(a.pct.variaveis) === pc(R.pct.variaveis);
-    pontos.push(`<b>A margem de contribuição ${dm > 1 ? 'melhorou' : dm < -1 ? 'piorou' : 'ficou estável'}</b>: ${pc(a.pct.margemContribuicao)} das vendas em ${txtAnoCls(a)} e ${pc(R.pct.margemContribuicao)} em ${txtAno(R)}. Os custos variáveis ${mesmaVar ? `ficaram em ${pc(R.pct.variaveis)}` : `foram de ${pc(a.pct.variaveis)} para ${pc(R.pct.variaveis)}`} das vendas${topVar.length ? `; os maiores hoje são ${topVar.join(', ')}` : ''}.`);
+    const bm = MP || a, dm = R.pct.margemContribuicao - bm.pct.margemContribuicao, mesmaVar = pc(bm.pct.variaveis) === pc(R.pct.variaveis);
+    const verboM = dm > 1 ? 'melhorou' : dm < -1 ? 'piorou' : 'ficou estável', txtVar = `Os custos variáveis ${mesmaVar ? `ficaram em ${pc(R.pct.variaveis)}` : `foram de ${pc(bm.pct.variaveis)} para ${pc(R.pct.variaveis)}`} das vendas${MP ? ' nos mesmos meses' : ''}${topVar.length ? `; os maiores hoje são ${topVar.join(', ')}` : ''}.`;
+    pontos.push(MP ? `<b>A margem de contribuição ${verboM}</b>: ${pc(R.pct.margemContribuicao)} das vendas em ${txtAno(R)}; ${txtMP} eram ${pc(MP.pct.margemContribuicao)}. ${maiuscula(ctxAno(AI))}, ${pc(AI.pct.margemContribuicao)}${a !== AI ? `; em ${txtAnoCls(a)}, ${pc(a.pct.margemContribuicao)}` : ''}. ${txtVar}`
+      : `<b>A margem de contribuição ${verboM}</b>: ${pc(a.pct.margemContribuicao)} das vendas em ${txtAnoCls(a)} e ${pc(R.pct.margemContribuicao)} em ${txtAno(R)}. ${txtVar}`);
     // 3. Despesas fixas e pessoal, contra o ano de estrutura mais enxuta
     const base = ant.reduce((m, p) => !m || p.pct.fixas < m.pct.fixas ? p : m, null);
     if (base) {
       const pes = linhaCresc('pessoal'), ven = linhaCresc('vendas'), acima = [];
       if (pes && ven) pes.valores.forEach((v, i) => { const w = ven.valores[i]; if (v && w && v.valor > w.valor + 1) acima.push(`${rotPar(i)} (${cmpVar(v.valor, 0)} contra ${cmpVar(w.valor, 0)})`); });
-      const df = R.pct.fixas - base.pct.fixas;
-      pontos.push(`<b>As despesas fixas ${df > 1 ? 'subiram' : df < -1 ? 'caíram' : 'ficaram estáveis'}</b>: ${pc(base.pct.fixas)} das vendas em ${txtAnoCls(base)}, ${R.pct.fixas < base.pct.fixas ? 'até então o ano mais enxuto' : 'o ano mais enxuto'}, e ${pc(R.pct.fixas)} em ${txtAno(R)}. Pessoal foi de ${pc(base.pct.pessoal)} para ${pc(R.pct.pessoal)}${acima.length ? `; a folha cresceu mais que as vendas em ${acima.join(', ')}` : ''}.`);
+      const df = R.pct.fixas - (MP || base).pct.fixas, recorde = R.pct.fixas < base.pct.fixas, verboF = df > 1 ? 'subiram' : df < -1 ? 'caíram' : 'ficaram estáveis';
+      const txtAcima = acima.length ? `; a folha cresceu mais que as vendas em ${acima.join(', ')}` : '';
+      if (MP) {
+        const enxuto = base === AI ? `, ${recorde ? 'até então o ano mais enxuto' : 'o ano mais enxuto'}` : `; ${recorde ? 'até então, o ano mais enxuto foi' : 'o ano mais enxuto foi'} ${txtAnoCls(base)}, com ${pc(base.pct.fixas)}`;
+        pontos.push(`<b>As despesas fixas ${verboF}</b>: ${pc(R.pct.fixas)} das vendas em ${txtAno(R)}; ${txtMP} eram ${pc(MP.pct.fixas)}. ${maiuscula(ctxAno(AI))}, ${pc(AI.pct.fixas)}${enxuto}. Pessoal foi de ${pc(MP.pct.pessoal)} para ${pc(R.pct.pessoal)} nos mesmos meses${txtAcima}.`);
+      } else pontos.push(`<b>As despesas fixas ${verboF}</b>: ${pc(base.pct.fixas)} das vendas em ${txtAnoCls(base)}, ${recorde ? 'até então o ano mais enxuto' : 'o ano mais enxuto'}, e ${pc(R.pct.fixas)} em ${txtAno(R)}. Pessoal foi de ${pc(base.pct.pessoal)} para ${pc(R.pct.pessoal)}${txtAcima}.`);
     }
     // 4. Resultado e ponto de equilíbrio, contra o melhor ano
     const melhor = ant.reduce((m, p) => !m || p.pct.resultado > m.pct.resultado ? p : m, null);
     if (melhor) {
-      const dr = R.pct.resultado - melhor.pct.resultado;
-      pontos.push(`<b>O resultado antes dos sócios ${dr < -1 ? 'caiu' : dr > 1 ? 'subiu' : 'ficou estável'}</b>: ${pc(melhor.pct.resultado)} das vendas em ${txtAnoCls(melhor)}, ${R.pct.resultado > melhor.pct.resultado ? 'até então o melhor ano' : 'o melhor ano'}, e ${pc(R.pct.resultado)} em ${txtAno(R)}. O ponto de equilíbrio está em ${pc(R.pct.pe)} das vendas${cmpNum(melhor.pct.pe) ? ` (era ${pc(melhor.pct.pe)})` : ''}${R.pct.pe >= 50 ? ': mais da metade do que se vende serve só para pagar a estrutura fixa' : ''}.`);
+      const dr = R.pct.resultado - (MP || melhor).pct.resultado, recorde = R.pct.resultado > melhor.pct.resultado, verboR = dr < -1 ? 'caiu' : dr > 1 ? 'subiu' : 'ficou estável';
+      const txtPE = `O ponto de equilíbrio está em ${pc(R.pct.pe)} das vendas`, txtMetade = R.pct.pe >= 50 ? ': mais da metade do que se vende serve só para pagar a estrutura fixa' : '';
+      if (MP) {
+        const melhorTxt = melhor === AI ? `, ${recorde ? 'até então o melhor ano' : 'o melhor ano'}` : `; ${recorde ? 'até então, o melhor ano foi' : 'o melhor ano foi'} ${txtAnoCls(melhor)}, com ${pc(melhor.pct.resultado)}`;
+        pontos.push(`<b>O resultado antes dos sócios ${verboR}</b>: ${pc(R.pct.resultado)} das vendas em ${txtAno(R)}; ${txtMP} eram ${pc(MP.pct.resultado)}. ${maiuscula(ctxAno(AI))}, ${pc(AI.pct.resultado)}${melhorTxt}. ${txtPE}${cmpNum(MP.pct.pe) ? ` (${pc(MP.pct.pe)} nos mesmos meses de ${MP.ano})` : ''}${txtMetade}.`);
+      } else pontos.push(`<b>O resultado antes dos sócios ${verboR}</b>: ${pc(melhor.pct.resultado)} das vendas em ${txtAnoCls(melhor)}, ${recorde ? 'até então o melhor ano' : 'o melhor ano'}, e ${pc(R.pct.resultado)} em ${txtAno(R)}. ${txtPE}${cmpNum(melhor.pct.pe) ? ` (era ${pc(melhor.pct.pe)})` : ''}${txtMetade}.`);
     }
     // 5. Sócios
     const sr = D.map(p => p.pct.sociosResultado).filter(cmpNum), sv = D.map(p => p.pct.socios).filter(cmpNum);
@@ -537,7 +567,7 @@ function cmpCarregarCampanhas() {
 // e a chegada das campanhas redesenham a tela.
 function cmpCard(chave, titulo, html, aberto) {
   const open = chave in cmpUI.abertos ? cmpUI.abertos[chave] : aberto;
-  return `<details class="card" data-cmp-sec="${chave}"${open ? ' open' : ''}><summary>${esc(titulo)}</summary><div class="card-body">${html}</div></details>`;
+  return `<details class="card" id="secao-cmp-${chave}" data-cmp-sec="${chave}"${open ? ' open' : ''}><summary><h2 class="card-titulo">${esc(titulo)}</h2></summary><div class="card-body">${html}</div></details>`;
 }
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
   document.addEventListener('toggle', ev => { const d = ev.target; if (d?.dataset?.cmpSec) cmpUI.abertos[d.dataset.cmpSec] = !!d.open; }, true);
@@ -553,7 +583,7 @@ function renderComparativos() {
   cmpCarregarCampanhas();
   const chave = cmpChave(); if (cmpUI.chave !== chave) { cmpUI.modelo = cmpModelo(); cmpUI.chave = chave; }
   const M = cmpUI.modelo;
-  const topo = `<div class="section-heading" id="comparativos-anuais"><div><p class="eyebrow">COMPARATIVOS ANUAIS</p><h2>Comparativos anuais</h2></div></div>`;
+  const topo = `<div class="section-heading" id="comparativos-anuais"><div><h2>Comparativos anuais</h2></div></div>`;
   if (!M || !M.porAno.length) return topo + card('Comparativos anuais', '<p class="hint">Ainda não há meses completos para comparar.</p>', true);
   const P = M.porAno, D = P.filter(p => p.cls.length), iD = D.map(p => P.indexOf(p));
   const ateTxt = M.refMes < 12 ? `janeiro a ${['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][M.refMes - 1]}` : 'ano inteiro';
@@ -582,36 +612,39 @@ function renderComparativos() {
   const extrasProd = [M.produtoPolitico, M.semOS].filter(Boolean);
   const tProd = M.produtos.length ? cmpTabela(['% das vendas', ...M.prodAnos.map(a => a === M.refAno && M.refMes < 12 ? `${a}<br><small>jan a ${CMP_MES[M.refMes - 1]}</small>` : String(a))], [...M.produtos, ...extrasProd].map(l => [l.rotulo, ...l.valores.map(v => cmpFmt(v))]), { destaques: extrasProd.map((_, i) => M.produtos.length + i), legenda: `${sem ? '% das vendas sem material político' : '% das vendas'} · rateio do recebido pelos itens das O.S.` }) : '<p class="hint">Sem produtos nas O.S. dos recebimentos.</p>';
   const sec2 = cmpCard('receita', '2. De onde vem a receita', `<h3 class="cmp-h3">Mix das vendas</h3>${tMix}<h3 class="cmp-h3">Entradas que não são venda</h3>${tEnt}<h3 class="cmp-h3">Produtos mais vendidos</h3>${tProd}`, false);
-  // 3. DRE ano a ano
-  const L = k => D.map(p => cmpFmt(p.pct[k]));
+  // 3. DRE ano a ano; com o ano de referência pela metade, o anterior nos mesmos meses vem logo antes dele.
+  const MP = M.mesmoPeriodo && D.length && D[D.length - 1].ano === M.refAno ? M.mesmoPeriodo : null;
+  const C3 = MP ? [...D.slice(0, -1), MP, D[D.length - 1]] : D;
+  const L = k => C3.map(p => cmpFmt(p.pct[k]));
   const dreLinhas = [
-    ['Receita bruta de vendas', ...D.map(() => '100,0')], ['dos quais, material político', ...D.map(p => cmpFmt(p.vendasCls > 0 ? p.politicoCls / p.vendasCls * 100 : null))], ['(−) Simples (DAS e DARF), ISS e devoluções', ...L('deducoes')], ['(=) Receita líquida', ...L('receitaLiquida')], ['(−) Custos variáveis', ...L('variaveis')], ['(=) Margem de contribuição', ...L('margemContribuicao')],
+    ['Receita bruta de vendas', ...C3.map(() => '100,0')], ['dos quais, material político', ...C3.map(p => cmpFmt(p.vendasCls > 0 ? p.politicoCls / p.vendasCls * 100 : null))], ['(−) Simples (DAS e DARF), ISS e devoluções', ...L('deducoes')], ['(=) Receita líquida', ...L('receitaLiquida')], ['(−) Custos variáveis', ...L('variaveis')], ['(=) Margem de contribuição', ...L('margemContribuicao')],
     ['(−) Despesas fixas', ...L('fixas')], ['Pessoal', ...L('pessoal')], ['Administrativas e terceiros', ...L('administrativas')], ['Ocupação e utilidades', ...L('ocupacao')], ['Veículos', ...L('veiculos')], ['Marketing', ...L('marketing')], ['Taxas e IPTU', ...L('taxas')], ['Saídas sem linha na DRE', ...L('fixasOutras')],
-    ['(=) Resultado operacional', ...L('ebitda')], ['(+/−) Financeiro (juros, tarifas e rendimentos)', ...D.map(p => cmpFmt(p.pct.receitasFinanceiras - p.pct.despesasFinanceiras))], ['(=) Resultado antes dos sócios', ...L('resultado')], ['Ponto de equilíbrio (vendas necessárias)', ...L('pe')],
+    ['(=) Resultado operacional', ...L('ebitda')], ['(+/−) Financeiro (juros, tarifas e rendimentos)', ...C3.map(p => cmpFmt(p.pct.receitasFinanceiras - p.pct.despesasFinanceiras))], ['(=) Resultado antes dos sócios', ...L('resultado')], ['Ponto de equilíbrio (vendas necessárias)', ...L('pe')],
     ['(−) Retiradas e arrendamento (sócios)', ...L('socios')], ['(−) Investimentos e parcelas de ativos', ...L('investimentos')], ['(−) Dívidas pagas', ...L('dividas')], ['(−) Saídas sem detalhamento', ...L('semDetalhamento')], ['(+) Empréstimos recebidos', ...L('emprestimos')], ['(+) Outras entradas', ...L('outrasEntradas')], ['(=) Variação do caixa', ...L('variacao')],
   ];
   const sec3 = cmpCard('dre', '3. A DRE ano a ano (% das vendas)', (sem ? '<p class="hint">Esta parte continua com o material político: o custo dele está nas mesmas compras das outras vendas e não se separa.</p>' : '')
-    + cmpTabela(['% das vendas', ...D.map(p => cmpCabAno(p, M, true))], dreLinhas, { subtotais: [0, 3, 5, 14, 16, 24], destaques: [6, 17], recuo: [1, 7, 8, 9, 10, 11, 12, 13], legenda: '% das vendas · só os meses com plano de contas' })
-    + '<p class="hint">Ponto de equilíbrio = despesas fixas ÷ margem de contribuição, em % das vendas. Valores arredondados.</p>', true);
+    + cmpTabela(['% das vendas', ...C3.map(p => cmpCabAno(p, M, true))], dreLinhas, { subtotais: [0, 3, 5, 14, 16, 24], destaques: [6, 17], recuo: [1, 7, 8, 9, 10, 11, 12, 13], legenda: '% das vendas · só os meses com plano de contas' })
+    + (MP ? `<p class="hint">${MP.ano} ${esc(cmpMesesTexto(MP.mesesCls))}: o ano anterior só nos meses que ${M.refAno} já tem, para comparar sem a sazonalidade dos meses que faltam.</p>` : '')
+    + '<p class="hint">Ponto de equilíbrio = despesas fixas ÷ margem de contribuição, em % das vendas. Valores arredondados.</p>', false);
   // 4. Margens e crescimento
   const rot = D.map(p => `${p.ano}${p.mesesCls.length < 12 ? '*' : ''}`);
   const parciais = D.filter(p => p.mesesCls.length < 12).map(p => `${p.ano}: ${cmpMesesTexto(p.mesesCls)}`), notaParcial = parciais.length ? ` * ${parciais.join('; ')}.` : '';
   const gLin = cmpGrafLinhas(rot, [{ rotulo: 'Margem de contribuição', cor: 'entrada', valores: D.map(p => p.pct.margemContribuicao) }, { rotulo: 'Despesas fixas', cor: 'saida', valores: D.map(p => p.pct.fixas) }, { rotulo: 'Resultado antes dos sócios', cor: 'resultado', valores: D.map(p => p.pct.resultado) }],
-    { leitura: 'Margem de contribuição, despesas fixas e resultado antes dos sócios, em % das vendas, por ano.', tabela: GX.tabela(['Ano', 'Margem', 'Despesas fixas', 'Resultado'], D.map((p, i) => [rot[i], cmpFmt(p.pct.margemContribuicao) + '%', cmpFmt(p.pct.fixas) + '%', cmpFmt(p.pct.resultado) + '%']), [1, 2, 3]) });
+    { leitura: 'Margem de contribuição, despesas fixas e resultado antes dos sócios, em % das vendas, por ano.', tabela: GX.tabela(['Ano', 'Margem', 'Despesas fixas', 'Resultado antes dos sócios'], D.map((p, i) => [rot[i], cmpFmt(p.pct.margemContribuicao) + '%', cmpFmt(p.pct.fixas) + '%', cmpFmt(p.pct.resultado) + '%']), [1, 2, 3]) });
   const gCem = cmpGrafCem(D.map((p, i) => ({ rotulo: rot[i], valores: [p.pct.deducoes, p.pct.variaveis, p.pct.fixas, p.pct.ebitda] })), [{ rotulo: 'Simples e devoluções', cor: 'risco-1' }, { rotulo: 'Custos variáveis', cor: 'risco-2' }, { rotulo: 'Despesas fixas', cor: 'risco-3' }, { rotulo: 'Resultado operacional', cor: 'entrada' }],
     { leitura: 'Para onde vai cada R$ 100 vendidos, por ano.', tabela: GX.tabela(['Ano', 'Simples e devoluções', 'Custos variáveis', 'Despesas fixas', 'Resultado operacional'], D.map((p, i) => [rot[i], ...[p.pct.deducoes, p.pct.variaveis, p.pct.fixas, p.pct.ebitda].map(v => cmpFmt(v) + '%')]), [1, 2, 3, 4]) });
   const parRot = M.crescimento.pares.map(pr => `${pr.a1} × ${pr.a0}`);
   const tCr = cmpTabela(['Linha', ...parRot], M.crescimento.linhas.map(l => [l.rotulo, ...l.valores.map(v => cmpVarSeta(v?.valor))]), { tons: (r, c) => cmpTomVar(CMP_DIR[M.crescimento.linhas[r].chave] ?? 0, M.crescimento.linhas[r].valores[c - 1]?.valor), destaques: [M.crescimento.linhas.findIndex(l => l.chave === 'pessoal')], legenda: 'Contra os mesmos meses do ano anterior; custos e despesas só nos meses com plano de contas' });
-  const sec4 = cmpCard('margens', '4. Margens, estrutura e crescimento', `<div class="graficos-controle">${painelGrafico('Margem, despesas fixas e resultado', `% das vendas por ano.${notaParcial}`, gLin)}${painelGrafico('Para onde vai cada R$ 100 vendidos', `Resultado operacional = antes de juros, sócios, investimentos e dívidas.${notaParcial}`, gCem)}</div>${painelGrafico('Crescimento de cada linha', 'Contra o mesmo período do ano anterior.', tCr)}`, true);
+  const sec4 = cmpCard('margens', '4. Margens, estrutura e crescimento', `<div class="graficos-controle">${painelGrafico('Margem, despesas fixas e resultado antes dos sócios', `% das vendas por ano.${notaParcial}`, gLin)}${painelGrafico('Para onde vai cada R$ 100 vendidos', `Resultado operacional = antes de juros, sócios, investimentos e dívidas.${notaParcial}`, gCem)}</div>${painelGrafico('Crescimento de cada linha', 'Contra o mesmo período do ano anterior.', tCr)}`, false);
   // 5 a 7. Detalhes
-  const sec5 = cmpCard('variaveis', '5. Custos variáveis: o que acompanha a produção', cmpDetalheTabela(M, 'variaveis', 'Custos variáveis'), false);
-  const sec6 = cmpCard('fixas', '6. Despesas fixas', ['pessoal', 'administrativas', 'ocupacao', 'veiculos'].map(k => `<h3 class="cmp-h3">${esc(CMP_DETALHES.find(d => d[0] === k)[1])}</h3>${cmpDetalheTabela(M, k, CMP_DETALHES.find(d => d[0] === k)[1])}`).join(''), false);
+  const sec5 = cmpCard('variaveis', '5. Custos variáveis: o que acompanha a produção', CMP_NOTA_PONTO + cmpDetalheGrupos(M, ['variaveis'], false), false);
+  const sec6 = cmpCard('fixas', '6. Despesas fixas', CMP_NOTA_PONTO + cmpDetalheGrupos(M, ['pessoal', 'administrativas', 'ocupacao', 'veiculos']), false);
   const gDiv = cmpGrafGrupos(D.map((p, i) => rot[i]), [{ rotulo: 'Empréstimos recebidos', cor: 'entrada', valores: D.map(p => p.pct.emprestimos) }, { rotulo: 'Dívidas pagas', cor: 'saida', valores: D.map(p => p.pct.dividas) }], { leitura: 'Empréstimos recebidos e dívidas pagas, em % das vendas, por ano.', tabela: GX.tabela(['Ano', 'Empréstimos recebidos', 'Dívidas pagas'], D.map((p, i) => [rot[i], cmpFmt(p.pct.emprestimos) + '%', cmpFmt(p.pct.dividas) + '%']), [1, 2]) });
   const sec7 = cmpCard('depois', '7. Depois do resultado: sócios, investimentos e dívida', painelGrafico('Empréstimos recebidos e dívidas pagas', `% das vendas por ano: o empréstimo em azul porque entrou, a dívida paga em vermelho porque saiu. Financiamento não é bom nem ruim por si.${notaParcial}`, gDiv)
-    + ['socios', 'investimentos', 'dividas', 'emprestimos', 'semDetalhamento'].map(k => `<h3 class="cmp-h3">${esc(CMP_DETALHES.find(d => d[0] === k)[1])}</h3>${cmpDetalheTabela(M, k, CMP_DETALHES.find(d => d[0] === k)[1])}`).join('')
+    + CMP_NOTA_PONTO + cmpDetalheGrupos(M, ['socios', 'investimentos', 'dividas', 'emprestimos', 'semDetalhamento'])
     + `<p class="hint">Retiradas e arrendamento em % do resultado antes dos sócios: ${D.map((p, i) => `${rot[i]} ${cmpFmt(p.pct.sociosResultado)}%`).join(' · ')}.</p>`, false);
   // A explicação, embaixo
   const Lt = cmpLeitura(M), lista = xs => xs.length ? `<ul class="cmp-lista">${xs.map(x => `<li>${x}</li>`).join('')}</ul>` : '<p class="hint">Nada a apontar.</p>';
-  const expl = cmpCard('leitura', 'O que os números mostram', lista(Lt.pontos) + `<h3 class="cmp-h3">Limites desta comparação</h3>${lista(Lt.limites)}<h3 class="cmp-h3">Pontos a conferir no Mubisys</h3>${lista(Lt.conferir)}<h3 class="cmp-h3">Próximos passos sugeridos</h3>${lista(Lt.passos)}`, true);
+  const expl = cmpCard('leitura', 'O que os números mostram', lista(Lt.pontos) + `<h3 class="cmp-h3">Limites desta comparação</h3>${lista(Lt.limites)}<h3 class="cmp-h3">Pontos a conferir no Mubisys</h3>${lista(Lt.conferir)}<h3 class="cmp-h3">Próximos passos sugeridos</h3>${lista(Lt.passos)}`, false);
   return topo + intro + marcador + sec1 + sec2 + sec3 + sec4 + sec5 + sec6 + sec7 + expl;
 }

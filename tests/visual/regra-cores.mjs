@@ -6,12 +6,16 @@
 //     cujo rótulo diz entrada (recebimento, receita, venda…) não está azul;
 //  4. variação marcada como boa (delta-bom) não está azul ou ruim (delta-ruim) não está vermelha;
 //  5. a página rola para o lado no celular; 6. erro de console;
-//  7. no celular, o chip do mês escolhido fica fora da parte visível da faixa de meses (ao abrir e a cada tela).
+//  7. no celular, o chip do mês escolhido fica fora da parte visível da faixa de meses (ao abrir e a cada tela);
+//  8. id repetido no documento (id-duplicado); 9. botão, link, campo ou lista visível sem nome para o leitor de tela
+//     (controle-sem-nome). As regras 8 e 9 (acessibilidade, N26) entram no resumo mas ainda não mudam a saída.
 // Uso: servidor local do repositório em DRE_URL (padrão http://127.0.0.1:8793/), depois
 //   PLAYWRIGHT=<.../playwright/index.mjs> CHROME=<executável> node tests/visual/regra-cores.mjs [--json saida.json]
 // Nenhum pedido sai para a rede: o Supabase é respondido pela fixture e os outros hosts são bloqueados.
 import fs from 'node:fs/promises';
-import {lancar, contexto, abrirApp, irEstado, ESTADOS, MES_PARCIAL} from './base.mjs';
+import {esperarServidor, lancar, contexto, abrirApp, irEstado, ESTADOS, MES_PARCIAL} from './base.mjs';
+// Acessibilidade: lista no resumo sem reprovar (nesta versão).
+const SO_AVISO = new Set(['id-duplicado', 'controle-sem-nome']);
 
 function verificar() {
   const tok = n => { const s = document.createElement('span'); s.style.color = `var(${n})`; document.body.appendChild(s); const c = getComputedStyle(s).color; s.remove(); return c; };
@@ -42,7 +46,8 @@ function verificar() {
   const SAI = /\b(sa[ií]das?|pagamentos?|pago|despesas?|custos?|impostos?|folha|juros|retiradas?|d[ií]vidas? pagas?|devolu[cç][aãõ]o|devolu[cç][oõ]es|parcelas?|para onde foi)\b/i;
   const ENTRA = /\b(entradas?|recebimentos?|recebido|receitas?|vendas?|de onde veio)\b/i;
   const NEUTRO = /saldo|resultado|margem|varia|diferen|menos|equil[ií]brio|%|m[eé]dia|meta|or[cç]ad|projet|limite|ticket|a receber|a pagar|em aberto|vencid|estoque|patrim|ativo|passivo|ncg|capital|total geral|ponto|acumulad|anterior|Δ|×/i;
-  const NEUTRAS = '.plano-ano-anterior, [data-neutro], .chart-tooltip, .chart-y, option';
+  // rótulos e resumos dentro dos gráficos seguem a cor da marca (subtotal neutro), não a do rótulo da linha
+  const NEUTRAS = '.plano-ano-anterior, [data-neutro], .chart-tooltip, .chart-y, option, .g-rotulos, .g-resumo-estreito, .g-dica';
   for (const el of document.querySelectorAll('#pageContent td, #pageContent strong, #pageContent b, #pageContent button, #pageContent span, #detailContent td, #detailContent b, #detailContent strong')) {
     const t = proprio(el); const m = dinheiro(t); if (!m || !vis(el) || el.closest(NEUTRAS)) continue;
     const neg = !!(m[1] || m[2]); if (/^[−-]?\s?R?\$?\s?[−-]?\s?0,00$/.test(t)) continue;
@@ -94,12 +99,31 @@ function verificar() {
     const esperado = sentido < 0 ? VERM : AZUL;
     if (cor !== esperado) falhas.push({regra: 'valor-do-rotulo-fora-da-cor', rotulo: texto.replace(/\s+/g, ' ').slice(0, 80), onde: onde(el), secao: secao(el), texto: t, cor, esperado});
   }
+  // 8. id repetido entre elementos visíveis (getElementById e aria-* passam a apontar para o primeiro)
+  const ids = new Map();
+  for (const el of document.querySelectorAll('[id]')) if (el.id && vis(el)) ids.set(el.id, [...(ids.get(el.id) || []), el]);
+  for (const [id, els] of ids) if (els.length > 1) falhas.push({regra: 'id-duplicado', id, vezes: els.length, onde: onde(els[1]), secao: secao(els[1])});
+  // 9. controle visível sem nome: nem texto (fora do aria-hidden), nem aria-label, aria-labelledby, title ou label
+  const textoAcessivel = el => [...el.childNodes].map(n => n.nodeType === 3 ? n.textContent : n.nodeType !== 1 || n.hidden || n.getAttribute('aria-hidden') === 'true' ? '' : n.tagName === 'IMG' ? n.getAttribute('alt') || '' : n.tagName.toLowerCase() === 'svg' ? n.querySelector('title')?.textContent || '' : textoAcessivel(n)).join('');
+  const temNome = el => {
+    if ((el.getAttribute('aria-label') || '').trim() || (el.getAttribute('title') || '').trim()) return true;
+    const lb = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(i => document.getElementById(i)?.textContent || '').join('').trim(); if (lb) return true;
+    if (el.labels && [...el.labels].some(l => textoAcessivel(l).trim())) return true;
+    if (el.tagName === 'INPUT') return /^(button|submit|reset)$/i.test(el.type) ? !!(el.value || '').trim() || el.type !== 'button' : el.type === 'image' && !!(el.getAttribute('alt') || '').trim();
+    if (el.tagName === 'SELECT') return false;
+    return !!textoAcessivel(el).trim();
+  };
+  for (const el of document.querySelectorAll('button, a[href], [role=button], input:not([type=hidden]), select')) {
+    if (!vis(el) || temNome(el)) continue;
+    falhas.push({regra: 'controle-sem-nome', onde: onde(el), secao: secao(el), html: el.outerHTML.replace(/\s+/g, ' ').slice(0, 120)});
+  }
   return falhas;
 }
 
 // 7. a faixa rola para o lado no celular: o mês aceso precisa estar na parte visível dela
 const chipForaDaFaixa = () => { const b = document.querySelector('#monthChips'), s = b?.querySelector('[aria-pressed="true"]'); if (!s || !b.getClientRects().length) return null;
   const rb = b.getBoundingClientRect(), rs = s.getBoundingClientRect(); return rs.left < rb.left - 1 || rs.right > rb.right + 1 ? {mes: s.dataset.period, chip: [Math.round(rs.left), Math.round(rs.right)], faixa: [Math.round(rb.left), Math.round(rb.right)]} : null; };
+await esperarServidor();
 const browser = await lancar();
 const todas = [];
 try {
@@ -128,6 +152,8 @@ try {
   }
 } finally { await browser.close(); }
 const resumo = todas.reduce((r, x) => { const k = `${x.regra} · ${x.tela || ''}${x.secao ? ' · ' + x.secao : ''}`; r[k] = (r[k] || 0) + 1; return r; }, {});
-if (process.argv[2] === '--json') await fs.writeFile(process.argv[3], JSON.stringify({resumo, falhas: todas}, null, 1));
-console.log(Object.entries(resumo).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${String(n).padStart(4)}  ${k}`).join('\n') || 'Regra das cores e largura: tudo certo.');
-process.exitCode = todas.length ? 1 : 0;
+if (process.argv[2] === '--json') await fs.writeFile(process.argv[3], JSON.stringify({resumo, avisos: [...SO_AVISO], falhas: todas}, null, 1));
+const reprovam = todas.filter(x => !SO_AVISO.has(x.regra));
+const linhas = (lista, prefixo = '') => Object.entries(lista.reduce((r, x) => { const k = `${x.regra} · ${x.tela || ''}${x.secao ? ' · ' + x.secao : ''}`; r[k] = (r[k] || 0) + 1; return r; }, {})).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${String(n).padStart(4)}  ${prefixo}${k}`);
+console.log([...linhas(reprovam), ...linhas(todas.filter(x => SO_AVISO.has(x.regra)), 'aviso · ')].join('\n') || 'Regra das cores e largura: tudo certo.');
+process.exitCode = reprovam.length ? 1 : 0;

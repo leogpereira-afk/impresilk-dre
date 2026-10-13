@@ -81,6 +81,9 @@ body.dark{
 .g-svg .g-faixa-1{fill:var(--g-faixa-1)}.g-svg .g-faixa-2{fill:var(--g-faixa-2)}.g-svg .g-faixa-3{fill:var(--g-faixa-3)}
 .g-svg .g-meta{stroke:var(--g-texto);stroke-width:2}
 .g-chave-meta{background:var(--g-texto)}
+/* linha de referência (reserva mínima no planejamento): tracejada em atenção, com o nome à direita */
+.g-svg .g-referencia{stroke:var(--g-atencao);stroke-width:1.5;stroke-dasharray:6 4}
+.g-rot-ref{right:0;transform:translateY(-130%);padding:0 4px;border-radius:3px;background:var(--g-superficie);color:var(--g-texto-2)}
 .g-heat .g-sem-dado-cel{background:var(--g-hachura)}
 @container (max-width:520px){.g-cascata .g-area,.g-empilhadas .g-area,.g-linha-area .g-area{height:180px}}
 
@@ -98,7 +101,9 @@ body.dark{
 
 /* tabela com a mesma informação, para quem quiser o detalhe */
 .g-tabela{margin-top:8px;font-size:12px}
+.g-tabela[open]{overflow-x:auto}
 .g-tabela>summary{cursor:pointer;color:var(--g-texto-2);min-height:32px;display:inline-flex;align-items:center}
+.g-tabela>summary::before{content:'▸';margin-right:6px}.g-tabela[open]>summary::before{content:'▾'}
 .g-tab{width:100%;border-collapse:collapse;margin-top:4px}
 .g-tab th,.g-tab td{padding:5px 8px;border-bottom:1px solid var(--g-grade);text-align:left}
 .g-tab .num{text-align:right;font-variant-numeric:tabular-nums}
@@ -115,8 +120,6 @@ body.dark{
 .g-cem-barra{position:relative;height:28px}
 .g-cem-barra .g-svg{height:28px}
 .g-rot-dentro{position:absolute;top:50%;transform:translate(-50%,-50%);font-size:11px;font-weight:650;white-space:nowrap}
-.g-rot-dentro.g-claro{color:#fff}
-.g-rot-dentro.g-escuro{color:#1b2333}
 .g-heat-grade{display:grid;gap:2px;align-items:center}
 .g-heat .g-celula{height:24px;border-radius:3px;cursor:pointer}
 .g-heat .g-celula.g-ativo{outline:2px solid var(--g-texto);outline-offset:-2px}
@@ -144,6 +147,9 @@ body.dark{
  .g-area{margin-left:40px}
  .g-rot-y{left:-40px;width:36px}
  .g-linha-h{grid-template-columns:minmax(72px,34%) 1fr}
+ .g-linha-h .g-nome{-webkit-line-clamp:3}
 }
+/* cascata em cartão de até 900 px: os rótulos de valor se cruzam; fica o resumo em texto */
+@container (max-width:900px){.g-cascata .g-opcional{display:none}.g-cascata .g-resumo-estreito{display:block}}
 @media print{.g-dica{display:none}.g-tabela{display:block}.g-tabela[open]>*{display:block}}
 @media (forced-colors:active){.g-svg .g-marca-dado{stroke:CanvasText}.g-sem-dado,.g-aviso{background:none;border:1px dashed CanvasText}}

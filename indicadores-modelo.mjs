@@ -22,6 +22,8 @@ export function dataValida(s){return /^\d{4}-\d{2}-\d{2}$/.test(s||'') && !Numbe
 export function validarPeriodo(de,ate){if(!dataValida(de)||!dataValida(ate)||de>ate||Date.parse(ate)-Date.parse(de)>366*86400000)throw new Error('Escolha um intervalo válido de até 12 meses.');return {de,ate};}
 export function periodoRotulo(label){const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'],[m,y]=String(label).split('/'),i=meses.indexOf(m);if(i<0||!/^\d{4}$/.test(y))return null;return {de:`${y}-${String(i+1).padStart(2,'0')}-01`,ate:new Date(Date.UTC(+y,i+1,0)).toISOString().slice(0,10)};}
 export function periodoPreset(label,tipo){const p=periodoRotulo(label);if(!p)return null;let d=new Date(p.de+'T00:00:00Z'),a=new Date(p.ate+'T00:00:00Z');const m=d.getUTCMonth();if(tipo==='trimestre'){d.setUTCMonth(Math.floor(m/3)*3);a=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+3,0));}if(tipo==='semestre'){d.setUTCMonth(Math.floor(m/6)*6);a=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+6,0));}if(tipo==='ano'){d.setUTCMonth(0);a=new Date(Date.UTC(d.getUTCFullYear(),12,0));}if(tipo==='12meses')d.setUTCMonth(m-11);return {de:d.toISOString().slice(0,10),ate:a.toISOString().slice(0,10)};}
+// Data ISO na tela em dd/mm/aaaa.
+export const dataBRIso=d=>d?String(d).slice(0,10).split('-').reverse().join('/'):'';
 const dentro=(d,p)=>dataValida(d)&&d>=p.de&&d<=p.ate;
 const texto=v=>String(v??'');
 export function agrupar(rows,key){const map=new Map();for(const r of rows){const k=texto(r[key]||'Não informado'),a=map.get(k)||{nome:k,valor:0,quantidade:0,ausentes:0};if(cent(r.valor)==null)a.ausentes++;else a.valor+=cent(r.valor);a.quantidade++;map.set(k,a);}return [...map.values()].map(a=>({...a,valor:a.ausentes===a.quantidade?null:a.valor/100})).sort((a,b)=>Math.abs(b.valor)-Math.abs(a.valor)||a.nome.localeCompare(b.nome));}
@@ -64,11 +66,11 @@ export function caixa(records,p,natureza){
 export function normalizarComercial(itens){return itens.filter(r=>r.comercial?.cancelada===false&&String(r.comercial?.tipo||'').toLowerCase()==='normal').map(r=>({id:texto(r.id),numero:texto(r.numero),data:r.data,nome:r.cliente||'Cliente não informado',cliente:r.cliente||'Cliente não informado',vendedor:r.vendedor||'Não informado',grupo:r.vendedor||'Não informado',valor:r.comercial?.valorConfirmado===true?numero(r.valor):null,origem:`Painel / O.S. ID ${r.id} / tipo ${r.comercial?.tipo||'não informado'}`}));}
 export function normalizarSnapshot(s,fonte,p){
  const exato=fonte==='custos'||fonte==='margem';const disponivel=!!s && s.completo===true && (exato?s.desde===p.de&&s.ate===p.ate:s.desde<=p.de&&s.ate>=p.ate);
- if(!disponivel)return {rows:[],disponivel:false,qualidade:'Indisponível',fontes:s?[{em:s.em,corte:s.ate,periodo:`${s.desde} a ${s.ate}`}]:[],avisos:[s?`Fonte disponível de ${s.desde} a ${s.ate}${exato?'; o recorte de O.S. precisa coincidir exatamente':''}.`:'Esta fonte ainda não foi importada.'],recorte:s?{de:s.desde,ate:s.ate}:null};
+ if(!disponivel)return {rows:[],disponivel:false,qualidade:'Indisponível',fontes:s?[{em:s.em,corte:s.ate,periodo:`${dataBRIso(s.desde)} a ${dataBRIso(s.ate)}`}]:[],avisos:[s?`Fonte disponível de ${dataBRIso(s.desde)} a ${dataBRIso(s.ate)}${exato?'; o recorte de O.S. precisa coincidir exatamente':''}.`:'Esta fonte ainda não foi importada.'],recorte:s?{de:s.desde,ate:s.ate}:null};
  let rows;
  if(exato)rows=s.itens.filter(r=>!r.cancelada).map(r=>({id:texto(r.id),numero:texto(r.numero),data:null,nome:r.cliente,cliente:r.cliente,grupo:r.tipo||'Tipo não informado',valor:numero(r.custo)==null?null:r.custo/100,venda:numero(r.venda)==null?null:r.venda/100,custo:numero(r.custo)==null?null:r.custo/100,origem:`Mubisys / O.S. ID ${r.id} / ${r.empresa||ESCOPO}`,processos:{previstos:r.previstos,realizados:r.realizados},tempoPositivo:(r.realizados||[]).some(x=>numero(x.tempo)>0)}));
  else rows=s.itens.filter(r=>dentro(r.em,p)&&!r.cancelada&&(fonte==='compras'||(r.normal===true&&r.saida===true&&/aprovad|autorizad/i.test(r.status)))).map(r=>({id:texto(r.id),numero:texto(r.numero),data:r.em,nome:fonte==='compras'?r.emitente:r.destinatario,cliente:fonte==='compras'?r.emitente:r.destinatario,grupo:r.status,valor:numero(r.valor)==null?null:r.valor/100,origem:`Mubisys / NF-e ID ${r.id}`,os:r.osIds,itens:r.itens}));
- return {rows,disponivel:true,qualidade:'Parcial',fontes:[{em:s.em,corte:s.ate,periodo:`${s.desde} a ${s.ate}`,conciliado:false}],avisos:[exato?'O.S. cadastradas no período e vinculadas às notas do período. Valores informados no retrato importado, sem prova de custo realizado.':'Recorte de documentos importados. Não comprova cobertura fiscal total.'],limite:DICIONARIO[fonte].limite};
+ return {rows,disponivel:true,qualidade:'Parcial',fontes:[{em:s.em,corte:s.ate,periodo:`${dataBRIso(s.desde)} a ${dataBRIso(s.ate)}`,conciliado:false}],avisos:[exato?'O.S. cadastradas no período e vinculadas às notas do período. Valores informados no retrato importado, sem prova de custo realizado.':'Recorte de documentos importados. Não comprova cobertura fiscal total.'],limite:DICIONARIO[fonte].limite};
 }
 export function csvCelula(v){let s=String(v??'');const num=/^-?\d+([.,]\d+)?$|^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s.trim());if(!num&&/^[\s]*[=+@-]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"';}
 export function exportarCSV({titulo,periodo,fonte,qualidade,limite,rows,valor,fontes=[],indicadores=[]}){
@@ -121,14 +123,14 @@ export function compararAno(records,p,fonte,filtros={}){
 }
 
 // Exibir não é comparar: o ano civil preserva cada fonte, inclusive mudanças de base.
-export function historicoCaixa(records,periodo,fonte,filtros={}){
+export function historicoCaixa(records,periodo,fonte,filtros={},hoje=new Date().toISOString().slice(0,10)){
  const fim=new Date(periodo.ate+'T00:00:00Z');
  const ref=records.find(r=>periodoRotulo(r.label)?.de.slice(0,7)===periodo.ate.slice(0,7));
  return Array.from({length:12},(_,i)=>{
   const d=new Date(Date.UTC(fim.getUTCFullYear(),i,1));
   const de=d.toISOString().slice(0,10),ate=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).toISOString().slice(0,10);
   const r=records.find(x=>periodoRotulo(x.label)?.de===de);
-  const ponto={nome:d.toLocaleDateString('pt-BR',{month:'short',timeZone:'UTC'}).replace('.',''),periodo:de.slice(0,7),valor:null,nota:'Sem fonte',parcial:true};
+  const ponto={nome:d.toLocaleDateString('pt-BR',{month:'short',timeZone:'UTC'}).replace('.',''),periodo:de.slice(0,7),valor:null,nota:de>hoje?'Mês ainda não chegou':'Sem fonte',parcial:true};
   if(!r)return ponto;
   const mesmaBase=!!ref?.company&&!!ref?.basis&&r.company===ref.company&&r.basis===ref.basis&&r.qualidade?.escopo===ref.qualidade?.escopo&&r.qualidade?.regra===ref.qualidade?.regra;
   const a=caixa(records,{de,ate},'entrada'),b=caixa(records,{de,ate},'saida');

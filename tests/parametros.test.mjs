@@ -124,7 +124,7 @@ test('situação compara o pago com o cadastro; só "Mensal" acusa falta; estorn
  assert.equal(sit('Ago/2026','2.4.6.1').texto,'Pago · sem cadastro');
  const est=structuredClone(REGISTROS);est[1].cells.push(cel('2.4.7','IOF',-10));est[1].cells.find(x=>x.code==='2.4').value=1790;
  assert.equal(sit('Set/2026','2.4.7',est).texto,'Estorno no mês');
- const h=tela(context({registros:est}));assert.match(h,/<td class="num tom-entra">-R\$\s10,00<\/td>/,'estorno aparece com valor, em azul');
+ const h=tela(context({registros:est}));assert.match(h,/<td class="num tom-entra">[-−]R\$\s10,00<\/td>/,'estorno aparece com valor, em azul');
  assert.match(h,/<th scope="row">Sem subconta específica<\/th><td colspan="5">[^<]*<\/td><td class="num tom-sai">R\$\s50,00<\/td>/,'o estorno entra na soma: a diferença continua a mesma de antes (50), sem inventar outra');
 });
 test('cadastro numa conta que ganhou subcontas não é somado duas vezes',()=>{
@@ -317,3 +317,23 @@ test('coluna Editar sem span .sr-only dentro da tabela rolável: no celular ele 
  assert.doesNotMatch(t.slice(0,t.indexOf('</table>')),/class="sr-only"/);
  const leitor=tela(context({admin:false}));assert.doesNotMatch(leitor,/aria-label="Editar"/,'quem só lê não tem a coluna');
 });
+
+// ── v135 ──────────────────────────────────────────────────────────────────
+test('alíquota efetiva: as duas empresas na mesma escala, a partir de zero, com a cor neutra (D42)',()=>{
+ const c=context({cfg:{parametros:{simples:{'2026-08':{impresilk:{aliquota:9.5},universo:{aliquota:6}},'2026-09':{impresilk:{aliquota:10.2}}}}}});
+ c.run("globalThis.__ops=[];const __gla=gLinhaArea;gLinhaArea=(p,op)=>{__ops.push(op);return __gla(p,op);}");
+ c.run("paramGraficosSimples('Set/2026')");const ops=c.json('__ops.map(o=>({titulo:o.titulo,min:o.min,max:o.max,cor:o.cor}))');
+ assert.equal(ops.length,2);assert.deepEqual(ops.map(o=>[o.min,o.max,o.cor]),[[0,10.2,'resultado'],[0,10.2,'resultado']],'o mesmo max para as duas');
+ const vazio=context();vazio.run("globalThis.__ops=[];const __gla=gLinhaArea;gLinhaArea=(p,op)=>{__ops.push(op);return __gla(p,op);}");vazio.run("paramGraficosSimples('Set/2026')");
+ assert.deepEqual(vazio.json('__ops.map(o=>o.max)'),[null,null],'sem alíquota informada, sem max inventado');
+});
+test('Prazos, estoque e metas: diz onde cada valor entra e leva às telas (I32, N14)',()=>{
+ const h=tela(context());
+ assert.doesNotMatch(h,/próximas fases/);
+ assert.match(h,/Prazos e estoque entram no Capital de giro, nos Recebíveis e no Balanço gerencial\. A meta de resultado do mês entra em Preço e equilíbrio; as metas do ano ficam no Dashboard, em Ritmo do ano\./);
+ assert.match(h,/Guardada para referência; nenhuma tela usa este valor ainda\./,'a meta de receita fica, com a dica');
+ const usado=h.match(/<p class="hint param-usado-em">Usado em:.*?<\/p>/)?.[0]||'';
+ assert.deepEqual([...usado.matchAll(/data-go="([^"]+)">([^<]+)<\/button>/g)].map(m=>[m[1],m[2]]),[['balanco','Balanço gerencial'],['giro','Capital de giro'],['recebiveis','Recebíveis e aging'],['dfc','Fluxo de caixa DFC'],['precos','Preço e equilíbrio']],'nomes iguais aos do menu');
+ const menu=ler('app.js');for(const [v,t] of [['balanco','Balanço gerencial'],['giro','Capital de giro'],['recebiveis','Recebíveis e aging'],['dfc','Fluxo de caixa DFC'],['precos','Preço e equilíbrio']])assert.ok(menu.includes(`['${v}','${t}']`),t);
+});
+test('alíquota de Parâmetros continua com duas casas (D16)',()=>{const c=context();assert.equal(c.run('paramPct(6.5)'),'6,50%');assert.equal(c.run('paramPct(6.5,4)'),'6,50%');});

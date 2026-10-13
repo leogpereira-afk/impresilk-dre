@@ -109,14 +109,14 @@ test('tela de caixa: cards clicáveis com a cor certa, cascata com o DAS em verm
  const cards=[...h.matchAll(/<button type="button" class="metric metric-param" data-dre-origem><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong>/g)].map(m=>[m[1],m[2],m[3]]);
  assert.deepEqual(cards.map(x=>x[0]),['Vendas · Set/2026','Margem de contribuição','Resultado operacional (EBITDA de caixa)','Resultado do mês']);
  assert.deepEqual(cards.map(x=>x[1]),['tom-entra','tom-entra','tom-entra','tom-entra']);assert.match(cards[1][2],/R\$\s5\.250,00/);
- assert.match(h,/class="g-marca-dado g-cor-saida"[^>]*data-dica="\(−\) Simples do mês \(DAS e DARF\)\n-R\$\s600,00 · -6% da base"/);
+ assert.match(h,/class="g-marca-dado g-cor-saida"[^>]*data-dica="\(−\) Simples do mês \(DAS e DARF\)\n−R\$\s600,00 · −6,0% da base" data-tom="tom-sai"/,'D37: "−" no dinheiro; D16: uma casa fixa; C18: data-tom no degrau');
  assert.match(h,/Margem de contribuição: R\$\s5\.250,00 \(52,5%\)/);
  const prej=context({registros:[reg('Set/2026','2026-09-30',troca(SET,{'2':14750,'2.5':5000,'2.5.2':5000}))]}).run('renderDRE()');
  assert.match(prej,/<span class="label">Resultado do mês<\/span><strong class="tom-sai">/,'prejuízo em vermelho');
- assert.match(h,/data-account="2\.1\.12">Comissão Interna<\/button>[^]*?<\/th><td class="num tom-sai">R\$\s500,00<\/td><td class="num">5%<\/td>/,'composição sobre as vendas');
+ assert.match(h,/data-account="2\.1\.12">Comissão Interna<\/button>[^]*?<\/th><td class="num tom-sai">R\$\s500,00<\/td><td class="num">5,0%<\/td>/,'composição sobre as vendas');
  assert.match(h,/<caption>Contas do plano por linha da DRE · Set\/2026 · % sobre as vendas<\/caption>/);assert.match(h,/A DRE inteira fecha com o caixa do ERP: entradas menos saídas de Set\/2026 = R\$\s1\.470,00/);
  assert.ok(h.indexOf('metric-param')<h.indexOf('g-cascata')&&h.indexOf('g-cascata')<h.indexOf('Comparação ·'),'cards, gráficos, depois tabelas');
- assert.match(h,/<details class="card dre-movimento"><summary>Movimento de caixa · entradas e saídas<\/summary>/,'a matriz antiga fica recolhida');
+ assert.match(h,/<details class="card dre-movimento"><summary><h2 class="card-titulo">Movimento de caixa · entradas e saídas<\/h2><\/summary>/,'a matriz antiga fica recolhida');
  assert.equal((h.match(/class="dre-compact"/g)||[]).length,1,'as tabelas novas não se passam pela matriz antiga');
 });
 test('comparação: direção certa, detalhe zerado some e a ponte aparece sem cor (empréstimo não é "bom"); a variação do caixa subindo é boa (v133)',()=>{
@@ -138,7 +138,7 @@ test('mês em andamento é marcado nos quatro cards, com a cor do sinal (v133), 
  // v133 (C3, decisão do dono): o sentido é fato também no mês em andamento; só setas e comparação ficam neutras
  assert.match(out,/<span class="label">Resultado do mês<\/span><strong class="tom-entra">/,'resultado parcial positivo em azul');
  assert.match(out,/Out\/2026 contra Set\/2026 · % sobre as vendas · sem comparação: Out\/2026 tem lançamentos só até/);
- assert.match(out,/data-dica="Out\nsem dado"/);assert.match(out,/<th scope="col" class="num selected-month">Out\/2026 \*<\/th>/);
+ assert.match(out,/data-dica="Out\*\nparcial, fora do gráfico"/,"D11: o parcial leva * e não se passa por sem dado");assert.match(out,/<th scope="row">Out\*<\/th><td class="num">Parcial, fora do gráfico<\/td>/);assert.match(out,/sem dado ou parcial \(\*\)/);assert.match(out,/<th scope="col" class="num selected-month">Out\/2026 \*<\/th>/);
 });
 test('mês sem dados: cards dizem o que fazer, o ano continua visível e nada vira zero',()=>{
  const h=context({periodo:'Jul/2026'}).run('renderDRE()');
@@ -157,16 +157,23 @@ test('o mês de comparação escolhido vale, inclusive de outro ano; sem dados, 
 test('competência: DAS pago ao lado do informado, comparação de outro ano, percentuais sobre a receita bruta',()=>{
  const cfg={demonstrativosCompetencia:{versao:1,meses:{Ago_2026:comp('Ago/2026'),Jul_2026:comp('Jul/2026',{...VALORES,produtos:18000}),Ago_2025:comp('Ago/2025',{...VALORES,produtos:16000})}}};
  const c=context({periodo:'Ago/2026',cfg});c.run("dreUI.base='competencia'");const h=c.run('renderDRE()');
- assert.match(h,/Simples da competência Ago\/2026 \(DAS e DARF\) pago em Set\/2026: R\$\s600,00 \(Impresilk R\$\s500,00 · Universo R\$\s100,00\)\. Informado em “Tributos sobre vendas”: R\$\s500,00 — menor que o Simples pago \(DAS e DARF\): confira\./);
- assert.match(linhaTabela(h,'(=) Lucro / prejuízo líquido'),/R\$\s8\.400,00<\/td><td class="num">42%<\/td><td class="num tom-entra">R\$\s6\.400,00<\/td><td class="num">35,6%<\/td>/);
- assert.match(h,/data-dica="Ago\n42%"/);
+ assert.match(h,/Simples da competência Ago\/2026 \(DAS e DARF\) pago em Set\/2026: R\$\s600,00 \(Impresilk R\$\s500,00 · Universo R\$\s100,00\)\. Informado em “Tributos sobre vendas”: R\$\s500,00, menor que o Simples pago \(DAS e DARF\): confira\./);
+ assert.match(linhaTabela(h,'(=) Lucro / prejuízo líquido'),/R\$\s8\.400,00<\/td><td class="num">42,0%<\/td><td class="num tom-entra">R\$\s6\.400,00<\/td><td class="num">35,6%<\/td>/);
+ // I7: a tendência usa a mesma base do KPI "Margem líquida" (lucro líquido ÷ receita líquida = 8.400 ÷ 19.500)
+ const kpi=h.match(/<span class="label">Margem líquida<\/span><strong class="[^"]*">([^<]*)<\/strong>/)[1];assert.equal(kpi,'43,1%');assert.match(h,new RegExp(`data-dica="Ago\\n${kpi}"`));
+ assert.match(h,/O lucro sobre a receita está melhorando\?<\/h3><p>Lucro líquido ÷ receita líquida, nos meses com apuração\./);assert.match(h,/Ago\/2026 contra Jul\/2026 · % sobre a receita bruta/);
+ // D19: os cartões da competência no mesmo desenho da DRE de caixa (cards-controle + metric-param), clicáveis e com tom
+ const kpis=h.slice(h.indexOf('<div class="cards cards-controle">'),h.indexOf('</div>',h.indexOf('<div class="cards cards-controle">')));
+ assert.equal((kpis.match(/<button class="metric[^"]*" data-cfo-rubrica=/g)||[]).length,3);assert.match(kpis,/<strong class="tom-entra">/);assert.doesNotMatch(h,/finance-kpis/);
+ // metric-param chega pelo 5º argumento de metricRubricaCFO (contrato com a frente dfc, cfo.js)
+ if(c.run("metricRubricaCFO('liquida','x',1,'y','metric-param')").includes('metric-param'))assert.equal((kpis.match(/<button class="metric metric-param[ "]/g)||[]).length,3);
  const c2=context({periodo:'Ago/2026',cfg,comparar:'Ago/2025'});c2.run("dreUI.base='competencia'");assert.match(c2.run('renderDRE()'),/Comparação · Ago\/2026 contra Ago\/2025/);
  const outra={demonstrativosCompetencia:{versao:1,meses:{Ago_2026:comp('Ago/2026'),Jul_2026:comp('Jul/2026',VALORES,'Só Impresilk')}}};
  const c3=context({periodo:'Ago/2026',cfg:outra});c3.run("dreUI.base='competencia'");assert.match(c3.run('renderDRE()'),/sem comparação: empresas diferentes/);
  const ren=REGISTROS.map(r=>r.label!=='Set/2026'?r:{...r,cells:troca(SET,{'2.4.1':1100,'2.4':1200,'2':10750},[cel('2.4.1.51','DAS Impresilk',200)])});
  const c4=context({periodo:'Ago/2026',cfg,registros:ren});c4.run("dreUI.base='competencia'");assert.match(c4.run('renderDRE()'),/· R\$\s200,00 no DAS e no DARF fora das subcontas, a conferir\)/);
  const ir={demonstrativosCompetencia:{versao:1,meses:{Ago_2026:comp('Ago/2026',{...VALORES,tributosLucro:300})}}};
- const c5=context({periodo:'Ago/2026',cfg:ir});c5.run("dreUI.base='competencia'");assert.match(c5.run('renderDRE()'),/\(−\) IRPJ e CSLL fora do Simples\n-R\$\s300,00/,'IRPJ informado aparece como degrau');
+ const c5=context({periodo:'Ago/2026',cfg:ir});c5.run("dreUI.base='competencia'");assert.match(c5.run('renderDRE()'),/\(−\) IRPJ e CSLL fora do Simples\n−R\$\s300,00/,'IRPJ informado aparece como degrau');
  const sem={demonstrativosCompetencia:{versao:1,meses:{Ago_2026:comp('Ago/2026',{...VALORES,tributosVendas:null})}}};
  const c6=context({periodo:'Ago/2026',cfg:sem});c6.run("dreUI.base='competencia'");const h6=c6.run('renderDRE()');
  assert.match(h6,/Informado em “Tributos sobre vendas”: não informado\./);assert.match(h6,/<th scope="row">\(−\) Tributos sobre vendas \(Simples e ISS fora dele\)<\/th><td class="num">Não apurado<\/td>/,'tributo vazio não vira zero na cascata');
@@ -189,7 +196,7 @@ test('planilha da base de caixa leva a DRE Simples; composição escapa nomes do
  const c=context();c.run('download=(n,t)=>{__csv=t}');c.run('exportarDRECSV()');const csv=c.run('__csv');
  assert.match(csv,/DRE Simples \(base de caixa\)/);assert.match(csv,/"\(=\) Margem de contribuição";"5250,00";"52,50%"/);
  const x=REGISTROS.map(r=>r.label!=='Set/2026'?r:{...r,cells:troca(SET,{'2':10650,'2.13':1080},[cel('2.13.52','<img src=x onerror=alert(1)>',100)])});
- const h=context({registros:x}).run('renderDRE()');assert.match(h,/· 1 a conferir<\/summary>/);assert.doesNotMatch(h,/<img src=x/);assert.match(h,/&lt;img src=x onerror=alert\(1\)&gt;/);
+ const h=context({registros:x}).run('renderDRE()');assert.match(h,/· 1 a conferir<\/h2><\/summary>/);assert.doesNotMatch(h,/<img src=x/);assert.match(h,/&lt;img src=x onerror=alert\(1\)&gt;/);
  const p=context();p.run('const __a=DRESimples.apurar;__n=0;DRESimples.apurar=r=>{__n++;return __a(r)}');p.run('renderDRE()');const primeira=p.run('__n');p.run('renderDRE()');
  assert.ok(primeira<=3,'um por mês com dados, não 26');assert.equal(p.run('__n'),primeira,'o segundo render reaproveita');
 });
@@ -260,4 +267,32 @@ test('v133 (I1): grupo do Mubisys com o nome de uma linha da DRE Simples ganha a
  const nomes=c.json("F.composicao(state.records.find(r=>r.label==='Set/2026'),'2').itens.map(x=>x.name)");
  assert.ok(nomes.includes('Despesas Fixas (grupo 2.5 do Mubisys)'));assert.ok(nomes.includes('Materiais e Insumos'));assert.ok(nomes.includes('Despesas Funcionários'));
  assert.equal(c.json("F.composicao(state.records.find(r=>r.label==='Set/2026'),'2.5').itens.map(x=>x.name)").join(),'Aluguel lote','subconta não muda');
+});
+
+// v135
+test('DRE Simples mês a mês: região com nome, valores sem "R$" e a célula leva à composição da linha (D14, N10, N11)',()=>{
+ const c=context(),h=c.run("dreMesesSimples('Ago/2026',dreMesesDoAno('Ago/2026').map(dreMesCaixa))");
+ assert.match(h,/<div class="table-scroll" role="region" tabindex="0" aria-label="DRE Simples mês a mês">/);
+ assert.match(h,/<caption>Base de caixa · R\$ ·/,'a legenda continua dizendo R$');
+ const corpo=h.slice(h.indexOf('<tbody>'),h.indexOf('</tbody>'));assert.doesNotMatch(corpo,/R\$/,'sem "R$" em cada célula: o Acumulado cabe a 1440 sem cobrir o mês');
+ const vendas=linhaTabela(h,'Receita bruta de vendas');
+ assert.match(vendas,/<button type="button" class="cfo-value" data-dre-ir="vendas" data-periodo="Ago\/2026" aria-label="Receita bruta de vendas em Ago\/2026: 10\.000,00\. Ver as contas">10\.000,00<\/button>/);
+ assert.match(vendas,/data-dre-ir="vendas" data-periodo="Set\/2026"[^>]*>10\.000,00<\/button>/,'cada mês com dados leva ao próprio mês');
+ assert.match(linhaTabela(h,'(−) Simples do mês (DAS e DARF)'),/>−?600,00<\/button>|>-600,00<\/button>/,'saída sem "R$" e com o sinal colado ao número');
+ assert.match(linhaTabela(h,'Receita bruta de vendas'),/<span class="muted"[^>]*>—/,'mês sem dados continua —, sem botão');
+ assert.doesNotMatch(linhaTabela(h,'Veículos'),/data-dre-ir/,'linha sem contas não vira botão');
+ assert.match(c.run('renderDRE()'),/<tbody data-dre-linha="vendas"><tr class="dre-composicao-grupo">/,'a composição marca o corpo de cada linha');
+ // o clique vai ao mês (desligando o Ano) e abre "De onde vem cada linha" na linha clicada
+ const btn={dataset:{dreIr:'vendas',periodo:'Jul/2026'}},alvo={rolou:0,scrollIntoView(){this.rolou++;}},det={open:false,querySelector:s=>s==='tbody[data-dre-linha="vendas"]'?alvo:null};
+ c.document.querySelectorAll=s=>s==='[data-dre-ir]'?[btn]:[];c.document.querySelector=s=>s==='.dre-composicao'?det:null;
+ c.requestAnimationFrame=f=>f();c.CSS={escape:s=>s};c.run("var __ida=[];selecionarPeriodo=l=>__ida.push(l);");
+ c.run('wireDRE()');btn.onclick();
+ assert.deepEqual(c.json('__ida'),['Jul/2026']);assert.equal(det.open,true);assert.equal(alvo.rolou,1);
+});
+test('Ano: a nota diz "somado" e o mês em andamento (I16); percentuais e p.p. com uma casa, sem "-0" (D16)',()=>{
+ const c=context(),r=c.run("(()=>{const ms=dreMesesDoAno('Out/2026').map(dreMesCaixa);return dreSimplesAno('Out/2026',ms,9,'').resto;})()");
+ assert.match(r,/2026 somado de janeiro a Out, com Out\/2026 em andamento\. A comparação entre meses/);assert.doesNotMatch(r,/inteiro, de janeiro|inteiro: de janeiro/);
+ assert.equal(c.run('drePct(15.87)'),'15,9%');assert.equal(c.run('drePct(61)'),'61,0%');assert.equal(c.run('drePct(-0.04)'),'0,0%');
+ assert.equal(c.run('valorDRE(15.87,true)'),'15,9%');assert.equal(c.run('valorDRE(-0.01,true)'),'0,0%');
+ const h=comparacao(context().run('renderDRE()'));assert.doesNotMatch(h,/-0 p\.p\.|>0 p\.p\.|-0,0/);assert.match(h,/\d,\d p\.p\.|0,0 p\.p\./);
 });

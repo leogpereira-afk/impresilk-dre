@@ -29,7 +29,7 @@ test('Análise CFO: saídas em vermelho, estorno em azul, variação pela direç
  c.fixture.pendencias=[{tipo:'sem-classe'},{tipo:'duplicado'}];
  const h=vm.runInContext('renderCFO(regAtual())',c);
  assert.match(h,/<td class="num tom-sai"><button class="cfo-link" data-cfo-account="2\.5"/,'grupo de saída em vermelho, mesmo dentro do link');
- assert.match(h,/Demais grupos \(1\)<small>[^<]*<\/small><\/th><td class="num tom-entra">-R\$\s50,00/,'estorno numa conta de saída, somado na cauda, em azul');
+ assert.match(h,/Demais grupos \(1\)<small>[^<]*<\/small><\/th><td class="num tom-entra">[−-]R\$\s50,00/,'estorno numa conta de saída, somado na cauda, em azul');
  assert.match(h,/Diferença de <b class="tom-entra">/,'entradas menos saídas positiva em azul');
  assert.match(h,/Variação <span class="delta-ruim">▲ R\$\s300,00<\/span>/,'despesa que sobe é ruim');assert.match(h,/Variação <span class="delta-bom">▼ R\$\s50,00<\/span>/,'despesa que cai é boa, sem sinal de menos');
  assert.match(h,/Jul\/2026: <span class="tom-sai">R\$\s500,00<\/span> → Ago\/2026: <span class="tom-sai">R\$\s800,00<\/span>/);
@@ -44,4 +44,33 @@ test('diálogo da conta: valor principal, composição e histórico com a cor do
  assert.match(h,/<td class="num tom-sai"><button class="cfo-link" data-cfo-account="2\.5" data-cfo-period="Ago\/2026">R\$\s800,00/);
  vm.runInContext("abrirAnaliseConta('variacao','Ago/2026')",c);assert.match(el.detailContent.innerHTML,/<strong class="tom-entra">R\$\s200,00<\/strong>/,'rubrica do caixa usa o tom da rubrica');
  c.document.getElementById=()=>null;
+});
+// v135 · D25, I22, I26, I34 e N26: cobertura só quando o mês não é comparável; código do
+// Mubisys ao lado do código do painel; "grupo(s)"; sem travessão; th de linha com scope.
+test('Análise CFO: cobertura só fora do mês comparável, código do Mubisys, grupos e cabeçalhos com scope',()=>{
+ c.fixture=rec({'1':1000,'2':1600,'2.5':800,'2.12':600,'2.1':150,'2.13':50});c.anterior=rec({'1':900,'2':1300,'2.5':500,'2.12':600,'2.1':140,'2.13':60},{label:'Jul/2026'});
+ vm.runInContext("state.periodo='Ago/2026';state.records=[fixture,anterior];state.D={accounts:[]};state.comparar='Jul/2026';state.view='cfo';",c);
+ const h=vm.runInContext('renderCFO(regAtual())',c);
+ assert.doesNotMatch(h,/cfo-alert/,'mês comparável: o status fica no chip do topo');
+ assert.match(h,/<small>2\.12 · Mubisys 2\.9<\/small><\/th>/,'I22: código do Mubisys quando difere');assert.match(h,/<small>2\.1<\/small><\/th>/,'código igual não ganha sufixo');
+ assert.match(h,/<tr><th scope="row"><button class="cfo-link" data-cfo-account="2\.5"/);assert.match(h,/<thead><tr><th scope="col">Grupo<\/th><th scope="col" class="num">Registrado/);
+ assert.match(h,/Somente grupos presentes/);assert.doesNotMatch(h,/contas presentes|Mais \d+ contas?</);
+ assert.doesNotMatch(h,/ — /,'sem travessão em frase');
+ const parc=rec({'1':100,'2':80,'2.5':80},{qualidade:{estado:'parcial',ate:'2026-08-10'}});c.fixture=parc;vm.runInContext("state.records=[fixture];state.comparar=''",c);
+ assert.match(vm.runInContext('renderCFO(regAtual())',c),/<div class="cfo-alert"><b>/,'mês parcial: o cartão de cobertura volta');
+});
+test('Análise CFO: "Mais N grupos" na cauda das variações e compensação negativa sem travessão',()=>{
+ const codes=['2.1','2.2','2.3','2.4','2.5','2.6','2.7','2.8','2.9','2.10','2.11'];
+ c.fixture=rec({'1':5000,'2':codes.reduce((n,_,i)=>n+100*(i+1),0),...Object.fromEntries(codes.map((k,i)=>[k,100*(i+1)]))});c.anterior=rec({'1':5000,'2':codes.reduce((n,_,i)=>n+100*(i+1)+10*(i+1),0),...Object.fromEntries(codes.map((k,i)=>[k,100*(i+1)+10*(i+1)]))},{label:'Jul/2026'});
+ vm.runInContext("state.periodo='Ago/2026';state.records=[fixture,anterior];state.D={accounts:[]};state.comparar='Jul/2026';state.view='cfo';",c);
+ const h=vm.runInContext('renderCFO(regAtual())',c);assert.match(h,/<b>Mais \d+ grupos?<\/b>/);assert.match(h,/Nenhum deles, sozinho, muda a decisão do mês\.|, sozinho, não muda a decisão do mês\./);
+ c.fixture=rec({'1':1000,'2':100,'2.5':300,'2.6':-200});vm.runInContext("state.records=[fixture];state.comparar=''",c);
+ const n=vm.runInContext('renderCFO(regAtual())',c);assert.doesNotMatch(n,/ — há compensações/);assert.match(n,/%<\/b> das saídas líquidas registradas; há compensações negativas na composição\./);
+});
+// v135 · D19: a DRE passa 'metric-param' para o cartão de rubrica entrar na mesma família.
+test('metricRubricaCFO: sem classe extra o HTML é o de antes; com classe, ela entra depois de "metric"',()=>{
+ vm.runInContext("state.periodo='Ago/2026'",c);
+ const a=vm.runInContext("metricRubricaCFO('liquida','Receita líquida',1000,'Vendas')",c),b=vm.runInContext("metricRubricaCFO('liquida','Receita líquida',1000,'Vendas','metric-param')",c);
+ assert.match(a,/^<button class="metric metric-entra" data-cfo-rubrica="liquida"/);assert.equal(b,a.replace('class="metric ','class="metric metric-param '));
+ assert.match(vm.runInContext("metricRubricaCFO('liquida','Receita líquida',0,'Vendas')",c),/^<button class="metric" data-cfo-rubrica/);
 });

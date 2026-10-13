@@ -132,3 +132,60 @@ test('v133 (I19): DREIndicadores.area escolhe a área e a fonte e recomeça os f
  c.window.DREIndicadores.area('Inexistente');assert.equal(ui().area,'Receita','área desconhecida não muda nada');
  assert.match(fs.readFileSync(new URL('../app.js',import.meta.url),'utf8'),/\[data-go\]'\)\.forEach\(b=>b\.onclick=\(\)=>\{if\(b\.dataset\.indArea\)window\.DREIndicadores\?\.area\?\.\(b\.dataset\.indArea,b\.dataset\.indFonte\);state\.view=b\.dataset\.go;render\(\);\}\)/,'o [data-go] passa a área antes de abrir a tela');
 });
+
+// ── v135: auditoria v133 (frente indicadores) ──
+const telaInd=()=>{const c=vm.createContext({M,window:{},document:{addEventListener(){}}});vm.runInContext(fs.readFileSync(new URL('../indicadores.js',import.meta.url),'utf8').replace(/^import \* as M from [^\n]*\n/,''),c);return c;};
+test('v135 (D11): mês futuro sem registro é "Mês ainda não chegou"; mês passado sem registro é "Sem fonte"',()=>{
+ const r=reg([event('a',100)],{company:'Impresilk + Universo',basis:'Caixa'});
+ const h=M.historicoCaixa([r],p,'recebimentos',{},'2026-09-21');
+ for(const i of [9,10,11])assert.equal(h[i].nota,'Mês ainda não chegou',h[i].periodo);
+ assert.equal(h[7].nota,'Sem fonte','agosto já passou e não tem registro');assert.equal(h[7].valor,null);assert.notEqual(h[8].nota,'Sem fonte');
+ assert.equal(M.historicoCaixa([r],p,'recebimentos',{},'2026-12-31')[11].nota,'Sem fonte','dezembro começado e sem registro é falta de fonte');
+});
+test('v135 (D16, D37): percentual com 1 casa, sinal de menos "−" sem -0 e datas da fonte em dd/mm/aaaa',()=>{
+ const c=telaInd(),run=x=>vm.runInContext(x,c);
+ assert.equal(run('pct(15.87)'),'15,9%');assert.equal(run('pct(61)'),'61,0%');assert.equal(run('pct(-0.01)'),'0,0%');assert.equal(run('pct(-2.84)'),'−2,8%');assert.equal(run('pct(null)'),'Indeterminada');
+ assert.match(run('br(-1234.5)'),/^−R\$\s1\.234,50$/);assert.match(run('br(-0)'),/^R\$\s0,00$/);assert.doesNotMatch(run('br(-0.001)'),/-|−/);
+ assert.equal(M.dataBRIso('2026-08-01'),'01/08/2026');assert.equal(M.dataBRIso('2026-08-01T12:00:00Z'),'01/08/2026');assert.equal(M.dataBRIso(null),'');
+ const s={completo:true,desde:'2026-08-01',ate:'2026-08-31',em:'2026-09-01T12:00:00Z',itens:[]};
+ assert.equal(M.normalizarSnapshot(s,'fiscal',{de:'2026-08-01',ate:'2026-08-31'}).fontes[0].periodo,'01/08/2026 a 31/08/2026');
+ assert.match(M.normalizarSnapshot(s,'fiscal',p).avisos[0],/^Fonte disponível de 01\/08\/2026 a 31\/08\/2026/);
+ assert.equal(run("dataTxt('Recorte de 2026-08-01 a 2026-08-31, coletado 2026-09-01T12:00:00Z')"),'Recorte de 01/08/2026 a 31/08/2026, coletado 2026-09-01T12:00:00Z');
+ // Evolução das fontes importadas: Referência "Ago/2026", eixo "Ago/26", nunca "2026-08" nem "08/26".
+ run("ui.fonte='fiscal';ui.area='Receita';ui.periodo={de:'2026-08-01',ate:'2026-09-30'};ui.ctx={records:[]}");
+ c.m={evolucao:[{nome:'2026-08',valor:-10,quantidade:1,ausentes:0},{nome:'2026-09',valor:20,quantidade:1,ausentes:0}],grupos:[]};
+ const html=run('analises(m)');assert.match(html,/<td>Ago\/2026<\/td>/);assert.match(html,/class="ind-axis">Ago\/26</);assert.doesNotMatch(html,/2026-08|08\/26/);assert.match(html,/−R\$\s10,00/);
+});
+test('v135 (D44, D45): ausência sai como vazio no cartão; coluna Data só quando algum registro tem data',()=>{
+ const c=telaInd(),run=x=>vm.runInContext(x,c);
+ for(const v of ['Não apurado','Sem comparação','Indisponível','Indeterminada'])assert.match(run(`metric('X',${JSON.stringify(v)},'')`),/<strong class="ind-vazio">/,v);
+ assert.match(run("metric('X','R$ 1,00','','','entra')"),/<strong class="tom-entra">/);assert.match(run("metric('X','Não apurado','','','sai')"),/<strong class="ind-vazio">/,'vazio vence o tom');
+ run("ui.fonte='custos'");const semData=run("tabela([{id:'1',numero:'1',nome:'OS',grupo:'Normal',data:null,valor:10}])");assert.doesNotMatch(semData,/<th>Data<\/th>|Não atribuída/);
+ run("ui.fonte='recebimentos'");const comData=run("tabela([{id:'1',numero:'1',nome:'A',data:'2026-09-02',valor:10},{id:'2',numero:'2',nome:'B',data:null,valor:5}])");assert.match(comData,/<th>Data<\/th>/);assert.match(comData,/Não atribuída/);
+});
+test('v135 (I33): NF-e e notas de compra abrem por cliente; O.S. comerciais por vendedor, sem a opção grupo',()=>{
+ const c=telaInd(),run=x=>vm.runInContext(x,c),dim=()=>run('ui.dimensao'),ops=r=>JSON.parse(run(`JSON.stringify(dimensoes(${r}))`));
+ c.window.DREIndicadores.area('Receita','fiscal');assert.equal(dim(),'cliente');assert.deepEqual(ops(true),[['grupo','Situação da nota'],['cliente','Cliente / fornecedor']]);
+ c.window.DREIndicadores.area('Custos','compras');assert.equal(dim(),'cliente');assert.equal(ops(true)[0][1],'Situação da nota');
+ c.window.DREIndicadores.area('Receita','comercial');assert.equal(dim(),'vendedor');assert.deepEqual(ops(true).map(x=>x[0]),['cliente','vendedor']);
+ c.window.DREIndicadores.area('Receita','recebimentos');assert.equal(dim(),'grupo');assert.deepEqual(ops(false),[['grupo','Conta / grupo']]);
+});
+test('v135 (N3): rota() devolve área e fonte; mount reabre a rota do link e mantém os filtros quando ela é a atual',async()=>{
+ const c=telaInd(),run=x=>vm.runInContext(x,c),I=c.window.DREIndicadores,ctx=rota=>({periodo:'Set/2026',records:[],rota,api:async()=>({ok:false,erro:'sem rede no teste'})});
+ assert.deepEqual({...I.rota()},{area:'Receita',fonte:'recebimentos'});
+ I.mount({},ctx({area:'Custos',fonte:'compras'}));assert.deepEqual({...I.rota()},{area:'Custos',fonte:'compras'});
+ run("ui.query='lona'");I.mount({},ctx({area:'Custos',fonte:'compras'}));assert.equal(run('ui.query'),'lona','mesma rota não recomeça os filtros');
+ I.mount({},ctx({area:'Inexistente',fonte:'x'}));assert.deepEqual({...I.rota()},{area:'Custos',fonte:'compras'});
+ I.mount({},ctx(null));assert.equal(I.rota().area,'Custos','sem rota fica onde está');
+ const src=fs.readFileSync(new URL('../indicadores.js',import.meta.url),'utf8');
+ assert.match(src,/all\('\[data-area\]',b=>b\.onclick=\(\)=>\{[^}]*reset\(\);window\.gravarRota\?\.\(\);carregar\(\);\}\)/);assert.match(src,/all\('\[data-source\]',b=>b\.onclick=\(\)=>\{[^}]*reset\(\);window\.gravarRota\?\.\(\);carregar\(\);\}\)/);
+ await new Promise(r=>setTimeout(r,0));
+});
+test('v135 (N7, N27, M10): foco volta ao controle depois de repintar; ROE e ROA abrem o glossário; impressão com logo.webp',()=>{
+ const src=fs.readFileSync(new URL('../indicadores.js',import.meta.url),'utf8');
+ assert.match(src,/FOCO_ATTRS=\['data-area','data-source','data-ind-period'/);assert.match(src,/ligar\(\);window\.wireGlossario\?\.\(\);\n if\(foco\)ui\.container\.querySelector\(foco\)\?\.focus\(\{preventScroll:true\}\);/);
+ // O "?" fica dentro da descrição: a linha é uma grade de 3 colunas (sigla, descrição, taxa).
+ assert.match(src,/<b>ROE<\/b><span>\$\{esc\(base\)\} ÷ patrimônio médio <button type="button" class="term-help" data-term="ROE \(retorno sobre o patrimônio\)" aria-label="Entender ROE">\?<\/button><\/span>/);
+ assert.match(src,/<b>ROA<\/b><span>\$\{esc\(base\)\} ÷ ativo médio <button type="button" class="term-help" data-term="ROA \(retorno sobre o ativo\)" aria-label="Entender ROA">\?<\/button><\/span>/);
+ assert.match(src,/<img src="logo\.webp" alt="Impresilk">/);assert.doesNotMatch(src,/logo\.png/);
+});

@@ -35,6 +35,35 @@ jobs:
         with:
           path: dist
 
+  # Portão visual (cores e largura) com dados sintéticos: roda depois do build e não segura a publicação;
+  # falha deixa o run vermelho no Actions e o portao.json fica como artefato.
+  portao-visual:
+    needs: build
+    runs-on: ubuntu-latest
+    # só lê o repositório: o código de terceiros do Playwright não recebe pages nem id-token
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Instalar Playwright (versão fixa) e o Chromium
+        run: |
+          npm i --no-save --no-package-lock playwright@1.62.1
+          npx playwright install --with-deps chromium
+      - name: Servidor estático do repositório
+        run: python3 -m http.server 8793 --bind 127.0.0.1 > /tmp/servidor.log 2>&1 &
+      - name: Portão de cor e largura
+        env:
+          DRE_URL: http://127.0.0.1:8793/
+        run: node tests/visual/regra-cores.mjs --json portao.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portao-visual
+          path: portao.json
+
   deploy:
     needs: build
     runs-on: ubuntu-latest

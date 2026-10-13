@@ -220,3 +220,56 @@ test('Comparar fecha com Esc e com clique fora',()=>{
  comparar.open=true;ouvintes.click.forEach(f=>f({target:{closest:()=>null}}));assert.equal(comparar.open,false,'clique fora fecha');
  comparar.open=true;ouvintes.click.forEach(f=>f({target:{closest:sel=>sel.includes('#periodCompare')?comparar:null}}));assert.equal(comparar.open,true,'clique dentro não fecha');
 });
+// v135 (D37): sinal de menos tipográfico e sem "-0"; datas sem segundos.
+test('money com "−" (U+2212) e sem -0; dataBR sem segundos',()=>{
+ const c=client();const r=s=>vm.runInContext(s,c);
+ assert.equal(r('money(-1700)').replace(/\s/g,' '),'−R$ 1.700,00');assert.equal(r('money(-0)').replace(/\s/g,' '),'R$ 0,00');assert.equal(r('money(1700)').replace(/\s/g,' '),'R$ 1.700,00');
+ assert.equal(r("money('')"),'Não apurado');assert.equal(r('money(null)'),'Não apurado');assert.equal(r('money(NaN)'),'Não apurado');
+ assert.match(r("dataBR('2026-09-22T12:00:00Z')"),/^\d{2}\/\d{2}\/\d{4},? \d{2}:\d{2}$/,'sem segundos');assert.equal(r('dataBR(null)'),'Não registrada');
+});
+// v135 (M9): as permissões vão para a cópia do aparelho; a abertura morna já desenha com elas e o servidor continua decidindo.
+test('permissões guardadas no aparelho: mesma permissão não redesenha; o servidor tira o admin e a tela redesenha',async()=>{
+ const abrir=async servidor=>{
+  const c=client();c.AUTH={temCracha:()=>true};c.toast=()=>{};let boots=0,ultimo=null;c.boot=telaFalsa(c,()=>boots++);c.document.getElementById=()=>null;const banco=cacheFalso(c,[mes('Set_2026','S1',200)]);
+  vm.runInContext('setSyncState=(s,t)=>__ultimo([s,t])',Object.assign(c,{__ultimo:x=>{ultimo=x;}}));
+  banco.base={versao:1,cfg:{},cfgVersion:'c1',lidoEm:'x',permissoes:{leitura:true,edicao:true,admin:true,extra:'ignorado'}};
+  c.api=apiBase({permissions:()=>({permissoes:servidor}),indice:()=>({ok:true,itens:[{id:'Set_2026',atualizadoEm:'S1'}]})});
+  vm.runInContext('setQueue([]);state.permissoes={leitura:true,edicao:false,admin:false}',c);await vm.runInContext('abrirCopiaDoAparelho()',c);
+  const naAbertura=JSON.parse(vm.runInContext('JSON.stringify(state.permissoes)',c));
+  await vm.runInContext('pullCloud()',c);assert.equal(ultimo[0],'ok',ultimo[1]);return {c,banco,boots,naAbertura};
+ };
+ const igual=await abrir({leitura:true,edicao:true,admin:true});
+ assert.deepEqual(igual.naAbertura,{leitura:true,edicao:true,admin:true},'a tela abre com as permissões da última leitura (só os três campos, como booleano)');
+ assert.equal(igual.boots,1,'o servidor confirma: sem redesenho');
+ assert.deepEqual(JSON.parse(JSON.stringify(igual.banco.base.permissoes)),{leitura:true,edicao:true,admin:true},'a leitura grava as permissões na base do aparelho');
+ const tirou=await abrir({leitura:true,edicao:false,admin:false});
+ assert.equal(tirou.boots,2,'o servidor tirou o admin: redesenha');assert.equal(vm.runInContext('state.permissoes.admin',tirou.c),false);
+ assert.equal(tirou.banco.base.permissoes.admin,false);
+ // Configuração confirmada: a base do aparelho leva as permissões junto.
+ vm.runInContext('state.permissoes={leitura:true,edicao:true,admin:true};cfgConfirmada()',tirou.c);await new Promise(r=>setTimeout(r,5));
+ assert.deepEqual(JSON.parse(JSON.stringify(tirou.banco.base.permissoes)),{leitura:true,edicao:true,admin:true});
+});
+// v135 (I28): um carimbo de hora só: o chip de sync fica sem hora quando está tudo em dia; o rodapé diz quando a nuvem foi lida.
+test('#syncState sem hora no estado ok; com cópia falhando, hora sem segundos; rodapé "Nuvem lida em"',async()=>{
+ const estados=[];const c=client();c.AUTH={temCracha:()=>true};c.toast=m=>estados.push(['toast',m]);c.boot=telaFalsa(c);c.document.getElementById=()=>null;cacheFalso(c,[mes('Set_2026','S1',200)]);
+ vm.runInContext('setSyncState=(s,t)=>__estados.push([s,t])',Object.assign(c,{__estados:estados}));
+ c.api=apiBase({indice:()=>({ok:true,itens:[{id:'Set_2026',atualizadoEm:'S1'}]})});
+ vm.runInContext('setQueue([])',c);await vm.runInContext('abrirCopiaDoAparelho()',c);await vm.runInContext('pullCloud()',c);
+ const [s,t]=estados.at(-1);assert.equal(s,'ok');assert.equal(t,'Dados aplicados · nada novo');assert.doesNotMatch(t,/\d{2}:\d{2}/);
+ c.CacheDRE.gravar=async()=>false;await vm.runInContext('pullCloud()',c);
+ assert.match(estados.at(-1)[1],/^Dados aplicados \d{2}:\d{2} · nada novo · sem cópia neste aparelho$/,'sem cópia: hora sem segundos');
+ const foot={textContent:''};c.document.getElementById=id=>id==='footMeta'?foot:null;
+ vm.runInContext("state.view='inicio';state.D={accounts:[]};state.updated='2026-09-22T12:00:00Z';escreverRodape()",c);
+ assert.match(foot.textContent,/ · Nuvem lida em \d{2}\/\d{2}\/\d{4},? \d{2}:\d{2}\. /);assert.doesNotMatch(foot.textContent,/Leitura da nuvem|:\d{2}:\d{2}/);
+});
+// v135 (N7, N8): foco no título do diálogo ao trocar o conteúdo; "Pular para o conteúdo" foca o h1 sem mexer no hash.
+test('diálogo já aberto: o foco vai ao título; pular para o conteúdo foca o título da tela',()=>{
+ const ouvintes={};const c={localStorage:{getItem:()=>null,setItem(){}},navigator:{onLine:true},document:{addEventListener:(t,f)=>{(ouvintes[t]||=[]).push(f);},querySelectorAll:()=>[]}};vm.createContext(c);vm.runInContext(source,c);
+ let focos=0,rolou=null;const titulo={focus(){focos++;}},d={open:true,showModal(){throw new Error('já aberto');}};
+ const h1={focus(){h1.focado=true;},scrollIntoView(o){rolou=o;}};c.location={hash:'#tela=dre'};
+ c.document.getElementById=id=>({detailTitle:titulo,detailContent:{},detailDialog:d,pageTitle:h1})[id]||null;
+ vm.runInContext("dialog('Subconta','<p>x</p>')",c);assert.equal(titulo.tabIndex,-1);assert.equal(focos,1);
+ ouvintes.click.forEach(f=>f({target:{closest:sel=>sel==='#pularConteudo'?{}:null}}));
+ assert.equal(h1.focado,true);assert.equal(JSON.stringify(rolou),'{"block":"start"}');assert.equal(c.location.hash,'#tela=dre','o hash não muda');
+ h1.focado=false;ouvintes.click.forEach(f=>f({target:{closest:()=>null}}));assert.equal(h1.focado,false,'outro clique não mexe no foco');
+});

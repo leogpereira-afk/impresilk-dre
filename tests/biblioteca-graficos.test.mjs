@@ -16,8 +16,9 @@ test('toda figura tem leitura acessível e a tabela com os mesmos valores',()=>{
  const figs={cascata:g('gCascata',X.cascata),empilhadas:g('gEmpilhadas',X.empilhadas,{series:[{chave:'fco',rotulo:'Operação'},{chave:'fci',rotulo:'Investimento'},{chave:'fcf',rotulo:'Financiamento'}],linha:{rotulo:'Saldo'}}),cem:g('gCemPorCento',X.aging),barras:g('gBarrasOrdenadas',X.barras),linha:g('gLinhaArea',X.linha),bullet:g('gBullet',X.bullet),heat:g('gHeatmap',X.heatmap.linhas,X.heatmap.colunas),ciclo:g('gCiclo',X.ciclo)};
  for(const [k,h] of Object.entries(figs)){
   assert.match(h,/<div class="g-plot" tabindex="0" role="img" aria-label="[^"]{20,}"/,k+': leitura em aria-label');
-  assert.match(h,/<details class="g-tabela"><summary>Ver os valores<\/summary><table/,k+': tabela em details');
+  assert.match(h,/<details class="g-tabela"><summary>Ver os valores<span class="sr-only"> de [^<]{3,}<\/span><\/summary><table/,k+': tabela em details, com nome próprio (N26)');
  }
+ const nomes=Object.values(figs).map(h=>h.match(/<summary>(Ver os valores[\s\S]*?)<\/summary>/)[1]);assert.equal(new Set(nomes).size,nomes.length,'cada "Ver os valores" com nome distinto');
  assert.equal(linhasTabela(figs.cascata),X.cascata.length);assert.equal(linhasTabela(figs.empilhadas),12);assert.equal(linhasTabela(figs.cem),X.aging.length+1);
 });
 test('linha: mês sem dado vira lacuna, nunca zero nem interpolação',()=>{
@@ -29,9 +30,9 @@ test('linha: mês sem dado vira lacuna, nunca zero nem interpolação',()=>{
 });
 test('cascata: soma degrau a degrau, margem sobre a base e lacuna que não inventa o próximo degrau',()=>{
  const h=g('gCascata',[{rotulo:'Receita',valor:100,total:true},{rotulo:'DAS',valor:-6},{rotulo:'Sem dado',valor:null},{rotulo:'Custos',valor:-40},{rotulo:'Resultado',valor:54,total:true}]);
- assert.match(h,/data-dica="DAS\n-R\$\s6,00 · -6% da base"/);
+ assert.match(h,/data-dica="DAS\n−R\$\s6,00 · −6,0% da base"/);
  assert.equal((h.match(/class="g-sem-dado"/g)||[]).length,2,'o degrau ausente e o seguinte (sem ponto de partida) ficam sem dado');
- assert.match(h,/Resultado[\s\S]*54% da base/);
+ assert.match(h,/Resultado[\s\S]*54,0% da base/);
  assert.equal((h.match(/class="g-marca-dado g-cor-resultado"/g)||[]).length,2);assert.equal((h.match(/class="g-marca-dado g-cor-saida"/g)||[]).length,1);
 });
 test('empilhadas: um eixo só, mês incompleto hachurado e excedente de séries em Outros',()=>{
@@ -62,7 +63,7 @@ test('ciclo financeiro = PME + PMR − PMPF; negativo é explicado; prazo ausent
  assert.match(g('gCiclo',{pme:18,pmr:null,pmpf:35}),/Não apurado: falta o prazo de recebimento/);
 });
 test('bullet mostra realizado sobre a meta e não aceita meta ausente',()=>{
- assert.match(g('gBullet',{realizado:84000,meta:100000}),/84% da meta/);
+ assert.match(g('gBullet',{realizado:84000,meta:100000}),/84,0% da meta/);
  assert.match(g('gBullet',{realizado:84000,meta:null}),/Não apurado: falta a meta/);
  assert.match(g('gBullet',{realizado:null,meta:100}),/Não apurado: falta o realizado/);
 });
@@ -108,7 +109,7 @@ test('a classe do tipo de figura não se repete por dentro (senão a regra do mi
 test('no celular: cascata troca rótulos por uma linha de resultado e o heatmap não tira célula da grade',()=>{
  const X=c.run('GRAFICOS_EXEMPLOS'),h=g('gCascata',X.cascata),css=ler('graficos.css');
  assert.equal((h.match(/class="g-rot( g-rot-forte)? g-opcional" style="left:[^"]*;top:/g)||[]).length,8,'todo rótulo de valor some no estreito');
- assert.match(h,/<p class="g-resumo-estreito">\(=\) EBITDA: <b>R\$\s18\.000,00<\/b> · 18% da base<\/p>/);
+ assert.match(h,/<p class="g-resumo-estreito">\(=\) EBITDA: <b>R\$\s18\.000,00<\/b> · 18,0% da base<\/p>/);
  const heat=g('gHeatmap',X.heatmap.linhas,X.heatmap.colunas);
  assert.doesNotMatch(heat.slice(heat.indexOf('g-heat-grade')),/g-opcional/,'display:none dentro da grade desloca as células');
  assert.equal((heat.match(/class="g-cab g-cab-impar"/g)||[]).length,6);

@@ -164,8 +164,8 @@ test('a seção no Dashboard: painéis, tabelas e a leitura, sem NaN, sem traves
  assert.match(h,/Out\/2026<\/b> fica fora/);
  assert.match(h,/passou a girar dívida/);assert.match(h,/Pessoal<\/b>: definir um teto/);
  assert.ok((h.match(/class="g-fig/g)||[]).length>=6,'gráficos');
- // a seção entra no Dashboard, logo depois do resumo do CFO
- assert.match(ler('app.js'),/cfoResumo\(reg\)\+\(typeof renderComparativos==='function'\?renderComparativos\(\):''\)/);
+ // a seção continua no Dashboard, agora no fim (v135, D21): "O que mudou" e a Conferência ficam perto da Leitura CFO
+ assert.match(ler('app.js'),/h\+=\(typeof renderComparativos==='function'\?renderComparativos\(\):''\)/);
  for(const f of ['index.html','sw.js','scripts/build_site.py'])assert.match(ler(f),/comparativos\.js/,f);
 });
 test('sem meses fechados: aviso, não gráfico vazio; cache refeito quando a base muda',()=>{
@@ -210,11 +210,15 @@ test('leitura com o ano atual como recorde: "até então o ano mais enxuto" e "a
  const recorde=r=>{if(!r.label.endsWith('/2026'))return r;const cells=r.cells.map(c=>({...c}));const k=code=>cells.find(c=>c.code===code);
   const p=k('2.1'),antes=p.value;for(const code of ['2.1','2.1.4'])k(code).value=Math.round(k(code).value/4*100)/100;k('2').value=Math.round((k('2').value-(antes-k('2.1').value))*100)/100;return {...r,cells};};
  const t=cmpPontos(context('Out/2026',base().map(recorde)));
- assert.match(t,/despesas fixas caíram<\/b>: [^.]*, até então o ano mais enxuto, e /);
- assert.match(t,/resultado antes dos sócios subiu<\/b>: [^.]*, até então o melhor ano, e /);
+ // v135 (I17): com 2026 pela metade, o veredito é contra 2025 nos mesmos meses; o recorde continua dito
+ assert.match(t,/despesas fixas caíram<\/b>: 10% das vendas em 2026 até set; nos mesmos meses de 2025 \(jan a set\) eram 20%\. No ano inteiro de 2025, 20%; até então, o ano mais enxuto foi 2022, com /);
+ assert.match(t,/resultado antes dos sócios subiu<\/b>: [^<]*; até então, o melhor ano foi 2022, com /);
  // na base padrão 2026 não bate os anteriores: o superlativo fica com o ano antigo
  const u=cmpPontos(context());
- assert.match(u,/, o ano mais enxuto, e /);assert.match(u,/, o melhor ano, e /);assert.doesNotMatch(u,/até então/);
+ assert.match(u,/; o ano mais enxuto foi 2022, com /);assert.match(u,/; o melhor ano foi 2022, com /);assert.doesNotMatch(u,/até então/);
+ // ano de referência inteiro: a frase de antes, contra o ano mais enxuto e o melhor ano
+ const d=cmpPontos(context('Dez/2025'));
+ assert.match(d,/19% das vendas em 2022, o ano mais enxuto, e 20% em 2025/);assert.match(d,/, o melhor ano, e /);assert.doesNotMatch(d,/nos mesmos meses de/);
 });
 function cmpPontos(c){return c.json('cmpLeitura(cmpModelo())').pontos.join('\n');}
 test('crescimento com seta e tom de bom ou ruim pela direção da linha; dívidas e sócios neutros; empréstimo azul e dívida vermelha no gráfico',()=>{
@@ -227,4 +231,37 @@ test('crescimento com seta e tom de bom ou ruim pela direção da linha; dívida
  assert.doesNotMatch(cr,/>[+−]\d/,'a seta substitui o sinal');
  const div=h.slice(h.indexOf('Empréstimos recebidos e dívidas pagas'));assert.match(div,/cmp-grupos[\s\S]*g-cor-entrada[\s\S]*g-cor-saida/);assert.doesNotMatch(div.slice(0,div.indexOf('</figure>')),/g-cor-serie-/);
  assert.match(h,/sem mês completo|Ano de referência/);assert.doesNotMatch(h,/meses fechados|mês fechado/);
+});
+
+// ── v135 ──
+test('v135 (I17): o ano anterior nos mesmos meses, na tabela da DRE e no veredito da leitura',()=>{
+ const c=context('Ago/2026'),M=c.json('(()=>{const M=cmpModelo();return {ref:[M.refAno,M.refMes],mp:M.mesmoPeriodo&&{ano:M.mesmoPeriodo.ano,meses:M.mesmoPeriodo.meses,cls:M.mesmoPeriodo.mesesCls,fixas:M.mesmoPeriodo.pct.fixas},p25:M.porAno.find(p=>p.ano===2025).meses.length}})()');
+ assert.deepEqual(M.ref,[2026,8]);assert.equal(M.mp.ano,2025);assert.deepEqual(M.mp.meses,[1,2,3,4,5,6,7,8]);assert.deepEqual(M.mp.cls,[1,2,3,4,5,6,7,8]);
+ assert.equal(M.p25,12,'a coluna do ano inteiro continua');perto(M.mp.fixas,20,.3);
+ const h=c.run('renderComparativos()'),s3=h.slice(h.indexOf('data-cmp-sec="dre"'),h.indexOf('data-cmp-sec="margens"'));
+ assert.match(s3,/<th scope="col" class="num">2025<\/th><th scope="col" class="num">2025<br><small>jan a ago<\/small><\/th><th scope="col" class="num">2026<br><small>jan a ago<\/small><\/th>/,'coluna 2025 jan a ago antes de 2026');
+ const lin=s3.slice(s3.indexOf('>(−) Despesas fixas</th>'));assert.equal((lin.slice(0,lin.indexOf('</tr>')).match(/<td/g)||[]).length,7,'a linha ganha a célula da coluna nova');
+ const t=c.json('cmpLeitura(cmpModelo())').pontos.join('\n');
+ assert.match(t,/<b>As despesas fixas subiram<\/b>: 25% das vendas em 2026 até ago; nos mesmos meses de 2025 \(jan a ago\) eram 20%\. No ano inteiro de 2025, 20%/);
+ assert.match(t,/<b>A margem de contribuição ficou estável<\/b>: [^<]*nos mesmos meses de 2025 \(jan a ago\) eram 60%/);
+ assert.match(t,/<b>O resultado antes dos sócios caiu<\/b>: [^<]*nos mesmos meses de 2025 \(jan a ago\) eram 39%/);
+ // ano de referência inteiro: sem a coluna e sem o mesmo período
+ const d=context('Dez/2025');assert.equal(d.run('cmpModelo().mesmoPeriodo'),null);assert.doesNotMatch(d.run('renderComparativos()'),/jan a dez|o ano anterior só nos meses/);
+});
+test('v135 (D21, D23, D28, I30): só Vendas aberta, grupo zerado listado sem tabela, nota do "·" uma vez por seção, título sem eyebrow',()=>{
+ const c=context('Ago/2026'),h=c.run('renderComparativos()');
+ assert.deepEqual([...h.matchAll(/data-cmp-sec="(\w+)"( open)?>/g)].filter(m=>m[2]).map(m=>m[1]),['vendas']);
+ c.run("cmpUI.abertos={dre:true,vendas:false}");const a=c.run('renderComparativos()');assert.match(a,/data-cmp-sec="dre" open>/);assert.match(a,/data-cmp-sec="vendas">/,'a escolha salva continua vencendo');
+ assert.doesNotMatch(h,/COMPARATIVOS ANUAIS|class="eyebrow"/);assert.match(h,/<div class="section-heading" id="comparativos-anuais"><div><h2>Comparativos anuais<\/h2><\/div><\/div>/);
+ const sec=k=>{const i=h.indexOf(`data-cmp-sec="${k}"`),j=h.indexOf('data-cmp-sec="',i+1);return h.slice(i,j<0?undefined:j);};
+ for(const k of ['variaveis','fixas','depois'])assert.equal((sec(k).match(/· = nenhum lançamento na conta naquele ano\./g)||[]).length,1,k);
+ assert.doesNotMatch(h,/<caption>· = /,'a nota saiu das tabelas');
+ assert.match(sec('variaveis'),/^[^>]*><summary><h2 class="card-titulo">[^<]*<\/h2><\/summary><div class="card-body"><p class="hint">· = nenhum lançamento/,'a seção 5 começa pela nota');
+ // Veículos e administrativas não têm lançamento nesta base: sem tabela, listados no fim
+ const f=sec('fixas');assert.doesNotMatch(f,/<h3 class="cmp-h3">Veículos<\/h3>|<h3 class="cmp-h3">Administrativas e terceiros<\/h3>/);
+ assert.match(f,/<p class="hint">Sem lançamento em nenhum ano: Administrativas e terceiros, Veículos\.<\/p>/);assert.match(f,/<h3 class="cmp-h3">Pessoal<\/h3><div class="table-scroll">/);
+ assert.match(sec('depois'),/Sem lançamento em nenhum ano: Investimentos e parcelas de ativos, Saídas sem detalhamento\./);
+ assert.equal(c.run("cmpDetalheTabela(cmpModelo(),'veiculos','Veículos')"),'');
+ // I30: o resultado tem nome
+ const m=sec('margens');assert.match(m,/Margem, despesas fixas e resultado antes dos sócios/);assert.match(m,/<th[^>]*>Resultado antes dos sócios<\/th>/);assert.doesNotMatch(m,/<th[^>]*>Resultado<\/th>/);
 });

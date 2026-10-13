@@ -1,9 +1,16 @@
 // Verificação isolada: dados sintéticos interceptados no navegador, sem escrita remota.
-import {chromium} from '/Users/leonardopereira/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs';
+// Playwright e Chrome do ambiente: PLAYWRIGHT (caminho do pacote) e CHROME (executável), sem caminho fixo.
+const {chromium}=await import(process.env.PLAYWRIGHT||'playwright');
 import assert from 'node:assert/strict';import fs from 'node:fs/promises';import vm from 'node:vm';
 import {normalizarSnapshot,resumir} from '../indicadores-modelo.mjs';
-const browser=await chromium.launch({executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true,args:['--no-sandbox']});
-const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true});
+const BASE=process.env.DRE_URL||'http://127.0.0.1:8793/';
+const browser=await chromium.launch({...(process.env.CHROME?{executablePath:process.env.CHROME}:{}),headless:true,args:['--no-sandbox']});
+// DRE_RAIZ: serve os arquivos desta pasta pela interceptação, sem subir servidor (o service worker fica de fora).
+const raiz=process.env.DRE_RAIZ;
+const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true,...(raiz?{serviceWorkers:'block'}:{})});
+if(raiz){const {join,extname}=await import('node:path');const tipos={'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.json':'application/json','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.webp':'image/webp','.woff2':'font/woff2'};
+ await context.route(u=>!u.href.startsWith(BASE),route=>route.abort());// nada sai para a rede
+ await context.route(BASE+'**',async route=>{const u=new URL(route.request().url());const f=join(raiz,decodeURIComponent(u.pathname==='/'?'/index.html':u.pathname));try{await route.fulfill({status:200,contentType:tipos[extname(f)]||'application/octet-stream',body:await fs.readFile(f)});}catch{await route.fulfill({status:404,body:''});}});}
 const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
 const reg={id:'Set_2026',label:'Set/2026',company:'Impresilk + Universo',basis:'Caixa gerencial',origem:'erp',atualizadoEm:'2026-10-08T12:00:00Z',qualidade:{de:'2026-09-01',ate:'2026-09-30',coletadoEm:'2026-10-08T12:00:00Z',apiContratoValidado:true,conciliado:false,estado:'aguardando-conferencia'},cells:[{code:'1',name:'Entradas',value:6000},{code:'2',name:'Saídas',value:1200}],eventos:Array.from({length:60},(_,i)=>({natureza:'entrada',empresa:'Impresilk',tituloId:String(i),pagamentoId:String(i),data:'2026-09-05',valor:100,nomeConta:i<40?'Serviços de impressão':'Instalação'})).concat([{natureza:'saida',empresa:'Universo',tituloId:'pag',pagamentoId:'p',data:'2026-09-03',valor:1200,nomeConta:'Conta para conferência'}])};
 const modelContext=vm.createContext({});vm.runInContext(await fs.readFile('dre-modelo.js','utf8'),modelContext);
@@ -27,24 +34,40 @@ await page.route('https://heveemylixartyijxewh.supabase.co/**',async route=>{
 });
 await page.addInitScript(()=>localStorage.setItem('impresilk_dre_cracha','fixture.'+btoa(JSON.stringify({sub:'teste'}))+'.fixture'));
 try{
- await page.goto('http://127.0.0.1:8793/');await page.locator('#appShell').waitFor({state:'visible'});
+ await page.goto(BASE);await page.locator('#appShell').waitFor({state:'visible'});
  await page.locator('[data-view="indicadores"]').click();await page.locator('#monthChips [data-period="Set/2026"]').click();
  await page.getByRole('button',{name:'Receita',exact:true}).waitFor();assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);
  await page.screenshot({path:'entregas/revisao/indicadores-desktop.png',fullPage:true});
  for(const area of ['Custos','Despesas','Resultado','Margem','Rentabilidade','Receita']){await page.getByRole('navigation',{name:'Áreas dos indicadores'}).getByRole('button',{name:area,exact:true}).click();await page.waitForTimeout(70);assert.equal(await page.locator('.ind-titulo h2').innerText(),area);assert.ok(await page.locator('.ind-analysis svg').count()>0,area+' possui gráfico visível');assert.ok(await page.locator('.ind-analysis').isVisible());if(area==='Rentabilidade')assert.match(await page.locator('.ind-return').innerText(),/Não apurado/);}
+ // v135 (N7): Enter numa área repinta a tela e o foco fica no botão da área.
+ await page.locator('[data-area="Despesas"]').focus();await page.keyboard.press('Enter');await page.locator('.ind-titulo h2',{hasText:'Despesas'}).waitFor();
+ assert.equal(await page.evaluate(()=>document.activeElement?.dataset?.area),'Despesas','o foco continua na área escolhida');
+ // v135 (N27): o "?" do ROE e do ROA leva ao verbete do glossário (quando o verbete existe nesta versão).
+ await page.getByRole('button',{name:'Rentabilidade',exact:true}).click();assert.equal(await page.locator('.ind-return .term-help[data-term]').count(),2);
+ if(await page.evaluate(()=>typeof GlossarioFinanceiro!=='undefined'&&GlossarioFinanceiro.termos.some(t=>t.nome==='ROE (retorno sobre o patrimônio)'))){await page.getByRole('button',{name:'Entender ROE'}).click();await page.locator('#detailDialog').waitFor({state:'visible'});assert.match(await page.locator('#detailDialog').innerText(),/ROE/);await page.locator('#detailClose').click();}
+ // v135 (I33): O.S. comerciais agrupam por vendedor e não oferecem "Conta / grupo".
+ await page.getByRole('button',{name:'Receita',exact:true}).click();await page.locator('[data-source="comercial"]').click();await page.locator('[name=dimensao]').waitFor({state:'attached'});
+ assert.equal(await page.locator('[name=dimensao]').inputValue(),'vendedor');assert.deepEqual(await page.locator('[name=dimensao] option').evaluateAll(o=>o.map(x=>x.value)),['cliente','vendedor']);
+ await page.locator('[data-source="recebimentos"]').click();await page.locator('.ind-metrics').waitFor();
  await page.locator('[data-group="Serviços de impressão"]').click();assert.match(await page.locator('.ind-metrics').innerText(),/4\.000,00/);assert.match(await page.locator('.ind-table').innerText(),/Serviços de impressão/);
  const dlP=page.waitForEvent('download');await page.locator('[data-export]').click();const dl=await dlP;await dl.saveAs('entregas/revisao/indicadores-filtro.csv');const csv=await fs.readFile('entregas/revisao/indicadores-filtro.csv','utf8');assert.match(csv,/4000,00/);assert.match(csv,/Serviços de impressão/);
  await page.locator('[data-clear]').click();await page.locator('[data-page="1"]').click();assert.equal(await page.locator('.ind-table tbody tr').count(),10);
  await page.locator('[data-row="0"]').click();await page.locator('#detailDialog').waitFor({state:'visible'});assert.match(await page.locator('#detailContent').innerText(),/pagamento/);await page.locator('#detailClose').click();
  await page.evaluate(()=>window.print=()=>{window.__printed=true});await page.locator('[data-pdf]').click();assert.equal(await page.locator('#indPrint > .ind-table tbody tr').count(),60);assert.ok(await page.locator('#indPrint svg').count()>0);await page.emulateMedia({media:'print'});await page.pdf({path:'entregas/revisao/indicadores-teste.pdf',format:'A4',printBackground:true});await page.emulateMedia({media:'screen'});await page.evaluate(()=>window.dispatchEvent(new Event('afterprint')));
- await page.getByRole('button',{name:'Custos',exact:true}).click();await page.locator('.ind-metric strong').first().waitFor();assert.match(await page.locator('.ind-metrics').innerText(),/600,00/);await page.locator('[data-row="0"]').click();assert.match(await page.locator('#detailContent').innerText(),/Apontamentos registrados/);await page.locator('#detailClose').click();
+ await page.getByRole('button',{name:'Custos',exact:true}).click();await page.locator('.ind-metric strong').first().waitFor();assert.match(await page.locator('.ind-metrics').innerText(),/600,00/);assert.doesNotMatch(await page.locator('.ind-table thead').innerText(),/Data/,'O.S. sem data não têm coluna Data (D45)');await page.locator('[data-row="0"]').click();assert.match(await page.locator('#detailContent').innerText(),/Apontamentos registrados/);await page.locator('#detailClose').click();
  fail=true;await page.locator('[data-refresh]').click();await page.locator('.ind-error').waitFor();assert.match(await page.locator('.ind-error').innerText(),/última leitura/);assert.match(await page.locator('.ind-metrics').innerText(),/600,00/);
  fail=false;await page.getByRole('button',{name:'Margem',exact:true}).click();await page.locator('.ind-range summary').click();await page.locator('[name=excecao]').selectOption('custo-maior');await page.getByRole('button',{name:'Aplicar',exact:true}).click();await page.getByText('Nenhum registro encontrado nesse filtro.',{exact:false}).waitFor();await page.locator('[name=excecao]').selectOption('todas');await page.getByRole('button',{name:'Aplicar',exact:true}).click();await page.getByText('OS TESTE',{exact:true}).waitFor();await page.getByRole('button',{name:'Receita',exact:true}).click();await page.setViewportSize({width:390,height:844});await page.screenshot({path:'entregas/revisao/indicadores-mobile.png',fullPage:true});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Sem rolagem horizontal na página');
  await page.setViewportSize({width:1440,height:1000});
  await page.getByRole('button',{name:'Resultado',exact:true}).click();await page.locator('[data-source="competencia"]').click();assert.match(await page.locator('.ind-metrics').innerText(),/400,00/);assert.match(await page.locator('.ind-analysis svg').first().getAttribute('aria-label'),/R\$\s?400,00/);
- await page.getByRole('button',{name:'Margem',exact:true}).click();await page.locator('[data-source="competencia"]').click();assert.match(await page.locator('.ind-analysis svg').first().getAttribute('aria-label'),/40%/);
+ await page.getByRole('button',{name:'Margem',exact:true}).click();await page.locator('[data-source="competencia"]').click();assert.match(await page.locator('.ind-analysis svg').first().getAttribute('aria-label'),/40,0%/);
  await page.getByRole('button',{name:'Receita',exact:true}).click();
  await page.locator('[data-formula]').first().focus();await page.keyboard.press('Enter');await page.locator('#detailDialog').waitFor({state:'visible'});await page.keyboard.press('Escape');
+ if(await page.evaluate(()=>typeof gravarRota==='function'&&/DREIndicadores/.test(String(gravarRota)))){
+  await page.getByRole('button',{name:'Custos',exact:true}).click();await page.locator('[data-source="compras"]').click();await page.waitForFunction(()=>/area=Custos/.test(location.hash)&&/fonte=compras/.test(location.hash));
+  const n=await page.evaluate(()=>history.length);await page.reload();await page.locator('.ind-titulo h2',{hasText:'Custos'}).waitFor();
+  assert.equal(await page.locator('[data-source="compras"]').getAttribute('aria-pressed'),'true','recarregar mantém Custos/Compras (N3)');assert.equal(await page.evaluate(()=>history.length),n,'trocar de área não cria entrada no histórico');
+  await page.getByRole('button',{name:'Receita',exact:true}).click();
+ }
  await page.waitForFunction(()=>!history.state?.dialogo).catch(()=>{});await page.waitForTimeout(150);await page.reload();await page.locator('[data-view="indicadores"]').click();await page.locator('#monthChips [data-period="Set/2026"]').click();assert.match(await page.locator('.ind-metrics').innerText(),/6\.000,00/);
  // Cenários que reproduzem as telas vazias e o histórico cortado do usuário.
  await page.locator('#yearSelect').selectOption('2025');assert.equal(await page.locator('#monthChips [aria-pressed=true]').getAttribute('data-period'),'Dez/2025');
@@ -77,7 +100,7 @@ try{
  await page.locator('[data-recorte]').click();await page.locator('.ind-metrics').waitFor();assert.match(await page.locator('.ind-metrics').innerText(),/600,00/);assert.equal(await page.locator('[name=de]').inputValue(),'2026-09-01');
  await page.locator('#monthChips [data-period="Set/2026"]').click();await page.locator('#monthChips [data-period="Out/2026"]').click();await page.getByRole('button',{name:'Resultado',exact:true}).click();await page.locator('[data-source="competencia"]').click();
  assert.equal(await page.locator('.ind-metrics').count(),0);await page.locator('[data-dre]').click();assert.match(await page.locator('.source-empty').innerText(),/Falta a apuração de Out/);assert.equal(await page.locator('#editarCompetencia').isVisible(),true);assert.equal(await page.locator('#editarCompetencia').isDisabled(),true);
- assert.equal(await page.locator('#monthChips button').count(),12);await page.locator('#monthChips [data-period="Set/2026"]').click();assert.match(await page.locator('.finance-kpis').innerText(),/400,00/);
+ assert.equal(await page.locator('#monthChips button').count(),12);await page.locator('#monthChips [data-period="Set/2026"]').click();assert.match(await page.locator('#pageContent .cards').first().innerText(),/400,00/);
  await page.locator('#monthChips [data-period="Out/2026"]').click();await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:'entregas/revisao/competencia-v98-mobile.png',fullPage:true});
  assert.deepEqual(errors,[]);console.log('Browser OK: 6 áreas, filtros, paginação, detalhes, CSV, PDF, falha preservando leitura, teclado, recarga e celular 390px.');
 }finally{await browser.close();}

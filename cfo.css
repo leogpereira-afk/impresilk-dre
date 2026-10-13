@@ -1,5 +1,5 @@
 .cfo-tools{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 22px}.cfo-tools p{font-size:12px;color:var(--muted);margin:0}.cfo-tools button{color:var(--blue);flex-shrink:0}
-.cfo-intro{display:flex;justify-content:space-between;align-items:center;gap:26px;padding:26px 30px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:16px;margin:20px 0}.cfo-intro h2{font-size:24px;color:var(--text);line-height:1.35;margin-bottom:12px}.cfo-intro p:last-child{margin:0;color:var(--muted);max-width:790px}.cfo-intro button{flex-shrink:0}.cfo-alert{border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:22px 0}.cfo-alert b{color:var(--amber)}.cfo-alert p{margin:6px 0 12px;font-size:13px}.cfo-link,.cfo-value{min-height:36px;font-size:inherit;padding:4px 5px;border:0;border-bottom:1px dashed var(--line);border-radius:5px;background:transparent;color:var(--blue);text-align:inherit;font-variant-numeric:tabular-nums}.cfo-link:hover,.cfo-value:hover{background:var(--selected);border-color:var(--blue)}.cfo-value{width:100%;text-align:right;color:inherit}td.num>.cfo-link,.line>b>.cfo-link{color:inherit}.cfo-table th:first-child{width:24%;min-width:155px}.cfo-table td:last-child{min-width:240px;font-size:13px;line-height:1.6}.cfo-table th small{display:block;font-weight:400}.cfo-table tbody th{background:var(--surface)}.cfo-decision{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid var(--line);padding:17px 0}.cfo-decision p{font-size:13px;margin:7px 0}.cfo-decision .cfo-link{flex-shrink:0;align-self:center}.cfo-detail-head{background:var(--selected);padding:20px;border-radius:13px;margin-bottom:20px}.cfo-detail-head>span{color:var(--muted);font-size:13px}.cfo-detail-head>strong{display:block;font-size:30px;letter-spacing:-.04em;font-variant-numeric:tabular-nums;margin:6px 0}.cfo-detail-head p{font-size:12px;margin:0}.cfo-formula{font-variant-numeric:tabular-nums;overflow-wrap:anywhere;color:var(--muted)}#detailContent h3{margin-top:22px}.sidebar nav{gap:3px}.sidebar-bottom{padding-top:18px}.sidebar .brand{margin-bottom:20px}.cfo-detail-head p{overflow-wrap:anywhere}
+.cfo-intro{display:flex;justify-content:space-between;align-items:center;gap:26px;padding:26px 30px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:16px;margin:20px 0}.cfo-intro h2{font-size:24px;color:var(--text);line-height:1.35;margin-bottom:12px}.cfo-intro p:last-child{margin:0;color:var(--muted);max-width:790px}.cfo-intro button{flex-shrink:0}.cfo-alert{border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:22px 0}.cfo-alert b{color:var(--amber)}.cfo-alert p{margin:6px 0 12px;font-size:13px}.cfo-link,.cfo-value{min-height:36px;font-size:inherit;padding:4px 5px;border:0;border-bottom:1px dashed var(--line);border-radius:5px;background:transparent;color:var(--text);text-align:inherit;font-variant-numeric:tabular-nums}.cfo-link:hover,.cfo-value:hover{background:var(--selected);border-color:var(--blue)}.cfo-value{width:100%;text-align:right;color:inherit}td.num>.cfo-link,.line>b>.cfo-link{color:inherit}.cfo-table th:first-child{width:24%;min-width:155px}.cfo-table td:last-child{min-width:240px;font-size:13px;line-height:1.6}.cfo-table th small{display:block;font-weight:400}.cfo-table tbody th{background:var(--surface)}.cfo-decision{display:flex;justify-content:space-between;gap:18px;border-bottom:1px solid var(--line);padding:17px 0}.cfo-decision p{font-size:13px;margin:7px 0}.cfo-decision .cfo-link{flex-shrink:0;align-self:center}.cfo-detail-head{background:var(--selected);padding:20px;border-radius:13px;margin-bottom:20px}.cfo-detail-head>span{color:var(--muted);font-size:13px}.cfo-detail-head>strong{display:block;font-size:30px;letter-spacing:-.04em;font-variant-numeric:tabular-nums;margin:6px 0}.cfo-detail-head p{font-size:12px;margin:0}.cfo-formula{font-variant-numeric:tabular-nums;overflow-wrap:anywhere;color:var(--muted)}#detailContent h3{margin-top:22px}.sidebar nav{gap:3px}.sidebar-bottom{padding-top:18px}.sidebar .brand{margin-bottom:20px}.cfo-detail-head p{overflow-wrap:anywhere}
 @media(max-width:950px){.cfo-intro{align-items:flex-start;flex-direction:column}.cfo-tools{flex-wrap:wrap}}
 @media(max-width:700px){.cfo-intro{padding:20px}.cfo-intro h2{font-size:21px}.cfo-tools button{width:100%}.cfo-decision{flex-direction:column}.cfo-decision .cfo-link{align-self:flex-start}dialog{padding:17px}.cfo-detail-head>strong{font-size:26px}.line{gap:10px}.line>span{min-width:0}.cfo-link{overflow-wrap:break-word}.cfo-table thead tr,.cfo-table tbody tr{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:stretch}.cfo-table thead th:last-child{display:none}.cfo-table tbody td:last-child{grid-column:1/-1;min-width:0;padding-top:0}.cfo-table th:first-child{min-width:0;width:auto}}
 @media print{.cfo-tools{display:none}.cfo-intro{break-inside:avoid}.cfo-intro button{display:none}.cfo-link,.cfo-value{border:0;color:inherit}.cfo-table th,.cfo-table td{min-width:0!important}}
@@ -27,7 +27,7 @@
  font-weight:700;letter-spacing:.16em;color:#f4f8ff;
 }
 .ritmo-nota{
- position:relative;margin:2px 0 0;font-size:10px;line-height:1.45;color:#ffffff8c;
+ position:relative;margin:2px 0 0;font-size:var(--fs-xs);line-height:1.45;color:#ffffff8c;
 }
 .ritmo-painel svg{position:relative;display:block;width:100%;height:auto}
 .ritmo-grade{stroke:#ffffff12;stroke-width:1}
@@ -67,24 +67,24 @@
 .cfo-pendencias{
  display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;
  padding:10px 14px;border-radius:10px;text-align:left;font-size:13px;
- background:var(--amber-soft,#f59e0b1a);border:1px solid #f59e0b55;color:var(--text);
+ background:color-mix(in srgb,var(--amber) 10%,var(--surface));border:1px solid color-mix(in srgb,var(--amber) 35%,var(--surface));color:var(--text);
 }
 .cfo-pendencias b{font-weight:650}
 .cfo-pendencias span{color:var(--blue);font-weight:600;white-space:nowrap}
-.cfo-pendencias:hover{border-color:#f59e0b}
+.cfo-pendencias:hover{border-color:var(--amber)}
 
 /* ── 3. pista de que a tabela rola para o lado ─────────────────────────────
    As matrizes de 12 meses cortavam no fim do card sem nenhum sinal: meses
    sumiam e o dono não tinha como saber que existiam. A sombra na borda
    direita aparece só enquanto houver conteúdo escondido. */
-.cost-table-wrap,.chart-scroll,.table-scroll,.waterfall-scroll{
+.cost-table-wrap,.chart-scroll,.table-scroll,.waterfall-scroll,.g-tabela[open]{
  background:
   linear-gradient(to right,var(--surface) 30%,transparent) left / 34px 100% no-repeat local,
   linear-gradient(to left,var(--surface) 30%,transparent) right / 34px 100% no-repeat local,
   radial-gradient(farthest-side at 0 50%,#0f172a2e,transparent) left / 16px 100% no-repeat scroll,
   radial-gradient(farthest-side at 100% 50%,#0f172a2e,transparent) right / 16px 100% no-repeat scroll;
 }
-body.dark .cost-table-wrap,body.dark .chart-scroll,body.dark .table-scroll,body.dark .waterfall-scroll{
+body.dark .cost-table-wrap,body.dark .chart-scroll,body.dark .table-scroll,body.dark .waterfall-scroll,body.dark .g-tabela[open]{
  background:
   linear-gradient(to right,var(--surface) 30%,transparent) left / 34px 100% no-repeat local,
   linear-gradient(to left,var(--surface) 30%,transparent) right / 34px 100% no-repeat local,
@@ -149,38 +149,6 @@ body.dark .regua-ponto.delta-bom{background:var(--blue)}
 .marca-conferir{color:var(--amber);font-weight:700;margin-left:3px}
 .marca-aviso{color:var(--amber)}
 
-/* ── PAINEL ESCURO ───────────────────────────────────────────────────────
-   Mesmo fundo do "Ritmo do ano", no modelo que o Leonardo trouxe: escuro
-   mesmo no tema claro. A figura ganha contraste contra os cards brancos e a
-   leitura vira "de que lado do zero isto está". */
-.painel-escuro{
- position:relative;border-radius:14px;padding:16px 14px 12px;overflow:hidden;
- background:#0b0f16;border:1px solid #1d2635;color:#e8eef7;margin-top:4px;
-}
-.painel-escuro:before{content:'';position:absolute;inset:0;pointer-events:none;
- background:radial-gradient(120% 70% at 50% 100%,#4f7bff1f 0%,transparent 72%)}
-.painel-escuro .chart-scroll{position:relative;background:none}
-.cascata-svg,.blocos-svg{width:100%;min-width:760px;height:auto;display:block}
-.casc-grade{stroke:#ffffff12;stroke-width:1}
-.casc-zero{stroke:#ffffff66;stroke-width:1.2}
-.casc-eixo{fill:#ffffff8c;font:10px/1 var(--font-ui);text-anchor:end}
-.casc-rot{fill:#ffffff85;font:10px/1 var(--font-ui);text-anchor:middle}
-.casc-rot.atual{fill:#fff;font-weight:700}
-.casc-valor{fill:#ffffffb5;font:9.5px/1 var(--font-ui);text-anchor:middle}
-.casc-vazio{fill:#ffffff55;font:11px/1 var(--font-ui);text-anchor:middle}
-.casc-lig{stroke:#ffffff40;stroke-width:1;stroke-dasharray:3 3}
-.casc-barra.in rect{fill:#8fb0ff}
-.casc-barra.out rect{fill:#f0708f}
-.casc-barra.net rect{fill:#c9d2e3}
-.casc-barra.net.bom rect{fill:#8fb0ff}
-.casc-barra.net.ruim rect{fill:#f0708f}
-.pt-variacao{fill:#fff;stroke:#0b0f16;stroke-width:1.4}
-.chart-legend.escuro{position:relative;color:#ffffffb5}
-.chart-legend.escuro .pt-var{width:9px;height:9px;border-radius:50%;background:#fff;display:inline-block}
-.casc-rodape{position:relative;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;color:#ffffffa8}
-.casc-rodape b{font-size:18px;font-weight:650;color:#8fb0ff}
-.casc-rodape b.ruim{color:#f0708f}
-
 /* ── FAIXA DE COBERTURA ─────────────────────────────────────────────── */
 .cobertura-card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0 0 20px}
 .cobertura-topo{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap;margin-bottom:14px}
@@ -192,7 +160,7 @@ body.dark .regua-ponto.delta-bom{background:var(--blue)}
 .cobertura-faixa{display:flex;gap:6px}
 .cobertura-faixa .cob{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;background:none;border:0;padding:0;min-height:auto;cursor:pointer}
 .cobertura-faixa .cob[disabled]{cursor:default}
-.cobertura-faixa .cob span{font-size:10px;color:var(--muted)}
+.cobertura-faixa .cob span{font-size:var(--fs-xs);color:var(--muted)}
 .cob i{display:block;width:100%;height:26px;border-radius:5px;background:var(--line)}
 .cob.validado i{background:var(--cob-ok,var(--chart-in))}
 .cob.coletado i{background:var(--cob-ok,var(--chart-in));opacity:.55;
@@ -209,10 +177,6 @@ body.dark .regua-ponto.delta-bom{background:var(--blue)}
 .cobertura-legenda i.cob.coletado{background:var(--cob-ok,var(--chart-in));opacity:.55;background-image:repeating-linear-gradient(45deg,#fff3 0 3px,transparent 3px 6px)}
 .cobertura-legenda i.cob.parcial{background:linear-gradient(to top,var(--amber) 50%,var(--line) 50%)}
 .cobertura-legenda i.cob.ausente{background:transparent;border:1px dashed var(--line)}
-.casc-rot.in{fill:#8fb0ff}
-.casc-rot.net{fill:#c9d2e3;font-weight:700}
-.casc-rot.net.bom{fill:#8fb0ff}
-.casc-rot.net.ruim{fill:#f0708f}
 .cfo-cauda th,.cfo-cauda td{color:var(--muted)}
 .cfo-cauda td.num.tom-sai{color:var(--red)}.cfo-cauda td.num.tom-entra{color:var(--blue)}
 .cfo-cauda th small{display:block;font-weight:400}

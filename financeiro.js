@@ -129,7 +129,7 @@ var DREFinancas = (() => {
       motivo:`${meio[0][0].label} tem lançamentos só até ${diaBR(meio[0][1].coletadoAte)}. Comparar um pedaço de mês com um mês inteiro faz a diferença parecer economia.`};
     const ressalva=!qa.comparavel||!qb.comparavel;
     return {pode:true,ressalva,
-      motivo:ressalva?'Cobertura ainda não validada nos dois meses — confira antes de decidir.':'Mesmo escopo e cobertura registrada.'};
+      motivo:ressalva?'Cobertura ainda não validada nos dois meses: confira antes de decidir.':'Mesmo escopo e cobertura registrada.'};
   }
 
   // Meses que servem de REFERÊNCIA: coletados até o último dia e não expirados.

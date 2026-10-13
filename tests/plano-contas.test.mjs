@@ -12,7 +12,7 @@ test('busca de água não confunde aguardando com água ou Copasa',()=>{const c=
 test('árvore reúne ascendentes da busca e não confunde prefixos de códigos',()=>{const c=ctx();const roots=c.run("PlanoContas.arvore([{code:'2',name:'Saídas'},{code:'2.5',name:'Fixas'},{code:'2.5.3',name:'Cemig'},{code:'2.50',name:'Outro'}],[{code:'2.5.3'}])");assert.equal(roots.length,1);assert.equal(roots[0].children[0].code,'2.5');assert.equal(roots[0].children[0].children[0].code,'2.5.3');});
 test('dashboard compara o valor da conta, sem somar suas subcontas',()=>{const c=ctx();c.run("state.contaSelecionada='2';state.comparar='Ago/2026'");const html=c.run('dashboardPlano(contextoPlano())');assert.match(html,/500,00/);assert.doesNotMatch(html,/650,00/);assert.match(html,/ficou estável/);assert.match(html,/Composição do mês/);});
 test('dashboard preserva ausência e bloqueia mudança de escopo',()=>{const c=ctx();c.run("state.contaSelecionada='2.8.1';state.comparar='Ago/2026'");let html=c.run('dashboardPlano(contextoPlano())');assert.match(html,/Não informado/);assert.match(html,/Abrir último registro: Ago\/2026/);c.run("state.contaSelecionada='2.5.3';state.records[1].company='Outra'");html=c.run('dashboardPlano(contextoPlano())');assert.match(html,/Não comparável/);assert.doesNotMatch(html,/aumentou/);});
-test('atalhos só apontam para contas existentes e painel inicia recolhido por níveis',()=>{const c=ctx();const html=c.run('renderPlanoContas()');assert.match(html,/⚡/);assert.match(html,/💧/);assert.doesNotMatch(html,/👥/);assert.match(html,/class="plano-children" hidden/);assert.match(html,/📊 Dashboard/);assert.match(html,/📋 Planilha e comparativos/);});
+test('atalhos só apontam para contas existentes e painel inicia recolhido por níveis',()=>{const c=ctx();const html=c.run('renderPlanoContas()');assert.match(html,/⚡/);assert.match(html,/💧/);assert.doesNotMatch(html,/👥/);assert.match(html,/class="plano-children" hidden/);assert.match(html,/📊 Dashboard/);assert.match(html,/📋 Mês a mês/);assert.doesNotMatch(html,/exportAccounts|Planilha da seleção|Planilha e comparativos/,'um só ↓ Planilha, o do topo (N25)');});
 test('atalhos escolhem despesas principais, sem confundir aluguel recebido ou insumos de máquina',()=>{const c=ctx();c.run("state.records[1].cells.push({code:'1.3.1',name:'Aluguel',value:100},{code:'2.5.2',name:'Aluguel lote',value:500},{code:'2.6.3.1',name:'Materiais/insumos',value:200},{code:'2.12',name:'Materiais e Insumos',value:800},{code:'2.1.1',name:'Salário',value:null},{code:'2.1.4',name:'Salário',value:1000})");const html=c.run('atalhosPlano(contextoPlano())');assert.match(html,/data-plano-quick="2.5.2"/);assert.match(html,/data-plano-quick="2.12"/);assert.match(html,/data-plano-quick="2.1.4"/);assert.doesNotMatch(html,/data-plano-quick="1.3.1"|data-plano-quick="2.6.3.1"/);});
 
 // ── Fase 12.5: planilha em árvore, total do ano e o ano anterior nos mesmos meses; chip Ano no Dashboard ──
@@ -27,17 +27,17 @@ test('planilha em árvore: grupos de 1º nível abertos, filhos escondidos até 
 });
 test('colunas do ano: total, ano anterior só nos meses completos nos dois anos (com o tom da conta) e a diferença em bom ou ruim',()=>{
  const c=ctx();comAnos(c);c.run("planoUI.matriz=new Set(['1','2'])");const h=c.run('tabelaPlano(contextoPlano())');
- assert.match(h,/Total 2026<\/th><th scope="col" class="num plano-ano">2025<small>Ago a Set<\/small><\/th><th scope="col" class="num plano-ano">Δ 2026 × 2025/);
+ assert.match(h,/Total 2026<\/th><th scope="col" class="num plano-ano">2026<small>Ago a Set<\/small><\/th><th scope="col" class="num plano-ano">2025<small>Ago a Set<\/small><\/th><th scope="col" class="num plano-ano">Δ 2026 × 2025<small>Ago a Set nos dois anos<\/small><\/th>/);
  // Cemig: 100 + 150 = 250 em 2026; 200 em 2025 nos mesmos meses: +25% de saída = ruim (vermelho); o ano anterior leva o tom da conta (v133)
- assert.match(h,/data-plano-linha="2\.5\.3"[\s\S]*?<td class="num plano-ano tom-sai">250,00<\/td><td class="num plano-ano tom-sai"[^>]*>200,00<\/td><td class="num plano-ano delta-ruim"[^>]*>▲ 25%<\/td>/);
+ assert.match(h,/data-plano-linha="2\.5\.3"[\s\S]*?<td class="num plano-ano tom-sai">250,00<\/td><td class="num plano-ano tom-sai">250,00<\/td><td class="num plano-ano tom-sai"[^>]*>200,00<\/td><td class="num plano-ano delta-ruim"[^>]*>▲ 25,0%<\/td>/);
  // Entradas: 2.000 contra 1.600: +25% em azul
  const linha1=h.slice(h.indexOf('data-plano-linha="1"'),h.indexOf('</tr>',h.indexOf('data-plano-linha="1"')));
- assert.match(linha1,/<td class="num plano-ano tom-entra">2\.000,00<\/td><td class="num plano-ano tom-entra"[^>]*>1\.600,00<\/td><td class="num plano-ano delta-bom"[^>]*>▲ 25%<\/td>/,'entradas subiram: azul, com seta (C11)');
+ assert.match(linha1,/<td class="num plano-ano tom-entra">2\.000,00<\/td><td class="num plano-ano tom-entra">2\.000,00<\/td><td class="num plano-ano tom-entra"[^>]*>1\.600,00<\/td><td class="num plano-ano delta-bom"[^>]*>▲ 25,0%<\/td>/,'entradas subiram: azul, com seta (C11)');
  const sem=ctx();assert.match(sem.run('tabelaPlano(contextoPlano())'),/sem meses completos em 2026 e 2025 para comparar/);
 });
 test('chip Ano no Plano de contas: o Dashboard compara o ano com o anterior nos mesmos meses',()=>{
  const c=ctx();comAnos(c);c.run("state.anoTodo=true;state.contaSelecionada='2.5.3'");const h=c.run('dashboardPlano(contextoPlano())');
- assert.match(h,/Ano 2026 contra 2025/);assert.match(h,/Aumentou R\$\s50,00 \(\+25%\) contra 2025 nos mesmos meses \(Ago a Set\)/);
+ assert.match(h,/Ano 2026 contra 2025/);assert.match(h,/Aumentou R\$\s50,00 \(\+25,0%\) contra 2025 nos mesmos meses \(Ago a Set\)/);
  assert.match(c.run('ANO_TELAS.join()'),/detalhe/);
 });
 const J=(c,s)=>JSON.parse(c.run(`JSON.stringify(${s})`));
@@ -69,17 +69,17 @@ test('entradas e saídas juntas: mês com saldo, comparação, composição de c
  assert.match(h,/data-plano-juntas="sim" aria-pressed="true"/);assert.match(h,/⇄ Entradas e saídas <small>· Set\/2026/);
  assert.match(h,/Set\/2026 · entradas<\/small><strong class="tom-entra">R\$\s1\.000,00/);assert.match(h,/Set\/2026 · saídas<\/small><strong class="tom-sai">R\$\s500,00/);
  assert.match(h,/Saldo \(entradas − saídas\)<\/small><strong class="tom-entra">R\$\s500,00/);
- assert.match(h,/as saídas consumiram 50% das entradas: sobrou R\$\s500,00\. Em Ago\/2026 o saldo foi R\$\s500,00\./);
- assert.match(h,/Para onde foi · Set\/2026[\s\S]*Cemig[\s\S]*30%/,'Cemig é 30% das saídas');assert.match(h,/De onde veio · Set\/2026<\/h3><p class="hint">Sem subcontas/);
+ assert.match(h,/as saídas consumiram 50,0% das entradas: sobrou R\$\s500,00\. Em Ago\/2026 o saldo foi R\$\s500,00\./);
+ assert.match(h,/Para onde foi · Set\/2026[\s\S]*Cemig[\s\S]*30,0%/,'Cemig é 30% das saídas');assert.match(h,/De onde veio · Set\/2026<\/h3><p class="hint">Sem subcontas/);
  assert.match(h,/aria-label="Set\/2026 · Entradas: R\$\s1\.000,00 · Saídas: R\$\s500,00/,'gráfico com as duas séries');
- assert.match(h,/<tfoot><tr><th scope="row">Total 2026<\/th><td class="num tom-entra">R\$\s2\.000,00<\/td><td class="num tom-sai">R\$\s1\.000,00<\/td><td class="num tom-entra">R\$\s1\.000,00<\/td><td class="num">50%<\/td>/);
+ assert.match(h,/<tfoot><tr><th scope="row">Total 2026<\/th><td class="num tom-entra">R\$\s2\.000,00<\/td><td class="num tom-sai">R\$\s1\.000,00<\/td><td class="num tom-entra">R\$\s1\.000,00<\/td><td class="num">50,0%<\/td>/);
  assert.match(h,/<td>Jan\/2026<\/td><td class="num ">—<\/td><td class="num ">—<\/td><td class="num ">—<\/td>/,'mês sem registro fica em branco, não zero');
  c.run("planoSelecionar('2.5.3')");assert.equal(c.run('planoUI.juntas'),false,'escolher uma conta volta para a conta');
 });
 test('entradas e saídas juntas no chip Ano: mesmos meses do ano anterior e o saldo comparado',()=>{
  const c=ctx();comAnos(c);c.run("state.anoTodo=true;planoUI.juntas=true");const h=c.run('dashboardPlano(contextoPlano())');
- assert.match(h,/Ano 2026 contra 2025/);assert.match(h,/Entradas · Ago a Set<\/small><strong class="tom-entra">R\$\s2\.000,00<\/strong><small>2025: R\$\s1\.600,00 · \+25%/);
- assert.match(h,/Nos mesmos meses \(Ago a Set\), as saídas consumiram 50% das entradas, contra 50% em 2025\. O saldo melhorou R\$\s200,00\./);
+ assert.match(h,/Ano 2026 contra 2025/);assert.match(h,/Entradas · Ago a Set<\/small><strong class="tom-entra">R\$\s2\.000,00<\/strong><small>2025: R\$\s1\.600,00 · \+25,0%/);
+ assert.match(h,/Nos mesmos meses \(Ago a Set\), as saídas consumiram 50,0% das entradas, contra 50,0% em 2025\. O saldo melhorou R\$\s200,00\./);
  const sem=ctx();sem.run("state.anoTodo=true;planoUI.juntas=true");assert.match(sem.run('dashboardPlano(contextoPlano())'),/Sem meses completos, da mesma base, em 2026 e 2025/);
 });
 
@@ -125,4 +125,47 @@ test('v133: PDF com a mesma cor do app (PDF_COR) nas tabelas de dinheiro',()=>{
  const retrato=r.blocos.find(b=>b.titulo==='Retrato do período');assert.deepEqual(retrato.tons,[['','entra'],['','sai'],['','entra']]);
  const dre=r.blocos.find(b=>/DRE Simples, linha por linha/.test(b.titulo));assert.ok(dre.tons.some(t=>t[1]==='sai'),'saídas em vermelho');
  for(const f of ['pdf-cfo.js','plano-contas.js'])assert.doesNotMatch(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),/\[(47,98,208|172,65,76|199,66,76|47,78,191|170,51,62)\]/,f+': nenhum outro RGB de dinheiro');
+});
+
+// ── v135 ──
+test('v135 (N23): sem conta e sem filtro, entradas e saídas juntas no automático; "Conta escolhida" mostra as saídas com a nota',()=>{
+ const c=ctx();assert.equal(c.run('planoUI.juntas'),null,'começa automático');
+ let h=c.run('dashboardPlano(contextoPlano())');
+ assert.match(h,/data-plano-juntas="sim" aria-pressed="true">⇄ Entradas e saídas juntas/);assert.match(h,/data-plano-juntas="nao" aria-pressed="false"/);assert.match(h,/class="plano-dashboard plano-juntas"/);
+ c.run("planoUI.juntas=false");h=c.run('dashboardPlano(contextoPlano())');
+ assert.match(h,/data-plano-juntas="nao" aria-pressed="true">Conta escolhida/);
+ assert.match(h,/<h2>📊 Saídas <small>· 2<\/small><small>· total das saídas, nenhuma conta escolhida<\/small><\/h2>/);
+ // com filtro, o automático mostra a conta (sem juntas); com conta, nada de nota
+ c.run("planoUI.juntas=null;state.tipo='1'");h=c.run('dashboardPlano(contextoPlano())');assert.doesNotMatch(h,/class="plano-dashboard plano-juntas"/);assert.match(h,/total das entradas, nenhuma conta escolhida/);
+ c.run("state.tipo='todos';state.contaSelecionada='2.5.3'");h=c.run('dashboardPlano(contextoPlano())');assert.doesNotMatch(h,/nenhuma conta escolhida|class="plano-dashboard plano-juntas"/);
+ c.run("planoUI.juntas=true;state.contaSelecionada='2.5.3'");assert.match(c.run('dashboardPlano(contextoPlano())'),/class="plano-dashboard plano-juntas"/,'a escolha da pessoa vence');
+ // escolher conta volta para a conta; "Todas as contas" volta ao automático
+ c.render=()=>{};c.run("planoSelecionar('2.5.3')");assert.equal(c.run('planoUI.juntas'),false);c.run("planoSelecionar('')");assert.equal(c.run('planoUI.juntas'),null);
+});
+test('v135 (I22): a lista lateral mostra o código do Mubisys quando difere',()=>{
+ const c=ctx();c.run("state.records[1].cells.push({code:'2.12',name:'Materiais e Insumos',value:80},{code:'2.12.1',name:'Impressão',value:80})");
+ const h=c.run('arvorePlano(contextoPlano())');
+ assert.match(h,/<span>Materiais e Insumos<\/span><small>2\.12 · Mubisys 2\.9<\/small><\/button>/);assert.match(h,/<span>Cemig<\/span><small>2\.5\.3 · Mubisys 2\.4\.3<\/small>/);
+});
+test('v135 (I15, D16): ano pela metade com a coluna do ano corrente nos mesmos meses; o Δ fecha com as colunas visíveis e tem uma casa',()=>{
+ const c=ctx();comAnos(c);c.run("planoUI.matriz=new Set(['1','2'])");const h=c.run('tabelaPlano(contextoPlano())');
+ const cel=code=>{const l=h.slice(h.indexOf(`data-plano-linha="${code}"`),h.indexOf('</tr>',h.indexOf(`data-plano-linha="${code}"`)));return [...l.matchAll(/<td class="num plano-ano[^"]*"[^>]*>([^<]*)<\/td>/g)].map(m=>m[1]);};
+ const num=s=>Number(s.replace(/[▲▼%\s.]/g,'').replace(',','.'));
+ for(const code of ['1','2','2.5.3']){const [,cur,prev,d]=cel(code);const pct=(num(cur)-num(prev))/num(prev)*100;assert.equal(Math.abs(Math.round(pct*10)/10),num(d),code);assert.match(d,/^[▲▼] \d+,\d%$/,'uma casa');}
+ assert.equal(cel('2.5.3').join('|'),'250,00|250,00|200,00|▲ 25,0%');
+ assert.equal((h.match(/<th scope="col"/g)||[]).length,17,'conta, 12 meses, total, ano nos mesmos meses, ano anterior e Δ');
+ c.run("state.consulta='zzz'");assert.match(c.run('tabelaPlano(contextoPlano())'),/<td colspan="17">Nenhuma conta/);
+ // sem comparação: sem a coluna nova, colspan 16
+ const s=ctx();s.run("state.consulta='zzz'");const hs=s.run('tabelaPlano(contextoPlano())');assert.match(hs,/<td colspan="16">/);assert.equal((hs.match(/<th scope="col"/g)||[]).length,16);
+ // estável vira "0,0%"; percentuais do dashboard também com uma casa
+ c.run(`state.consulta='';for(const [l,v] of [['Ago/2026',100],['Set/2026',100],['Ago/2025',100],['Set/2025',100]])state.records.find(r=>r.label===l).cells.find(x=>x.code==='2.5.3').value=v;`);
+ assert.match(c.run('tabelaPlano(contextoPlano())'),/data-plano-linha="2\.5\.3"[\s\S]*?>0,0%<\/td><\/tr>/);
+ assert.equal(c.run('planoUmaCasa(-0.04)'),'0,0');assert.equal(c.run('planoUmaCasa(61)'),'61,0');assert.equal(c.run('planoPctTxt(-12.345)'),'−12,3%');
+});
+test('v135 (N25): no Plano um só "↓ Planilha" (o do topo); DFC, Balanço e Preço baixam pelo topo o mesmo arquivo da tela',()=>{
+ const c=ctx();const h=c.run('renderPlanoContas()');assert.doesNotMatch(h,/id="exportAccounts"/);assert.match(h,/data-plano-tab="planilha"[^>]*>📋 Mês a mês</);
+ assert.doesNotMatch(fs.readFileSync(new URL('../plano-contas.js',import.meta.url),'utf8'),/exportAccounts/);
+ const chamou=[];c.dfcCSV=()=>chamou.push('dfc');c.balCSV=()=>chamou.push('balanco');c.precosCSV=()=>chamou.push('precos');
+ for(const v of ['dfc','balanco','precos'])c.run(`state.view='${v}';baixarPlanilhaTela()`);
+ assert.deepEqual(chamou,['dfc','balanco','precos']);
 });

@@ -72,7 +72,7 @@ test('faixa de comparação do Dashboard: sem sinal de menos, palavra e cor pela
 test('Ver os valores: dinheiro com a cor da marca na cascata, nas empilhadas e nas barras (C21)',()=>{
  const {c}=view();
  const cas=vm.runInContext("gCascata([{rotulo:'Vendas',valor:100,total:true},{rotulo:'(−) DAS',valor:-6},{rotulo:'(=) Resultado',valor:94,total:true}])",c);
- assert.match(cas,/<th scope="row">\(−\) DAS<\/th><td class="num tom-sai">/);assert.match(cas,/<th scope="row">Vendas<\/th><td class="num tom-entra">/);assert.match(cas,/<td class="num">-6%<\/td>/,'% da base continua neutro');
+ assert.match(cas,/<th scope="row">\(−\) DAS<\/th><td class="num tom-sai">/);assert.match(cas,/<th scope="row">Vendas<\/th><td class="num tom-entra">/);assert.match(cas,/<td class="num">−6,0%<\/td>/,'% da base continua neutro');
  const emp=vm.runInContext("gEmpilhadas([{rotulo:'Jan',valores:{fco:10,fci:-5,fcf:-2},linha:3}],{series:[{chave:'fco',rotulo:'FCO',sinal:true},{chave:'fci',rotulo:'FCI'},{chave:'fcf',rotulo:'FCF'}],linha:{rotulo:'Saldo'}})",c);
  assert.match(emp,/<th scope="row">Jan<\/th><td class="num tom-entra">[^<]*<\/td><td class="num">[^<]*<\/td><td class="num">[^<]*<\/td><td class="num">/,'só a série com sinal ganha cor; a linha fica neutra');
  assert.match(emp,/class="g-marca-dado g-cor-entrada"/);assert.match(emp,/FCO positivo/);assert.match(emp,/FCO negativo/);
@@ -85,9 +85,9 @@ test('Ver os valores: dinheiro com a cor da marca na cascata, nas empilhadas e n
 });
 test('percentual sem "-0%" e eixo sem "-0" (D16)',()=>{
  const {c}=view();
- assert.equal(vm.runInContext('GX.pct(-0.4,0)',c),'0%');assert.equal(vm.runInContext('GX.pct(-0.04)',c),'0%');assert.equal(vm.runInContext('GX.pct(-6)',c),'-6%');
+ assert.equal(vm.runInContext('GX.pct(-0.4,0)',c),'0%');assert.equal(vm.runInContext('GX.pct(-0.04)',c),'0,0%');assert.equal(vm.runInContext('GX.pct(-6)',c),'−6,0%');assert.equal(vm.runInContext('GX.pct(61)',c),'61,0%','uma casa fixa');
  const cas=vm.runInContext("gCascata([{rotulo:'Vendas',valor:1000,total:true},...Array.from({length:8},(_,i)=>({rotulo:'D'+i,valor:i?-100:-5})),{rotulo:'Fim',valor:195,total:true}])",c);
- assert.match(cas,/>-0,5%</,'degrau pequeno mostra uma casa em vez de "-0%"');assert.doesNotMatch(cas,/>-0%</);
+ assert.match(cas,/>−0,5%</,'degrau pequeno mostra uma casa em vez de "-0%"');assert.doesNotMatch(cas,/>[-−]0%</);
  const lin=vm.runInContext("graficoLinhas([{label:'Jan/2026',valores:{a:30}},{label:'Fev/2026',valores:{a:32}}],[{id:'a',nome:'A',cor:'red'}],'x')",c);
  assert.doesNotMatch(lin,/>-0%</);
 });
@@ -133,4 +133,59 @@ test('cascata: primeiro degrau azul com op.inicio, legenda só com as cores que 
  assert.match(leg,/g-cor-entrada[^<]*<\/i>Vendas/);assert.match(leg,/Desconta/);assert.match(leg,/Subtotal/);assert.doesNotMatch(leg,/>Soma</);
  const sem=c.run(`gCascata([{rotulo:'Vendas',valor:1000,total:true},{rotulo:'(−) Custos',valor:-400},{rotulo:'(=) Margem',valor:600,total:true}],{base:1000})`);
  assert.match(sem,/<rect class="g-marca-dado g-cor-resultado"/,'sem op.inicio, continua subtotal');assert.doesNotMatch(sem.slice(sem.indexOf('g-legenda')),/g-cor-entrada/,'nenhuma soma azul: a legenda não promete azul');
+});
+
+// v135
+test('dicas com a cor do valor: barras pela cor da barra e degraus da cascata com data-tom (C18)',()=>{
+ const {c}=view();const rows=JSON.stringify([{label:'Jan/2026',qualidade:{comparavel:true,rotulo:'ok'},reg:{},v:-50},{label:'Fev/2026',qualidade:{comparavel:true,rotulo:'ok'},reg:{},v:80},{label:'Mar/2026',qualidade:{comparavel:true,rotulo:'ok'},reg:{},v:null}]);
+ const dica=h=>[...h.matchAll(/<span class="chart-tooltip">[\s\S]*?<strong class="([^"]*)">/g)].map(m=>m[1]);
+ assert.deepEqual(dica(vm.runInContext(`graficoBarras(${rows},[{chave:'v',nome:'Saídas',cor:'var(--chart-out)'}],'x')`,c)),['tom-sai','tom-sai',''],'Saídas em vermelho; sem valor, sem cor');
+ assert.deepEqual(dica(vm.runInContext(`graficoBarras(${rows},[{chave:'v',nome:'Entradas menos saídas',cor:'var(--chart-net)',porSinal:true}],'x')`,c)),['tom-sai','tom-entra',''],'por sinal: negativo vermelho, positivo azul');
+ assert.deepEqual(dica(vm.runInContext(`graficoBarras(${rows},[{chave:'v',nome:'Resultado',cor:'var(--chart-net)'}],'x')`,c)),['','',''],'cor neutra fica sem tom');
+ const cas=vm.runInContext("gCascata([{rotulo:'Vendas',valor:100,total:true},{rotulo:'(−) DAS',valor:-6},{rotulo:'(=) Resultado',valor:94,total:true}],{inicio:'entrada'})",c);
+ assert.deepEqual([...cas.matchAll(/<rect class="g-marca-dado g-cor-(\w+)"[^>]*data-tom="([^"]*)"/g)].map(m=>m[1]+'|'+m[2]),['entrada|tom-entra','saida|tom-sai','resultado|']);
+ // a dica monta a primeira linha como texto e o valor num <b> com o tom, sem innerHTML
+ const js=fs.readFileSync(new URL('../graficos.js',import.meta.url),'utf8'),liga=js.slice(js.indexOf('function ligarDicasGraficos'),js.indexOf('const GRAFICOS_EXEMPLOS'));
+ assert.match(liga,/createElement\('b'\)/);assert.match(liga,/getAttribute\('data-tom'\)/);assert.doesNotMatch(liga,/innerHTML/);
+});
+test('parcial (*) fora do gráfico não se passa por "sem dado" na linha e nas empilhadas (D11)',()=>{
+ const {c}=view();
+ const h=vm.runInContext("gLinhaArea([{rotulo:'Set*',valor:null},{rotulo:'Out',valor:null},{rotulo:'Ago',valor:1}])",c);
+ assert.match(h,/<th scope="row">Set\*<\/th><td class="num">Parcial, fora do gráfico<\/td>/);assert.match(h,/<th scope="row">Out<\/th><td class="num">Não apurado<\/td>/);
+ assert.match(h,/data-dica="Set\*\nparcial, fora do gráfico"/);assert.match(h,/data-dica="Out\nsem dado"/);assert.match(h,/sem dado ou parcial \(\*\)/);
+ assert.doesNotMatch(vm.runInContext("gLinhaArea([{rotulo:'Out',valor:null},{rotulo:'Ago',valor:1}])",c),/parcial/,'sem *, a legenda continua "sem dado"');
+ const e=vm.runInContext("gEmpilhadas([{rotulo:'Jan',valores:{a:1,b:2}},{rotulo:'Fev*',valores:{}},{rotulo:'Mar',valores:{}}],{series:[{chave:'a',rotulo:'A'},{chave:'b',rotulo:'B'}]})",c);
+ assert.match(e,/<th scope="row">Fev\*<\/th><td class="num">Parcial, fora do gráfico<\/td><td class="num">Parcial, fora do gráfico<\/td>/);
+ assert.match(e,/<th scope="row">Mar<\/th><td class="num">Não apurado<\/td>/);assert.match(e,/data-dica="Fev\*\nA: parcial, fora do gráfico\nB: parcial, fora do gráfico"/);assert.match(e,/sem dado ou parcial \(\*\)/);
+});
+test('linha com área: op.min e op.max entram na escala e os vizinhos do mês escolhido podem sumir no estreito (D42)',()=>{
+ const {c}=view(),eixo=h=>[...h.matchAll(/g-rot g-rot-y" style="top:[^"]*">([^<]*)</g)].map(m=>m[1]);
+ const a=vm.runInContext("gLinhaArea([{rotulo:'Jan',valor:2},{rotulo:'Fev',valor:3}],{min:0,max:8})",c),b=vm.runInContext("gLinhaArea([{rotulo:'Jan',valor:6},{rotulo:'Fev',valor:7.5}],{min:0,max:8})",c);
+ assert.deepEqual(eixo(a),eixo(b),'mesma régua nas duas empresas');
+ const meses=JSON.stringify(['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'].map((m,i)=>({rotulo:m,valor:i})));
+ const h=vm.runInContext(`gLinhaArea(${meses},{selecionado:7})`,c),rot=Object.fromEntries([...h.matchAll(/<span class="g-rot g-rot-x([^"]*)"[^>]*>(\w+)</g)].map(m=>[m[2],m[1]]));
+ assert.match(rot.Jul,/g-opcional/);assert.match(rot.Set,/g-opcional/);assert.doesNotMatch(rot.Ago,/g-opcional/);assert.match(rot.Ago,/g-selecionado/);assert.doesNotMatch(rot.Mai,/g-opcional/,'par longe do escolhido continua');
+});
+test('sinal de menos tipográfico no dinheiro e no eixo, sem "-0" (D37)',()=>{
+ const {c}=view();
+ assert.equal(vm.runInContext('GX.moeda(-1)',c),'−R$ 1,00');assert.equal(vm.runInContext('GX.moeda(-0)',c),'R$ 0,00');assert.equal(vm.runInContext('GX.moeda(1700)',c),'R$ 1.700,00');
+ assert.equal(vm.runInContext('compacto(-1500)',c),'−1,5 mil');assert.equal(vm.runInContext('compacto(-0)',c),'0');
+ assert.equal(vm.runInContext('GX.curto(-1500)',c),'−R$ 1,5 mil');
+});
+test('textos: Demais grupos, metas apontam Parâmetros, DRE sem o gráfico da DFC e linhas sem leitura duplicada (I26, I32, D21, N26)',()=>{
+ const {c,elements}=view();vm.runInContext(fs.readFileSync(new URL('../demonstrativos.js',import.meta.url),'utf8'),c);elements.metasForm={};
+ vm.runInContext("state.records[1].cells.push(...Array.from({length:8},(_,i)=>({code:'2.'+(i+6),name:'G'+i,value:i+1})))",c);
+ const rk=vm.runInContext('rankingCustos(regAtual(),"2",6)',c);assert.match(rk,/Demais grupos \(\d+\)/);assert.doesNotMatch(rk,/Demais categorias/);
+ vm.runInContext("var __dlg='';dialog=(t,h)=>{__dlg=h;};formularioMetas()",c);
+ assert.match(vm.runInContext('__dlg',c),/<p class="hint">A meta de resultado de cada mês fica em Parâmetros e entra em Preço e equilíbrio\.<\/p>/);
+ const rel=vm.runInContext('relatoriosDRE()',c);
+ assert.match(rel,/<button type="button" class="text-button" data-go="dfc">O que mexeu o caixa em cada mês: ver no Fluxo de caixa DFC →<\/button>/);assert.doesNotMatch(rel,/<h2>O que mexeu o caixa/);
+ assert.equal(typeof c.blocosDoCaixa,'function','a DFC e os testes dela continuam usando blocosDoCaixa');
+ assert.match(vm.runInContext("graficoLinhas([{label:'Jan/2026',valores:{a:30}},{label:'Fev/2026',valores:{a:32}}],[{id:'a',nome:'A',cor:'red'}],'x')",c),/<svg class="linhas-chart" aria-hidden="true"/);
+});
+test('sem travessão em frase nos textos da frente (I34)',()=>{
+ for(const f of ['graficos.js','demonstrativos.js','financeiro.js','dre-modelo.js']){
+  const js=fs.readFileSync(new URL('../'+f,import.meta.url),'utf8').replace(/\/\*[\s\S]*?\*\//g,'').split('\n').filter(l=>!/^\s*\/\//.test(l)).join('\n');
+  assert.doesNotMatch(js,/\S\s—\s(?!=\s|significa)\S/,f);
+ }
 });

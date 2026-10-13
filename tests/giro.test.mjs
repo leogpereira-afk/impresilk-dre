@@ -80,7 +80,8 @@ function tela({dados=null,op={},admin=true,api=null}={}){
  ctx.run(`api=(...a)=>__api(...a);render=()=>{__renders++};state.records=[];state.cfg=__cfg;state.view='giro';state.periodo='Out/2026';state.permissoes={leitura:true,edicao:${admin},admin:${admin}}`);
  if(dados)ctx.run(`giroUI.dados=${JSON.stringify(dados)};giroUI.em=Date.now()`);return ctx;
 }
-const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],tom:m[2],valor:m[3].replace(/\s/g,' '),nota:m[4]}));
+// N27: o "?" do Glossário fica dentro do rótulo; termo = data-term do botão.
+const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"(?: id="secao-[\w-]+")?><span class="label">([^<]*)(?: <button type="button" class="term-help" data-term="([^"]*)" aria-label="Entender [^"]*">\?<\/button>)?<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],termo:m[2]||'',tom:m[3],valor:m[4].replace(/\s/g,' '),nota:m[5]}));
 test('tela: quatro cards, estoque de Parâmetros do mês de hoje, cascata, classes e vencimentos',async()=>{
  const d=await payload(),h=tela({dados:d,op:{'2026-10':{estoque:1200,prazoRecebimento:30,prazoPagamento:45}}}).run('renderGiro()'),k=cartoes(h);
  assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['Necessidade de capital de giro','tom-entra','R$ 1.450,00'],['A receber','tom-entra','R$ 5.000,00'],['A pagar operacional','tom-sai','R$ 4.750,00'],['Estoque','tom-entra','R$ 1.200,00']],'v134: a receber e estoque azul, a pagar vermelho, necessidade de giro pelo sinal');
@@ -88,7 +89,16 @@ test('tela: quatro cards, estoque de Parâmetros do mês de hoje, cascata, class
  assert.equal((h.match(/<figure class="g-fig g-(cascata|barras|cem)/g)||[]).length,3);assert.match(h,/g-cor-saida/,'o que se deve não usa o azul de entrada');
  assert.match(h,/<tr class=""><th scope="row">Fornecedores de produção \(1\.xx\)<\/th><td>Sim<\/td><td class="num">3<\/td><td class="num tom-sai">R\$\s650,00<\/td><td class="num tom-sai">R\$\s1\.000,00<\/td><td class="num tom-sai">R\$\s1\.650,00<\/td><\/tr>/,'a pagar em vermelho');
  assert.match(h,/<tr class="giro-fora"><th scope="row">Empréstimos e financiamentos \(3\.04\)<\/th><td>Não<\/td>/);assert.match(h,/Projetado no Mubisys \(ainda não é título\)<\/th><td>Não<\/td><td class="num">2<\/td>/);
- assert.match(h,/Prazos em Parâmetros \(Out\/2026\): recebimento <b>30 dias<\/b>, pagamento <b>45 dias<\/b>/);assert.match(h,/vence em 10 dias/);
+ // I25 e N14: prazos de Parâmetros são premissa e levam ao mês; o ciclo usa os prazos medidos nos títulos.
+ assert.match(h,/<button type="button" class="text-button" data-go="parametros" data-rec-mes="Out\/2026">Prazos negociados em Parâmetros \(Out\/2026\)<\/button> \(premissa\): recebimento <b>30 dias<\/b>, pagamento <b>45 dias<\/b>/);assert.match(h,/O ciclo financeiro usa os prazos medidos nos títulos dos três meses até cada fechamento \(histórico abaixo\)\./);assert.match(h,/vence em 10 dias/);
+ // I25: classe fora do giro marcada na barra, com a cor de a pagar; subtotal dentro do giro igual ao cartão "A pagar operacional".
+ assert.match(h,/title="Sócios \(3\.01\) · fora do giro"/);assert.doesNotMatch(h,/title="Fornecedores de produção \(1\.xx\) · fora do giro"/);
+ const sub=h.match(/Entram no giro: (R\$\s[\d.,]+); fora do giro: (R\$\s[\d.,]+)\./);assert.ok(sub,'subtítulo com os dois subtotais');assert.equal(sub[1].replace(/\s/g,' '),k[2].valor,'"Entram no giro" = cartão A pagar operacional');assert.equal(sub[2].replace(/\s/g,' '),'R$ 5.700,00','sócios 700 + empréstimos 5.000');
+ // D24: atraso de conta vencida em âmbar; a vencer e vence hoje sem a marca.
+ assert.match(h,/<td class="num giro-vencido">5 dias<\/td>/);assert.match(h,/<td class="num giro-vencido">95 dias<\/td>/);assert.match(h,/<td class="num">vence em 10 dias<\/td>/);assert.match(h,/<td class="num">vence hoje<\/td>/);
+ assert.equal((h.match(/giro-vencido/g)||[]).length,3,'só as três contas com dias > 0 (5, 40 e 95 dias)');
+ // N27: "?" do Glossário na necessidade de giro; N10: histórico com nome acessível.
+ assert.equal(k[0].termo,'Necessidade de capital de giro');assert.equal(k[1].termo,'');
  assert.doesNotMatch(h,/Falta o estoque/);assert.match(tela({dados:d}).run("paginasDoApp().giro()"),/Necessidade/);
 });
 test('sem estoque: necessidade "sem estoque", rotulada, e o caminho para Parâmetros no mês de hoje',async()=>{
@@ -96,7 +106,7 @@ test('sem estoque: necessidade "sem estoque", rotulada, e o caminho para Parâme
  assert.deepEqual([k[0].rotulo,k[0].valor],['Necessidade de giro sem estoque','R$ 250,00']);assert.match(k[0].nota,/falta o estoque de Out\/2026 em Parâmetros/);
  assert.deepEqual([k[3].valor,k[3].tom],['Não informado','']);assert.match(h,/<h2>Falta o estoque<\/h2>[\s\S]*data-go="parametros" data-rec-mes="Out\/2026">Informar em Parâmetros/);
  assert.match(tela({dados:d,admin:false}).run('renderGiro()'),/Peça a um administrador[\s\S]*>Ver Parâmetros/);
- assert.match(h,/Prazos em Parâmetros \(Out\/2026\): recebimento <b>não informado<\/b>/);
+ assert.match(h,/Prazos negociados em Parâmetros \(Out\/2026\)<\/button> \(premissa\): recebimento <b>não informado<\/b>/);assert.equal(k[0].termo,'Necessidade de capital de giro','sem estoque, o "?" leva ao mesmo verbete');
 });
 test('servidor anterior a esta fase e leitura com erro: dito com clareza, uma leitura por minuto',async()=>{
  const c1=tela({api:async()=>({erro:'Escolha um intervalo válido de até 12 meses.'})});c1.run('renderGiro()');await new Promise(r=>setTimeout(r,5));
@@ -131,7 +141,7 @@ test('sem as contas a pagar: gráficos dizem "Não apurado", nunca "nenhuma cont
 test('cores: na cascata, a receber (primeiro degrau) e o estoque em azul, a pagar desconta em vermelho; barras do que se deve em vermelho',async()=>{
  const d=await payload(),h=tela({dados:d,op:{'2026-10':{estoque:1200}}}).run('renderGiro()');
  const cas=rects(h,'cascata');assert.deepEqual(cas.map(x=>[x[0],x[1]]),[['g-cor-entrada','A receber'],['g-cor-entrada','Estoque'],['g-cor-saida','A pagar operacional'],['g-cor-resultado','Necessidade de giro']]);
- assert.match(cas[2][2],/^-R\$/);const bar=rects(h,'barras');assert.ok(bar.length>0&&bar.every(x=>x[0]==='g-cor-saida'),JSON.stringify(bar));
+ assert.match(cas[2][2],/^[-−]R\$/);const bar=rects(h,'barras');assert.ok(bar.length>0&&bar.every(x=>x[0]==='g-cor-saida'),JSON.stringify(bar));
  assert.deepEqual(rects(tela({dados:d}).run('renderGiro()'),'cascata').map(x=>x[1]),['A receber','A pagar operacional','Sem estoque']);
 });
 test('lado ausente sai null, nunca zero, e a tela diz "Não apurado"',async()=>{
@@ -208,7 +218,7 @@ test('tela do histórico: necessidade de giro por mês, ciclo do último fechame
  assert.match(h,/Quantos dias o dinheiro fica preso\? · Dez\/2025/);assert.match(h,/Ciclo operacional 43 dias · ciclo financeiro 18 dias/,'estoque 18 (1.200 ÷ 6.000 × 90) + recebimento 25 (5.000 ÷ 18.000 × 90) − pagamento 25 (2.100 ÷ 7.500 × 90)');
  assert.match(h,/<tr class="giro-parcial"><th scope="row">Dez\/2025 \*<\/th><td class="num tom-entra">R\$\s5\.000,00<\/td><td class="num tom-sai">R\$\s2\.100,00<\/td><td class="num tom-entra">R\$\s1\.200,00<\/td><td class="num tom-entra">R\$\s4\.100,00<\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">18<\/td><td class="num">18<\/td><td class="num">34<\/td><td class="num">25<\/td><\/tr>/);
  assert.match(h,/<tr class="giro-parcial"><th scope="row">Nov\/2025 \*<\/th><td class="num tom-entra">R\$\s5\.000,00<\/td><td class="num tom-sai">R\$\s2\.100,00<\/td><td class="num"><span class="muted" title="Não apurado">—<\/span><\/td><td class="num tom-entra">R\$\s2\.900,00 <small>sem estoque<\/small><\/td><td class="num">25<\/td><td class="num">25<\/td><td class="num">—<\/td><td class="num">—<\/td>/,'sem estoque: estoque e ciclo não apurados, nunca zero');
- assert.match(h,/<summary>Prazos e saldos por mês · 2 fechamentos<\/summary>/);assert.doesNotMatch(h,/O histórico usou o corte/);
+ assert.match(h,/<summary><h2 class="card-titulo">Prazos e saldos por mês · 2 fechamentos<\/h2><\/summary>/);assert.doesNotMatch(h,/O histórico usou o corte/);
  // C12: a necessidade de giro pode ser negativa, então a linha sai na cor de resultado, não no azul da marca
  assert.match(h.slice(h.indexOf('A necessidade de giro está crescendo?'),h.indexOf('Quantos dias o dinheiro fica preso?')),/g-cor-resultado/);assert.doesNotMatch(h.slice(h.indexOf('A necessidade de giro está crescendo?'),h.indexOf('Quantos dias o dinheiro fica preso?')),/g-cor-marca/);
  // I31: a remontagem usa os títulos como estavam no Mubisys na data dela

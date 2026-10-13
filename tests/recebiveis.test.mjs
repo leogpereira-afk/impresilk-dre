@@ -107,7 +107,8 @@ function tela({payload=null,pdd={},admin=true,api=null}={}){
  return c;
 }
 const P=()=>({ok:true,versao:1,fonte:'recebiveis',...ag([...BASE,t(11,5000,700,{vencimento:'2024-12-31'})],{dsoHist:[{dia:'2026-10-01',dso:40},{dia:'2026-10-10',dso:42}]})});
-const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],tom:m[2],valor:m[3].replace(/\s/g,' '),nota:m[4]}));
+// N27: o "?" do Glossário fica dentro do rótulo; termo = data-term do botão.
+const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"(?: id="secao-[\w-]+")?><span class="label">([^<]*)(?: <button type="button" class="term-help" data-term="([^"]*)" aria-label="Entender [^"]*">\?<\/button>)?<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],termo:m[2]||'',tom:m[3],valor:m[4].replace(/\s/g,' '),nota:m[5]}));
 test('tela: quatro cards, provisão pelo % de Parâmetros do mês da posição, três gráficos e a data da posição',()=>{
  const h=tela({payload:P(),pdd:{'2026-10':50}}).run('renderRecebiveis()'),k=cartoes(h);
  assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['A receber','tom-entra','R$ 6.600,00'],['Vencido','tom-sai','R$ 3.600,00'],['Provisão estimada (PDD)','tom-sai','R$ 750,00'],['Maior devedor','tom-sai','R$ 800,00']]);
@@ -115,15 +116,18 @@ test('tela: quatro cards, provisão pelo % de Parâmetros do mês da posição, 
  assert.match(k[3].nota,/^Cliente 10 · 22,2% do vencido · atraso de até 400 dias$/);
  assert.equal((h.match(/<figure class="g-fig g-(cem|barras|linha-area)/g)||[]).length,3);
  assert.match(h,/Posição do Painel de 10\/10\/2026,? 22:49 \(a carga roda a cada 20 minutos\); dias de atraso contados até hoje, como no Painel\. Esta tela é uma foto da carteira: não muda com o mês escolhido\. Vencidos antes de 01\/01\/2025 \(1 título, R\$\s5\.000,00\) ficam fora dos números/);
- assert.match(h,/Prazo concedido médio da carteira: <b>30 dias<\/b>.*Em Parâmetros \(Out\/2026\): <b>28 dias<\/b>.*Idade média da carteira: <b>83 dias<\/b>/s,"Σ saldo × dias desde a emissão ÷ Σ saldo = 545.600 ÷ 6.600");
- assert.match(h,/<summary>Faixas e títulos vencidos · 8<\/summary>/);assert.match(h,/<tr><th scope="row">Acima de 90 dias<\/th><td class="num">2<\/td><td class="num tom-sai">R\$\s1\.500,00<\/td><td class="num">22,7%<\/td><\/tr>/,'faixa vencida em vermelho');assert.match(h,/<tr><th scope="row">A vencer<\/th><td class="num">\d+<\/td><td class="num tom-entra">/,'a vencer em azul');
+ // N27: "?" do PDD e do vencido (aging); N14: Parâmetros como link, no mês da posição.
+ assert.deepEqual(k.map(x=>x.termo),['','Aging (idade da carteira)','PDD (provisão para devedores duvidosos)','']);
+ assert.match(h,/<\/div><p class="hint rec-ir-param"><button type="button" class="text-button" data-go="parametros" data-rec-mes="Out\/2026">Provisão \(PDD\) e prazos em Parâmetros →<\/button><\/p><p class="hint rec-posicao">/,'logo depois dos cartões');
+ assert.match(h,/Prazo concedido médio da carteira: <b>30 dias<\/b>.*<button type="button" class="text-button" data-go="parametros" data-rec-mes="Out\/2026">Em Parâmetros \(Out\/2026\)<\/button>: <b>28 dias<\/b>.*Idade média da carteira: <b>83 dias<\/b>/s,"Σ saldo × dias desde a emissão ÷ Σ saldo = 545.600 ÷ 6.600");
+ assert.match(h,/<summary><h2 class="card-titulo">Faixas e títulos vencidos · 8<\/h2><\/summary>/);assert.match(h,/<tr><th scope="row">Acima de 90 dias<\/th><td class="num">2<\/td><td class="num tom-sai">R\$\s1\.500,00<\/td><td class="num">22,7%<\/td><\/tr>/,'faixa vencida em vermelho');assert.match(h,/<tr><th scope="row">A vencer<\/th><td class="num">\d+<\/td><td class="num tom-entra">/,'a vencer em azul');
  assert.doesNotMatch(h,/data-go="parametros">Informar em Parâmetros/);
  assert.equal((h.match(/ficam fora/g)||[]).length,1,'a dívida antiga é dita uma vez');assert.doesNotMatch(h,/rec-avisos/,'sem aviso a repetir');
  const parc=P();parc.avisos.push('A carga do Painel está atrasada: confira a data da posição.');assert.match(tela({payload:parc}).run('renderRecebiveis()'),/<ul class="param-avisos rec-avisos"><li>A carga do Painel está atrasada: confira a data da posição\.<\/li><\/ul>/);assert.equal(tela({payload:P()}).run("paginasDoApp().recebiveis()").includes('Posição do Painel'),true);
 });
 test('sem o % de provisão: "Não informado", nunca zero, e o caminho conforme a permissão',()=>{
  const h=tela({payload:P()}).run('renderRecebiveis()'),k=cartoes(h);
- assert.deepEqual([k[2].tom,k[2].valor],['','Não informado']);assert.match(k[2].nota,/Falta o % de provisão acima de 90 dias de Out\/2026 em Parâmetros; vencido há mais de 90 dias: R\$\s1\.500,00/);
+ assert.deepEqual([k[2].tom,k[2].valor],['','Não informado']);assert.equal(k[2].termo,'PDD (provisão para devedores duvidosos)','o "?" do PDD também sem o %');assert.doesNotMatch(h,/rec-ir-param/,'o quadro "Falta a política" já leva a Parâmetros: sem link repetido');assert.match(k[2].nota,/Falta o % de provisão acima de 90 dias de Out\/2026 em Parâmetros; vencido há mais de 90 dias: R\$\s1\.500,00/);
  assert.match(h,/<h2>Falta a política de provisão<\/h2>[\s\S]*data-go="parametros" data-rec-mes="Out\/2026">Informar em Parâmetros/);
  assert.match(tela({payload:P(),admin:false}).run('renderRecebiveis()'),/Peça a um administrador[\s\S]*data-go="parametros" data-rec-mes="Out\/2026">Ver Parâmetros/);
  assert.equal(cartoes(tela({payload:P(),pdd:{'2026-09':50}}).run('renderRecebiveis()'))[2].valor,'Não informado','o % é do mês da posição, sem herdar outro mês');
@@ -151,7 +155,9 @@ test('planilha e nomes do ERP escapados; fórmula não executa no CSV',()=>{
  const p2=P();p2.titulosVencidos[0].cliente='=HYPERLINK("x")';const c2=tela({payload:p2});c2.run('download=(n,t)=>{__csv={n,t}}');c2.run('recCSV()');assert.match(c2.run('__csv.t'),/"'=HYPERLINK\(""x""\)"/);
 });
 test('versão publicada e a tela está no menu certo',()=>{
- assert.match(ler('sw.js'),/dre-shell-v134/);assert.equal((ler('index.html').match(/\?v=(\d+)/g)||[]).every(v=>v==='?v=134'),true);
+ // M4: a versão vem do cache do sw.js; todo ?v= do index.html acompanha, sem número fixo no teste.
+ const v=ler('sw.js').match(/dre-shell-v(\d+)/)?.[1];assert.ok(v,'CACHE do sw.js com a versão');
+ const vs=ler('index.html').match(/\?v=(\d+)/g)||[];assert.ok(vs.length>0);assert.deepEqual([...new Set(vs)],[`?v=${v}`]);
  assert.match(ler('app.js'),/recebiveis:\['Recebíveis e aging','Quem deve, há quanto tempo e quanto está em risco, na posição que o Painel atualiza a cada 20 minutos\.'\]/);
 });
 

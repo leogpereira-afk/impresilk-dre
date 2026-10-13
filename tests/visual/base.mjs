@@ -18,6 +18,15 @@ export async function estabilizar(page, minimo = 250) {
   while (performance.now() - t0 < 20000) { if (pendentes === 0 && performance.now() - ultimoPedido > minimo) break; await new Promise(r => setTimeout(r, 50)); }
   await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))).catch(() => {});
 }
+// No CI o servidor estático sobe em segundo plano no passo anterior: espera ele responder (até 10 s) antes de abrir.
+export async function esperarServidor(limite = 10000) {
+  const t0 = performance.now(); let ultimo = '';
+  while (performance.now() - t0 < limite) {
+    try { const r = await fetch(BASE, {signal: AbortSignal.timeout(2000)}); if (r.ok) return; ultimo = 'HTTP ' + r.status; } catch (e) { ultimo = e.cause?.code || e.message; }
+    await new Promise(r => setTimeout(r, 250));
+  }
+  throw new Error(`Servidor do app não respondeu em ${BASE} em ${limite / 1000} s (${ultimo}). Suba: python3 -m http.server 8793 --bind 127.0.0.1`);
+}
 export async function lancar() {
   return chromium.launch({...(CHROME ? {executablePath: CHROME} : {}), headless: true, args: ['--no-sandbox', `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1, EXCLUDE localhost, EXCLUDE ${new URL(BASE).hostname}`]});
 }

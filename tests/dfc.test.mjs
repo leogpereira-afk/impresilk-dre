@@ -28,7 +28,7 @@ function context({periodo='Set/2026',saldos={},registros=REGISTROS,admin=true,ed
 const linha=(h,nome)=>{const i=h.indexOf(`<th scope="row">${nome}</th>`);return i<0?'':h.slice(i,h.indexOf('</tr>',i));};
 const tabela=h=>h.slice(h.indexOf('dfc-tabela'));
 const td=(l,i)=>[...l.matchAll(/<td class="([^"]*)">((?:(?!<\/td>).)*)<\/td>/g)][i]||[];// i: 0–11 meses, 12 acumulado
-const num=s=>{const t=String(s).replace(/<[^>]+>/g,'');return /\d/.test(t)?Number(t.replace(/[^\d,-]/g,'').replace(',','.')):null;};
+const num=s=>{const t=String(s).replace(/<[^>]+>/g,'').replace(/\u2212/g,'-');return /\d/.test(t)?Number(t.replace(/[^\d,-]/g,'').replace(',','.')):null;};
 const meses=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const seq=(n,ini=[2026,0],cells=SET)=>Array.from({length:n},(_,i)=>{const t=ini[0]*12+ini[1]+i,a=Math.floor(t/12),fim=new Date(Date.UTC(a,t%12+1,0)).toISOString().slice(0,10);return reg(`${meses[t%12]}/${a}`,fim,cells);});
 // Em cada coluna e no acumulado: saldo inicial + ajuste + geração = saldo final.
@@ -47,13 +47,13 @@ test('cada linha cai no bloco certo, com o sinal certo, e a geração fecha com 
 });
 test('contas por bloco: soma de cada grupo = total do bloco, contas no bloco certo, financiamento com a cor do sentido, a conferir marcado',()=>{
  const h=context({registros:[reg('Set/2026','2026-09-30',TODAS)]}).run('renderDFC()'),q=h.slice(h.indexOf('dfc-contas'),h.indexOf('</details>',h.indexOf('dfc-contas')));
- const grupos=[...q.matchAll(/<tbody><tr class="dre-composicao-grupo"><th scope="rowgroup" colspan="3">([^·]+)· (?:<span class="(?:tom-entra|tom-sai|)">)?([^<]+)(?:<\/span>)?<\/th><\/tr>([\s\S]*?)<\/tbody>/g)].map(m=>({nome:m[1].trim(),total:m[2],linhas:[...m[3].matchAll(/data-account="([^"]+)"[\s\S]*?<td class="num ([^"]*)">([^<]+)<\/td><td class="num">([^<]*)<\/td>/g)].map(x=>({code:x[1],tom:x[2],valor:num(x[3]),pct:x[4]}))}));
+ const grupos=[...q.matchAll(/<tbody data-dfc-bloco="(?:fco|fci|fcf)"><tr class="dre-composicao-grupo"><th scope="rowgroup" colspan="3">([^·]+)· (?:<span class="(?:tom-entra|tom-sai|)">)?([^<]+)(?:<\/span>)?<\/th><\/tr>([\s\S]*?)<\/tbody>/g)].map(m=>({nome:m[1].trim(),total:m[2],linhas:[...m[3].matchAll(/data-account="([^"]+)"[\s\S]*?<td class="num ([^"]*)">([^<]+)<\/td><td class="num">([^<]*)<\/td>/g)].map(x=>({code:x[1],tom:x[2],valor:num(x[3]),pct:x[4]}))}));
  for(const g of grupos)assert.equal(Math.round(g.linhas.reduce((t,x)=>t+x.valor,0)*100)/100,num(g.total),g.nome);
  assert.deepEqual(grupos.find(g=>g.nome.startsWith('Investimentos')).linhas.map(x=>x.code),['2.6.1']);
  const fcf=grupos.find(g=>g.nome.startsWith('Financiamentos')).linhas;assert.deepEqual(fcf.map(x=>x.code).sort(),['1.4.2','2.13.7','2.14.2','2.18','2.4.1.1']);
- assert.ok(fcf.every(x=>x.tom===(x.code.startsWith('1')?'tom-entra':'tom-sai')),'financiamento com a cor do sentido');assert.equal(fcf.find(x=>x.code==='2.14.2').pct,'10%','% sobre as vendas');
+ assert.ok(fcf.every(x=>x.tom===(x.code.startsWith('1')?'tom-entra':'tom-sai')),'financiamento com a cor do sentido');assert.equal(fcf.find(x=>x.code==='2.14.2').pct,'10,0%','% sobre as vendas, com casa fixa (D16)');
  const fco=grupos.find(g=>g.nome.startsWith('Caixa da operação')).linhas;assert.equal(fco.find(x=>x.code==='1.1.1').tom,'tom-entra');assert.equal(fco.find(x=>x.code==='2.1.4').tom,'tom-sai');
- assert.equal((q.match(/origem-dado origem-padrao/g)||[]).length,2,'1.9 e 2.20 ainda a classificar');assert.match(q,/ · 2 a conferir<\/summary>/);
+ assert.equal((q.match(/origem-dado origem-padrao/g)||[]).length,2,'1.9 e 2.20 ainda a classificar');assert.match(q,/ · 2 a conferir<\/h2><\/summary>/);
  assert.match(context().run('renderDFC()'),/parcelamento do DAS: financiamento, não imposto do mês/);
 });
 test('saldo: informado vale; sem ele, o final do mês anterior; ausente nunca vira zero',()=>{
@@ -131,7 +131,7 @@ test('saldo informado diferente: o aviso diz quanto e para que lado, e cada colu
  assert.match(hd,/O saldo segue o saldo inicial informado em Jan\/2026, que ficou R\$\s1\.260,00 acima do saldo final mostrado de Dez\/2025, que tem dados só até 20\/12 \(mês incompleto\); a diferença está na linha de ajuste da tabela\./);
  assert.match(context({registros:dez,saldos:sd,periodo:'Jan/2026'}).run('renderDFC()'),/O saldo inicial informado ficou R\$\s1\.260,00 acima do saldo final mostrado de Dez\/2025, que tem dados só até 20\/12 \(mês incompleto\); a diferença está na linha de ajuste da tabela\./);
 });
-test('tela: quatro cards, três gráficos (o saldo à parte), contas por bloco e tabela fechada com planilha',()=>{
+test('tela: quatro cards, três gráficos (o saldo à parte), contas por bloco e tabela fechada, sem planilha dentro do cartão',()=>{
  const h=context({saldos:{'2026-08':5000}}).run('renderDFC()');
  const cards=[...h.matchAll(/<div class="metric metric-param"><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong>/g)].map(m=>[m[1],m[2],m[3]]);
  assert.deepEqual(cards.map(x=>x[0]),['Caixa da operação (FCO) · Set/2026','Investimentos (FCI)','Financiamentos (FCF)','Saldo final']);
@@ -142,10 +142,11 @@ test('tela: quatro cards, três gráficos (o saldo à parte), contas por bloco e
  assert.doesNotMatch(g1,/g-chave-linha/,'o saldo não divide o eixo com as barras');
  for(const x of [g2,g3])assert.match(x,/data-dica="Jan\nsem dado"/,'mês sem dados não vira zero');
  assert.match(g2,/data-dica="Set\nR\$\s3\.140,00"/);assert.match(g3,/data-dica="Set\nR\$\s7\.740,00"/,'saldo final no gráfico próprio');
- assert.match(h,/<details class="card dfc-mensal"[^>]*><summary>Fluxo de caixa mês a mês · 2026<\/summary><div class="card-body"><div class="actions"><button type="button" data-dfc-csv>/);
+ // N25: a planilha sai pelo "↓ Planilha" do topo (dfcCSV), não de dentro do cartão fechado.
+ assert.match(h,/<details class="card dfc-mensal"[^>]*><summary><h2 class="card-titulo">Fluxo de caixa mês a mês · 2026<\/h2><\/summary><div class="card-body"><div class="table-scroll">/);assert.doesNotMatch(h,/data-dfc-csv|Baixar planilha/);
  const t=tabela(h);for(const n of ['(+) Empréstimos recebidos'])assert.match(linha(t,n),/<td class="num selected-month tom-entra">/,n+' em azul');for(const n of ['Financiamentos (FCF)','(−) Parcelamento do DAS','(−) Empréstimos, antecipações e outras dívidas pagas','(−) Retiradas e arrendamento'])assert.match(linha(t,n),/<td class="num selected-month tom-sai">/,n+' em vermelho');
  assert.doesNotMatch(linha(t,'(±) Ajuste de saldo informado'),/tom-/,'ajuste sem cor');assert.doesNotMatch(linha(t,'(−) Transferências entre empresas'),/tom-/,'sem transferência, zero sem cor');
- assert.match(linha(t,'(−) Parcelamento do DAS'),/<td class="num selected-month tom-sai">-R\$\s300,00<\/td>/);
+ assert.match(linha(t,'(−) Parcelamento do DAS'),/<td class="num selected-month tom-sai">[−-]R\$\s300,00<\/td>/);
  assert.match(linha(t,'(−) ISS fora do DAS'),/<td class="num selected-month ">R\$\s0,00<\/td>/,'zero sem sinal e sem cor');
  assert.match(linha(t,'Caixa da operação (FCO)'),/^<th scope="row">Caixa da operação \(FCO\)<\/th><td class="num  "><span class="muted"/,'janeiro sem dados é —');
  assert.ok(h.indexOf('metric-param')<h.indexOf('g-empilhadas')&&h.indexOf('g-empilhadas')<h.indexOf('De onde vem cada bloco')&&h.indexOf('De onde vem cada bloco')<h.indexOf('Fluxo de caixa mês a mês'));
@@ -154,12 +155,12 @@ test('tela: quatro cards, três gráficos (o saldo à parte), contas por bloco e
 test('mês em andamento ou incompleto: marcado, com a cor do sentido (também no acumulado), hachurado nos gráficos e com * na tabela',()=>{
  const out=context({periodo:'Out/2026',saldos:{'2026-09':1000}}).run('renderDFC()');
  assert.equal((out.match(/coletado até 08\/10 \(mês em andamento\)/g)||[]).length,5,'4 cards e o quadro de contas');
- assert.deepEqual([...out.matchAll(/<div class="metric metric-param"><span class="label">[^<]*<\/span><strong class="([^"]*)">([^<]*)/g)].map(m=>m[1]+'|'+m[2].replace(/\s/g,' ')),['tom-entra|R$ 2.200,00','tom-sai|-R$ 700,00','|R$ 0,00','tom-entra|R$ 3.870,00'],'FCI com valor em vermelho; FCF zero sem cor');
- assert.match(out,/data-dica="Out\*\nOperação \(FCO\): Não apurado\nInvestimento \(FCI\): Não apurado\nFinanciamento \(FCF\): Não apurado"/);
- const g=(a,b)=>out.slice(out.indexOf(a),b?out.indexOf(b):undefined);for(const x of [g('A operação se paga','Quanto sobrou'),g('Quanto sobrou','De onde vem cada bloco')])assert.match(x,/data-dica="Out\*\nsem dado"/);
- const qo=out.slice(out.indexOf('dfc-contas'),out.indexOf('</details>',out.indexOf('dfc-contas')));assert.match(qo,/<td class="num tom-entra">R\$\s3\.000,00<\/td>/,'contas do mês parcial com cor');assert.match(qo,/<td class="num tom-sai">-R\$\s800,00<\/td>/,'contas do mês parcial com cor');assert.match(qo,/contas do plano em Out\/2026 · coletado até 08\/10 \(mês em andamento\)/);
+ assert.deepEqual([...out.matchAll(/<div class="metric metric-param"><span class="label">[^<]*<\/span><strong class="([^"]*)">([^<]*)/g)].map(m=>m[1]+'|'+m[2].replace(/\s/g,' ')),['tom-entra|R$ 2.200,00','tom-sai|−R$ 700,00','|R$ 0,00','tom-entra|R$ 3.870,00'],'FCI com valor em vermelho; FCF zero sem cor');
+ assert.match(out,/data-dica="Out\*\nOperação \(FCO\): parcial, fora do gráfico\nInvestimento \(FCI\): parcial, fora do gráfico\nFinanciamento \(FCF\): parcial, fora do gráfico"/,'v135 (D11): mês parcial fora do gráfico, dito na dica');
+ const g=(a,b)=>out.slice(out.indexOf(a),b?out.indexOf(b):undefined);for(const x of [g('A operação se paga','Quanto sobrou'),g('Quanto sobrou','De onde vem cada bloco')])assert.match(x,/data-dica="Out\*\nparcial, fora do gráfico"/,'v135 (D11): parcial é diferente de sem dado');
+ const qo=out.slice(out.indexOf('dfc-contas'),out.indexOf('</details>',out.indexOf('dfc-contas')));assert.match(qo,/<td class="num tom-entra">R\$\s3\.000,00<\/td>/,'contas do mês parcial com cor');assert.match(qo,/<td class="num tom-sai">[−-]R\$\s800,00<\/td>/,'contas do mês parcial com cor');assert.match(qo,/contas do plano em Out\/2026 · coletado até 08\/10 \(mês em andamento\)/);
  const t=tabela(out);assert.match(t,/<th scope="col" class="num selected-month">Out\/2026 \*<\/th>/);assert.match(t,/<th scope="col" class="num">Acumulado até Out \*<\/th>/);
- assert.match(linha(t,'Caixa da operação (FCO)'),/<td class="num selected-month tom-entra">R\$\s2\.200,00<\/td>/,'coluna do mês em andamento com cor');
+ assert.match(linha(t,'Caixa da operação (FCO)'),/<td class="num selected-month tom-entra"><button type="button" class="cfo-value" data-dfc-ir="fco" data-periodo="Out\/2026"[^>]*>R\$\s2\.200,00<\/button><\/td>/,'coluna do mês em andamento com cor');
  const ano=context({registros:seq(9).concat([reg('Out/2026','2026-10-08',OUT)]),saldos:{'2026-01':1000},periodo:'Out/2026'}).run('renderDFC()'),ta=tabela(ano);
  for(const n of ['Caixa da operação (FCO)','(=) Geração de caixa do mês','(=) Saldo final'])assert.equal(td(linha(ta,n),12)[1],'num tom-entra',n+': acumulado com mês em andamento com cor');
  assert.match(td(linha(ta,'(=) Saldo final'),12)[2],/R\$\s14\.830,00/);
@@ -196,11 +197,11 @@ test('a tela de Fluxo de caixa usa o cálculo, escapa nomes e está publicada',(
 // C25, C12 e N9: subtotal do grupo com a cor do bloco; FCO em linha de resultado; cartões lembram se estavam abertos.
 test('subtotal de cada bloco com cor, FCO como resultado e cartões com a chave de memória do app',()=>{
  const c=context({registros:[reg('Set/2026','2026-09-30',TODAS)]}),h=c.run('renderDFC()');
- assert.match(h,/Caixa da operação \(FCO\) · <span class="tom-entra">R\$\s3\.305,00<\/span><\/th>/);assert.match(h,/Investimentos \(FCI\) · <span class="tom-sai">-R\$\s700,00<\/span><\/th>/);assert.match(h,/Financiamentos \(FCF\) · <span class="tom-sai">-R\$\s400,00<\/span><\/th>/);
+ assert.match(h,/Caixa da operação \(FCO\) · <span class="tom-entra">R\$\s3\.305,00<\/span><\/th>/);assert.match(h,/Investimentos \(FCI\) · <span class="tom-sai">[−-]R\$\s700,00<\/span><\/th>/);assert.match(h,/Financiamentos \(FCF\) · <span class="tom-sai">[−-]R\$\s400,00<\/span><\/th>/);
  const g2=h.slice(h.indexOf('A operação se paga'),h.indexOf('Quanto sobrou'));assert.match(g2,/g-cor-resultado/);assert.doesNotMatch(g2,/g-cor-marca/);
  c.run('cardAttrs=undefined');assert.match(c.run('renderDFC()'),/<details class="card dfc-mensal"><summary>/,'sem cardAttrs (fora do app), o cartão continua fechado');
  c.run("cardAttrs=(t,aberto=true)=>`data-card=\"dfc:${t}\"`+(aberto?' open':'')");const k=c.run('renderDFC()');
- assert.match(k,/<details class="card dfc-mensal" data-card="dfc:Fluxo de caixa mês a mês"><summary>/);assert.match(k,/<details class="card dfc-contas" data-card="dfc:De onde vem cada bloco"><summary>/);
+ assert.match(k,/<details class="card dfc-mensal" data-card="dfc:Fluxo de caixa mês a mês"><summary>/);assert.match(k,/<details class="card dfc-contas" id="secao-dfc-contas" data-card="dfc:De onde vem cada bloco"><summary>/);
  c.run("cardAttrs=(t,aberto=true)=>`data-card=\"dfc:${t}\"`+(t==='Fluxo de caixa mês a mês'?' open':'')");assert.match(c.run('renderDFC()'),/<details class="card dfc-mensal" data-card="dfc:Fluxo de caixa mês a mês" open><summary>/,'aberto antes, aberto de novo');
 });
 // D1: ao abrir a tabela, a rolagem para no início de uma coluna; nenhuma fica pela metade atrás da coluna fixa.
@@ -208,7 +209,49 @@ test('rolagem da tabela: começa numa coluna inteira, também perto do fim do an
  const c=context(),h=[];c.document.addEventListener=(t,f)=>h.push([t,f]);c.run('wireDFC()');const toggle=h.find(x=>x[0]==='toggle')[1];
  // coluna fixa de 200 px e 13 colunas de 120 px; área visível de 700 px (rolagem máxima 1060)
  const ths=[{offsetLeft:0,offsetWidth:200},...Array.from({length:13},(_,i)=>({offsetLeft:200+i*120,offsetWidth:120}))];
- const abre=sel=>{const wrap={scrollLeft:-1,scrollWidth:200+13*120,clientWidth:700,querySelector:s=>s==='thead .selected-month'?ths[sel+1]:null,querySelectorAll:()=>ths};toggle({target:{open:true,classList:{contains:k=>k==='dfc-mensal'},querySelector:()=>wrap}});return wrap.scrollLeft;};
+ const abre=sel=>{const wrap={scrollLeft:-1,scrollWidth:200+13*120,clientWidth:700,querySelector:s=>s==='thead .selected-month'?ths[sel+1]:null,querySelectorAll:()=>ths};toggle({target:{open:true,matches:s=>s==='details.card',querySelector:()=>wrap}});return wrap.scrollLeft;};
  assert.equal(abre(4),480,'Mai: começa na coluna de maio');assert.equal(abre(0),0);
  const fim=abre(11);assert.ok(fim<=1060&&fim%120===0,`Dez: para no início de uma coluna (${fim})`);assert.equal(fim,960);
+});
+// v135 · N11: a célula do bloco (com contas no mês) leva às contas do bloco naquele mês.
+test('célula de bloco com contas é um botão que vai ao mês e abre as contas do bloco',()=>{
+ const c=context({saldos:{'2026-08':5000}}),h=c.run('renderDFC()'),t=tabela(h);
+ assert.match(td(linha(t,'Caixa da operação (FCO)'),8)[2],/^<button type="button" class="cfo-value" data-dfc-ir="fco" data-periodo="Set\/2026" aria-label="Caixa da operação \(FCO\) em Set\/2026: R\$\s3\.140,00\. Ver as contas">R\$\s3\.140,00<\/button>$/);
+ assert.match(td(linha(t,'Investimentos (FCI)'),7)[2],/data-dfc-ir="fci" data-periodo="Ago\/2026"/);assert.match(td(linha(t,'Financiamentos (FCF)'),8)[2],/data-dfc-ir="fcf" data-periodo="Set\/2026"/);
+ assert.doesNotMatch(td(linha(t,'Caixa da operação (FCO)'),0)[2],/<button/,'mês sem dados não tem botão');assert.doesNotMatch(td(linha(t,'Caixa da operação (FCO)'),12)[2],/<button/,'acumulado não tem botão');
+ assert.doesNotMatch(td(linha(t,'Financiamentos (FCF)'),9)[2],/<button/,'Out sem conta de financiamento: sem botão');
+ assert.doesNotMatch(linha(t,'(+) Recebimentos de vendas')+linha(t,'(=) Saldo final'),/data-dfc-ir/,'só as linhas de bloco');
+ for(const b of ['fco','fci','fcf'])assert.match(h,new RegExp(`<tbody data-dfc-bloco="${b}"><tr class="dre-composicao-grupo">`));
+ // clique: selecionarPeriodo, abre "De onde vem cada bloco" e rola até o tbody do bloco
+ const ev=[];c.document.addEventListener=(t,f)=>ev.push([t,f]);c.document.getElementById=()=>null;c.run('wireDFC()');const click=ev.find(x=>x[0]==='click')[1];
+ const tb={scrollIntoView:o=>c.__rolou=o},det={open:false,querySelector:s=>{c.__sel=s;return tb;}};c.document.querySelector=s=>s==='.dfc-contas'?det:null;
+ c.run("__ir=[];selecionarPeriodo=l=>__ir.push(l)");
+ click({target:{closest:s=>s==='[data-dfc-ir]'?{dataset:{dfcIr:'fci',periodo:'Ago/2026'}}:null}});
+ assert.deepEqual(c.json('__ir'),['Ago/2026']);assert.equal(det.open,true);assert.equal(c.__sel,'tbody[data-dfc-bloco="fci"]');assert.deepEqual({...c.__rolou},{block:'start'});
+ click({target:{closest:()=>null}});click({target:{closest:s=>s==='[data-dfc-ir]'?{dataset:{dfcIr:'x"]',periodo:'Ago/2026'}}:null}});assert.deepEqual(c.json('__ir'),['Ago/2026'],'só bloco conhecido');
+});
+// v135 · N14: saldo inicial informado leva a Parâmetros no mês.
+test('saldo inicial informado: link para Parâmetros no mês; calculado, sem link',()=>{
+ assert.match(context({saldos:{'2026-09':1000}}).run('renderDFC()'),/<\/div><p class="hint"><button type="button" class="text-button" data-go="parametros" data-rec-mes="Set\/2026">Saldo inicial informado em Parâmetros →<\/button><\/p>/);
+ assert.doesNotMatch(context({saldos:{'2026-08':5000}}).run('renderDFC()'),/data-rec-mes/,'Set calculado a partir de Ago');
+});
+// v135 · I16: o Ano diz até onde soma e qual mês está em andamento.
+test('Ano: a nota diz "somado de janeiro a" e o mês em andamento',()=>{
+ const c=context({periodo:'Out/2026'});c.run("state.anoTodo=true");const h=c.run('renderDFC()');
+ assert.match(h,/2026 somado de janeiro a Out, com Out\/2026 em andamento\. As contas de cada bloco são mostradas por mês/);assert.doesNotMatch(h,/inteiro, de janeiro|inteiro: de janeiro/);
+ const f=context({periodo:'Set/2026',registros:REGISTROS.slice(0,2)});f.run("state.anoTodo=true");assert.match(f.run('renderDFC()'),/2026 somado de janeiro a Set\. As contas/,'sem mês parcial, sem ressalva');
+});
+// v135 · N10: qualquer cartão de meses (DRE Simples, Balanço…) abre no mês escolhido, também quando já nasce aberto.
+test('rolagem até o mês: vale para qualquer details.card com o mês no cabeçalho, também depois do render',()=>{
+ const c=context(),ev=[];let obs=null;c.document.addEventListener=(t,f)=>ev.push([t,f]);
+ const ths=[{offsetLeft:0,offsetWidth:200},...Array.from({length:13},(_,i)=>({offsetLeft:200+i*120,offsetWidth:120}))];
+ const card=(sel,{open=true,ehCard=true,mes=true}={})=>{const wrap={scrollLeft:-1,scrollWidth:200+13*120,clientWidth:700,querySelector:s=>s==='thead .selected-month'&&mes?ths[sel+1]:null,querySelectorAll:()=>ths};return {wrap,open,matches:s=>ehCard&&s==='details.card',querySelector:s=>s==='.table-scroll'?wrap:null};};
+ const pc={querySelectorAll:s=>s==='details.card[open]'?[c.__a,c.__b]:[]};c.document.getElementById=id=>id==='pageContent'?pc:null;
+ c.MutationObserver=function(fn){this.observe=(alvo,o)=>{obs={fn,alvo,o};};};c.run('wireDFC()');
+ const toggle=ev.find(x=>x[0]==='toggle')[1];
+ const bal=card(4);toggle({target:bal});assert.equal(bal.wrap.scrollLeft,480,'Balanço mês a mês (sem dfc-mensal) também rola');
+ for(const x of [card(4,{open:false}),card(4,{ehCard:false}),card(4,{mes:false})]){toggle({target:x});assert.equal(x.wrap.scrollLeft,-1);}
+ assert.equal(obs.alvo,pc);assert.deepEqual({...obs.o},{childList:true});
+ c.__a=card(11);c.__b=card(0);obs.fn();assert.equal(c.__a.wrap.scrollLeft,960,'cartão que nasce aberto rola depois do render');assert.equal(c.__b.wrap.scrollLeft,0);
+ assert.equal(c.run('typeof rolarAteMesSelecionado'),'function');
 });

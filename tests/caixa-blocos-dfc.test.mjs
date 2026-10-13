@@ -63,7 +63,7 @@ test('o gráfico dos blocos de cada mês é o da DFC (FCO, FCI e FCF iguais a df
  }
  // mês sem dado e mês em andamento: hachurados, nunca zero
  assert.deepEqual(t.Jul,['Não apurado','Não apurado','Não apurado']);
- assert.deepEqual(t['Out*'],['Não apurado','Não apurado','Não apurado'],'mês parcial com dado: hachurado e com *, como na DFC');
+ assert.deepEqual(t['Out*'],['Parcial, fora do gráfico','Parcial, fora do gráfico','Parcial, fora do gráfico'],'v135 (D11): mês parcial com dado fica fora do gráfico e diz isso, diferente de mês sem dado');
 });
 
 test('cada conta sensível cai no mesmo bloco na tela Caixa e na DFC',()=>{

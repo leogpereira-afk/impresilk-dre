@@ -38,3 +38,19 @@ class PacoteTest(unittest.TestCase):
         self.assertNotIn("'unsafe-inline'",diretivas['script-src'])
         self.assertNotIn("'unsafe-eval'",diretivas['script-src'])
         self.assertIn('https://heveemylixartyijxewh.supabase.co',diretivas['connect-src'])
+    def test_import_entre_modulos_segue_a_versao_do_cache(self):
+        # Cópia da raiz com o import dos Indicadores numa versão velha: o celular pegaria o modelo antigo do cache.
+        raiz=build_site.ROOT
+        with tempfile.TemporaryDirectory() as d,tempfile.TemporaryDirectory() as saida:
+            for p in raiz.iterdir():
+                if p.is_file():(Path(d)/p.name).write_bytes(p.read_bytes())
+            ind=Path(d)/'indicadores.js';v=re.search(r"dre-shell-v(\d+)",(raiz/'sw.js').read_text()).group(1)
+            ind.write_text(ind.read_text().replace('indicadores-modelo.mjs?v='+v,'indicadores-modelo.mjs?v=133'))
+            try:
+                build_site.ROOT=Path(d)
+                with self.assertRaisesRegex(ValueError,'dos imports e do cache não correspondem: 133'):build_site.build(saida)
+            finally:build_site.ROOT=raiz
+            self.assertEqual(list(Path(saida).iterdir()),[])
+    def test_pacote_leva_o_logo_webp(self):
+        self.assertIn('logo.webp',build_site.FILES)
+        self.assertIn('logo.png',build_site.FILES)

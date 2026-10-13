@@ -3,7 +3,7 @@
 from pathlib import Path
 import argparse,re,shutil
 ROOT=Path(__file__).resolve().parents[1]
-FILES=('plano-contas.js','auditoria.js','fechamento.js','comparativos.js','cache-local.js','gestao.js','parametros.js','dfc.js','compacto.css','graficos.css','indicadores.js','indicadores-modelo.mjs','indicadores.css','cfo-modelo.js','cfo.js','cfo.css','pdf-cfo.js','vendor/jspdf.umd.min.js','vendor/jspdf.plugin.autotable.min.js','vendor/jspdf-LICENSE.txt','vendor/autotable-LICENSE.txt','index.html','styles.css','app.js','coleta-ui.js','financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','config.js','auth.js','sw.js','data.js','logo.png','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png','inter-variable.woff2','inter-OFL.txt')
+FILES=('plano-contas.js','auditoria.js','fechamento.js','comparativos.js','cache-local.js','gestao.js','parametros.js','dfc.js','compacto.css','graficos.css','indicadores.js','indicadores-modelo.mjs','indicadores.css','cfo-modelo.js','cfo.js','cfo.css','pdf-cfo.js','vendor/jspdf.umd.min.js','vendor/jspdf.plugin.autotable.min.js','vendor/jspdf-LICENSE.txt','vendor/autotable-LICENSE.txt','index.html','styles.css','app.js','coleta-ui.js','financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','config.js','auth.js','sw.js','data.js','logo.png','logo.webp','favicon.svg','manifest.webmanifest','icone-192.png','icone-512.png','inter-variable.woff2','inter-OFL.txt')
 def conferir_pagina(html,sw):
     """O que a página pede precisa ir no pacote e, se leva ?v=, no cache offline.
 
@@ -25,9 +25,13 @@ def conferir_pagina(html,sw):
 def build(destination):
     sw=(ROOT/'sw.js').read_text();html=(ROOT/'index.html').read_text()
     version=re.search(r"const CACHE = 'dre-shell-v(\d+)'",sw).group(1)
-    if set(re.findall(r'\?v=(\d+)',html))!={version}:raise ValueError('Versões da página e cache não correspondem')
+    # Os imports entre módulos (indicadores.js -> indicadores-modelo.mjs?v=) também seguem a versão do cache.
+    vers=set(re.findall(r'\?v=(\d+)',html))|{v for js in [*ROOT.glob('*.js'),*ROOT.glob('*.mjs')] if js.name!='sw.js' for v in re.findall(r"\.m?js\?v=(\d+)",js.read_text())}
+    if vers!={version}:raise ValueError('Versões da página, dos imports e do cache não correspondem: '+', '.join(sorted(vers)))
     if len((ROOT/'data.js').read_text())>500:raise ValueError('data.js não deve conter histórico financeiro')
     conferir_pagina(html,sw)
+    faltam=[n for n in FILES if not (ROOT/n).is_file()]
+    if faltam:raise ValueError('Arquivos do pacote não encontrados: '+', '.join(faltam))
     dest=Path(destination);dest.mkdir(parents=True,exist_ok=True)
     # Não apagar arquivos desconhecidos: usar sempre pasta vazia para o pacote.
     if any(dest.iterdir()):raise ValueError('Use uma pasta vazia para gerar o site')

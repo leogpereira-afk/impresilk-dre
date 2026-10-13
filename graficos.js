@@ -4,13 +4,14 @@ const valorTexto=v=>v==null?'Não informado':money(v);
 // Uma marca so em todo o painel: o valor esta calculado, o que falta e validar
 // a cobertura da coleta. O "*" fica so para mes em andamento (v133); "a conferir" usa "°".
 // Bloqueio de verdade nunca vira marca, vira frase.
-const marca=(r,t)=>r?`<b class="marca-conferir" title="${esc(t||'Cobertura da coleta ainda não validada — confira antes de decidir.')}">°</b>`:'';
+const marca=(r,t)=>r?`<b class="marca-conferir" title="${esc(t||'Cobertura da coleta ainda não validada: confira antes de decidir.')}">°</b>`:'';
 // v===0 tambem captura -0 (Math.ceil(-0.25) devolve -0, e Intl imprime "-0").
 /* Célula de CSV. O apóstrofo neutraliza fórmula vinda de texto do ERP (=, +, @,
    -) — mas não pode pegar NÚMERO: "-15,00" virava "'-15,00", texto que a
    planilha não soma. Uma função só, para as três exportações. */
 const celulaCSV=v=>{
- const s=String(v??'');
+ // o "−" da tela (U+2212) volta a hífen no sinal do número, para a planilha ler
+ const s=String(v??'').replace(/−(?=\s?(R\$\s?)?\d)/g,'-');
  const numero=/^-?\d+([.,]\d+)?$|^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s.trim());
  return '"'+(numero?s:s.replace(/^[=+@-]/,"'$&")).replace(/"/g,'""')+'"';
 };
@@ -35,7 +36,8 @@ function tomDoValor(id,v){const s=SENTIDO_DA_LINHA[id],n=Number(v);if(!s||v==nul
 function tomDelta(dir,d){const n=Number(d);return !dir||d==null||!Number.isFinite(n)||n===0?'':((n>0)===(dir>0)?'delta-bom':'delta-ruim');}
 // Direção de uma conta do plano: entradas sobem bem, saídas sobem mal; dívida, sócios e empréstimos ficam neutros.
 function dirConta(code){code=String(code??'');if(code==='1')return 1;if(code==='2')return -1;if(typeof DRESimples==='undefined'||typeof DIRECAO_SIMPLES==='undefined')return code.startsWith('1')?1:code.startsWith('2')?-1:0;return DIRECAO_SIMPLES[DRESimples.classificar(code).linha]??0;}
-const compacto=v=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(v===0?0:v);
+// sinal de menos tipográfico (U+2212) na tela; o PDF volta ao hífen em pdfTexto (D37)
+const compacto=v=>new Intl.NumberFormat('pt-BR',{notation:'compact',maximumFractionDigits:1}).format(v===0?0:v).replace('-','−');
 const nomeConta=(reg,code)=>reg?.cells?.find(c=>c.code===code)?.name;
 function contaConhecida(code){return nomeConta(regAtual(),code)||[...state.records].reverse().map(r=>nomeConta(r,code)).find(Boolean)||code;}
 function movimentosDoAno(){
@@ -55,10 +57,12 @@ function graficoBarras(rows,series,label){
  const alto=max?Math.ceil(max/passo)*passo:min?0:1,baixo=min?Math.floor(min/passo)*passo:0,faixa=alto-baixo||1;
  const y=v=>(alto-v)/faixa*216,zero=y(0);
  const ticks=Array.from({length:Math.round(faixa/passo)+1},(_,i)=>alto-i*passo);
+ // Valor da dica com a cor da barra (C18): azul o que entra, vermelho o que sai.
+ const tomDaBarra=(s,v)=>{if(v==null||!Number(v))return '';const c=corDaBarra(s,v);return c==='var(--chart-in)'?'tom-entra':c==='var(--chart-out)'||c==='var(--chart-cost)'?'tom-sai':'';};
  return `${legendaGrafico(series)}<div class="chart-scroll" tabindex="0" role="region" aria-label="${esc(label)}. Role horizontalmente em telas pequenas."><div class="bar-chart"><div class="chart-y" aria-hidden="true">${ticks.map(v=>`<span style="top:${y(v)}px">${esc(compacto(v))}</span>`).join('')}</div><div class="chart-plot"><div class="chart-grid" aria-hidden="true">${ticks.map(v=>`<i style="top:${y(v)}px"></i>`).join('')}<i class="zero-line" style="top:${zero}px"></i></div><div class="chart-columns">${rows.map(r=>{
  const text=series.map(s=>s.nome+': '+valorTexto(r[s.chave])).join(' · ');
  const status=r.qualidade.rotulo,known=series.some(s=>r[s.chave]!=null);
- return `<button class="chart-column ${r.label===state.periodo?'chosen':''} ${r.qualidade.comparavel?'':'unverified'}" data-period="${esc(r.label)}" ${!r.reg?'disabled':''} aria-label="${esc(r.label+' · '+text+' · '+status)}"><span class="column-bars" aria-hidden="true">${series.map(s=>{const v=r[s.chave];return v==null?'<span class="missing-bar">—</span>':`<i style="--serie:${corDaBarra(s,v)};top:${Math.min(y(v),zero)}px;height:${v===0?2:Math.max(1,Math.abs(zero-y(v)))}px"></i>`;}).join('')}</span><span class="chart-month">${esc(r.label.split('/')[0])}${known&&!r.qualidade.comparavel?`<b aria-hidden="true">${r.qualidade.parcial?'*':'°'}</b>`:''}</span><span class="chart-tooltip"><b>${esc(r.label)}</b>${series.map(s=>`<span>${esc(s.nome)} <strong>${valorTexto(r[s.chave])}</strong></span>`).join('')}<small>${esc([r.name||status,r.reg?.company,r.reg?.basis].filter(Boolean).join(' · '))}</small></span></button>`;
+ return `<button class="chart-column ${r.label===state.periodo?'chosen':''} ${r.qualidade.comparavel?'':'unverified'}" data-period="${esc(r.label)}" ${!r.reg?'disabled':''} aria-label="${esc(r.label+' · '+text+' · '+status)}"><span class="column-bars" aria-hidden="true">${series.map(s=>{const v=r[s.chave];return v==null?'<span class="missing-bar">—</span>':`<i style="--serie:${corDaBarra(s,v)};top:${Math.min(y(v),zero)}px;height:${v===0?2:Math.max(1,Math.abs(zero-y(v)))}px"></i>`;}).join('')}</span><span class="chart-month">${esc(r.label.split('/')[0])}${known&&!r.qualidade.comparavel?`<b aria-hidden="true">${r.qualidade.parcial?'*':'°'}</b>`:''}</span><span class="chart-tooltip"><b>${esc(r.label)}</b>${series.map(s=>`<span>${esc(s.nome)} <strong class="${tomDaBarra(s,r[s.chave])}">${valorTexto(r[s.chave])}</strong></span>`).join('')}<small>${esc([r.name||status,r.reg?.company,r.reg?.basis].filter(Boolean).join(' · '))}</small></span></button>`;
  }).join('')}</div></div></div></div><p class="chart-foot">Valores em R$ · Passe sobre uma barra ou use Tab para ver os valores. Clique no mês para abrir. — significa ausência de dados.</p>`;
 }
 function graficoEvolucao(){
@@ -70,7 +74,7 @@ function rankingCustos(reg,code='2',limite=6){
  const c=F.composicao(reg,code),items=c.itens.filter(x=>x.value!=null&&x.value!==0).sort((a,b)=>Math.abs(b.value)-Math.abs(a.value));
  if(!items.length)return '<p class="empty">Nenhum valor detalhado nesta categoria.</p>';
  const mostrados=items.slice(0,limite),resto=items.slice(limite);
- if(resto.length)mostrados.push({code,name:`Demais categorias (${resto.length})`,value:resto.reduce((n,x)=>n+Math.round(x.value*100),0)/100});
+ if(resto.length)mostrados.push({code,name:`Demais grupos (${resto.length})`,value:resto.reduce((n,x)=>n+Math.round(x.value*100),0)/100});
  const max=Math.max(...mostrados.map(x=>Math.abs(x.value)),1);
  return `<div class="expense-ranking">${mostrados.map((x,i)=>`<button class="expense-row" ${x.residuo?'data-go="detalhe"':`data-cost="${esc(x.code)}"`}><span class="expense-name"><i style="--serie:var(--chart-out)"></i>${esc(x.name)}</span><b class="${tomDoValor('saidas',x.value)}">${money(x.value)}</b><span class="expense-track" aria-hidden="true"><i style="width:${Math.abs(x.value)/max*100}%;--serie:var(--chart-out)"></i></span></button>`).join('')}</div>${c.incompleta?'<p class="hint">Há contas sem valor válido; composição incompleta.</p>':''}`;
 }
@@ -127,7 +131,7 @@ function linhasCustos(){
 }
 function tabelaCustos(){
  const cols=F.serieAnual(state.records,state.periodo,'2').filter(r=>r.reg||r.label===state.periodo).sort((a,b)=>monthSortKey(a.label)-monthSortKey(b.label)),rows=linhasCustos(),reg=regAtual(),other=state.records.find(r=>r.label===state.comparar);
- return `<div class="cost-table-wrap"><table class="cost-table"><caption>Despesas por mês · ${esc(state.periodo.split('/')[1])} · de janeiro a dezembro, como nos gráficos · — = conta ausente · * = mês em andamento ou incompleto · <b class="marca-conferir">°</b> = cobertura da coleta ainda não validada</caption><thead><tr><th scope="col">Despesa</th>${cols.map(c=>`<th scope="col" class="num ${c.label===state.periodo?'selected-month':''}">${esc(c.label)}${c.qualidade.parcial?'*':marca(!c.qualidade.comparavel,c.qualidade.rotulo)}</th>`).join('')}${other?`<th scope="col" class="num">Variação<br><small>${esc(state.periodo)} / ${esc(other.label)}</small></th>`:''}</tr></thead><tbody>${rows.map(c=>`<tr class="${custoUI.conta===c.code?'selected-cost':''}"><th scope="row"><button data-cost="${esc(c.code)}">${esc(c.name)}</button><small>${esc(c.code)}</small></th>${cols.map(x=>{const name=nomeConta(x.reg,c.code),changed=name&&name!==c.name,v=F.valorConta(x.reg,c.code);return `<td class="num ${x.label===state.periodo?'selected-month':''} ${tomDoValor('saidas',v)}">${v==null?'<span class="muted" title="Esta conta não consta na base deste mês">—</span>':botaoConta(c.code,money(v),x.label)}${changed?`<small class="old-account-name">Nome neste mês: ${esc(name)}</small>`:''}</td>`;}).join('')}${other?`<td class="num">${(()=>{const cmp=F.compararConta(reg,other,c.code);return cmp.permitida?`<span class="${tomDelta(dirConta(c.code),cmp.delta)}">${cmp.delta>0?'▲ ':cmp.delta<0?'▼ ':''}${money(Math.abs(cmp.delta))}</span>${marca(cmp.ressalva)}<small>${cmp.percentual==null?'Sem base percentual':(cmp.percentual>0?'+':'')+cmp.percentual.toFixed(1).replace('.',',')+'%'}</small>`:`<small title="${esc(cmp.motivo||'')}">sem comparação</small>`;})()}</td>`:''}</tr>`).join('')||`<tr><td colspan="${cols.length+2}">Nenhuma despesa encontrada. Tente outro nome ou categoria.</td></tr>`}</tbody></table></div>`;
+ return `<div class="cost-table-wrap"><table class="cost-table"><caption>Despesas por mês · ${esc(state.periodo.split('/')[1])} · de janeiro a dezembro, como nos gráficos · — = conta ausente · * = mês em andamento ou incompleto · <b class="marca-conferir">°</b> = cobertura da coleta ainda não validada</caption><thead><tr><th scope="col">Despesa</th>${cols.map(c=>`<th scope="col" class="num ${c.label===state.periodo?'selected-month':''}">${esc(c.label)}${c.qualidade.parcial?'*':marca(!c.qualidade.comparavel,c.qualidade.rotulo)}</th>`).join('')}${other?`<th scope="col" class="num">Variação<br><small>${esc(state.periodo)} / ${esc(other.label)}</small></th>`:''}</tr></thead><tbody>${rows.map(c=>`<tr class="${custoUI.conta===c.code?'selected-cost':''}"><th scope="row"><button data-cost="${esc(c.code)}">${esc(c.name)}</button><small>${esc(c.code)}</small></th>${cols.map(x=>{const name=nomeConta(x.reg,c.code),changed=name&&name!==c.name,v=F.valorConta(x.reg,c.code);return `<td class="num ${x.label===state.periodo?'selected-month':''} ${tomDoValor('saidas',v)}">${v==null?'<span class="muted" title="Esta conta não consta na base deste mês">—</span>':botaoConta(c.code,money(v),x.label)}${changed?`<small class="old-account-name">Nome neste mês: ${esc(name)}</small>`:''}</td>`;}).join('')}${other?`<td class="num">${(()=>{const cmp=F.compararConta(reg,other,c.code);return cmp.permitida?`<span class="${tomDelta(dirConta(c.code),cmp.delta)}">${cmp.delta>0?'▲ ':cmp.delta<0?'▼ ':''}${money(Math.abs(cmp.delta))}</span>${marca(cmp.ressalva)}<small>${cmp.percentual==null?'Sem base percentual':(cmp.percentual>0?'+':'')+(Math.round(cmp.percentual*10)/10+0).toFixed(1).replace('.',',').replace('-','−')+'%'}</small>`:`<small title="${esc(cmp.motivo||'')}">sem comparação</small>`;})()}</td>`:''}</tr>`).join('')||`<tr><td colspan="${cols.length+2}">Nenhuma despesa encontrada. Tente outro nome ou categoria.</td></tr>`}</tbody></table></div>`;
 }
 function renderCustos(reg){
  const grupos=catalogoCustos().filter(c=>c.code.split('.').length===2);
@@ -137,7 +141,7 @@ function renderCustoSelecionado(reg){
  const code=custoUI.conta,name=F.nomeDoGrupo(code,contaConhecida(code)),rows=F.serieAnual(state.records,state.periodo,code);
  const other=state.records.find(r=>r.label===state.comparar),cmp=F.compararConta(reg,other,code);
  const comp=F.composicao(reg,code);
- return painelGrafico(name+' · histórico',code+' · valores de cada período, com a nomenclatura original',`<div class="cost-selected-header"><div><span class="label">${esc(state.periodo)}</span><strong class="${tomDoValor('saidas',F.valorConta(reg,code))}">${valorTexto(F.valorConta(reg,code))}</strong></div><div class="cost-comparison">${cmp.permitida?`<span>Diferença para ${esc(other.label)}${marca(cmp.ressalva)}</span><b class="${tomDelta(dirConta(code),cmp.delta)}">${cmp.delta>0?'▲ ':cmp.delta<0?'▼ ':''}${money(Math.abs(cmp.delta))}</b><small>${cmp.percentual==null?'Sem base percentual':cmp.percentual.toFixed(1).replace('.',',')+'%'}</small>`:`<span>${other?'Sem comparação com '+esc(other.label):'Selecione “Comparar com” para analisar a diferença'}</span>`}</div></div>${graficoBarras(rows,[{chave:'value',nome:name,cor:'var(--chart-cost)',sentido:-1}],'Histórico da despesa '+name)}<p class="hint">${other&&!cmp.permitida?esc(cmp.motivo||'')+' ':''}Valores históricos são mostrados como foram registrados.</p>${comp.itens.filter(x=>!x.residuo).length?`<details class="chart-data"><summary>Composição de ${esc(name)} no mês</summary>${comp.itens.map(c=>`<div class="line"><span>${esc(c.name)}</span><b class="${tomDoValor('saidas',c.value)}">${valorTexto(c.value)}</b></div>`).join('')}</details>`:''}`,`<button data-account="${esc(code)}">Ver detalhes ↗</button>`).replace('<section class="chart-card">','<section id="costHistory" class="chart-card" tabindex="-1">');
+ return painelGrafico(name+' · histórico',code+' · valores de cada período, com a nomenclatura original',`<div class="cost-selected-header"><div><span class="label">${esc(state.periodo)}</span><strong class="${tomDoValor('saidas',F.valorConta(reg,code))}">${valorTexto(F.valorConta(reg,code))}</strong></div><div class="cost-comparison">${cmp.permitida?`<span>Diferença para ${esc(other.label)}${marca(cmp.ressalva)}</span><b class="${tomDelta(dirConta(code),cmp.delta)}">${cmp.delta>0?'▲ ':cmp.delta<0?'▼ ':''}${money(Math.abs(cmp.delta))}</b><small>${cmp.percentual==null?'Sem base percentual':(Math.round(cmp.percentual*10)/10+0).toFixed(1).replace('.',',').replace('-','−')+'%'}</small>`:`<span>${other?'Sem comparação com '+esc(other.label):'Selecione “Comparar com” para analisar a diferença'}</span>`}</div></div>${graficoBarras(rows,[{chave:'value',nome:name,cor:'var(--chart-cost)',sentido:-1}],'Histórico da despesa '+name)}<p class="hint">${other&&!cmp.permitida?esc(cmp.motivo||'')+' ':''}Valores históricos são mostrados como foram registrados.</p>${comp.itens.filter(x=>!x.residuo).length?`<details class="chart-data"><summary>Composição de ${esc(name)} no mês</summary>${comp.itens.map(c=>`<div class="line"><span>${esc(c.name)}</span><b class="${tomDoValor('saidas',c.value)}">${valorTexto(c.value)}</b></div>`).join('')}</details>`:''}`,`<button data-account="${esc(code)}">Ver detalhes ↗</button>`).replace('<section class="chart-card">','<section id="costHistory" class="chart-card" tabindex="-1">');
 }
 function wireGraficos(){
  ligarDicasGraficos();
@@ -219,7 +223,7 @@ function painelRitmo({titulo,tipo,pontos,referencia,rotuloRef,bomAcima,nota}){
  // 4 marcas de eixo, arredondadas para número legível
  const passoBruto=(alto-baixo)/4,ordem=10**Math.floor(Math.log10(Math.abs(passoBruto)||1));
  const passo=([1,2,2.5,5,10].find(n=>n*ordem>=passoBruto)||10)*ordem;
- const marcas=[];for(let v=Math.ceil(baixo/passo)*passo;v<=alto;v+=passo)marcas.push(v);
+ const marcas=[];for(let v=Math.ceil(baixo/passo)*passo;v<=alto;v+=passo)marcas.push(v+0);
  const ritmoDe=i=>referencia==null?null:referencia*(i+1)/12;
  const ladoBom=(v,i)=>{const alvo=ritmoDe(i);return alvo==null?true:(bomAcima?v>=alvo:v<=alvo);};
  const segs=[];
@@ -255,7 +259,7 @@ function painelRitmo({titulo,tipo,pontos,referencia,rotuloRef,bomAcima,nota}){
      // Com o mês em andamento, o veredito cita o mês completo e o número em que se baseia (I12).
      return fechado===ult?`<span class="ritmo-situacao ${ok?'bom':'ruim'}">${ok?'No ritmo':'Fora do ritmo'} · esperado ${money(alvo)} até aqui</span>`
       :`<span class="ritmo-situacao ${ok?'bom':'ruim'}">${ok?'No ritmo':'Fora do ritmo'} em ${esc(fechado.label)}: ${money(fechado.acumulado)} de ${money(alvo)} esperados</span>`;})()}
-   <span class="ritmo-legenda"><i class="ref"></i>${esc(rotuloRef)} do ano${referencia!=null?' · '+money(referencia):' — você ainda não definiu'}</span>
+   <span class="ritmo-legenda"><i class="ref"></i>${esc(rotuloRef)} do ano${referencia!=null?' · '+money(referencia):' · você ainda não definiu'}</span>
    ${nota?`<span class="ritmo-nota">${esc(nota)}</span>`:''}
   </div>
  </div>`;
@@ -272,13 +276,14 @@ function graficoRitmoAno(){
     ${painel('TUDO QUE SAIU','custos',des,metas.custos,'Limite',false,COMPOE.saidas)}
     ${painel('ENTRADAS MENOS SAÍDAS','caixa',cx,metas.caixa,'Alvo',true,COMPOE.diferenca)}
    </div>
-   <p class="chart-foot">A curva soma os meses já coletados. <b>Mês sem dado ou com outro escopo interrompe a linha</b> — não é tratado como zero. Ponto vazado indica cobertura a conferir.</p>
+   <p class="chart-foot">A curva soma os meses já coletados. <b>Mês sem dado ou com outro escopo interrompe a linha</b>: não é tratado como zero. Ponto vazado indica cobertura a conferir.</p>
    ${faltaAlguma?'<p class="hint">Defina a meta de entradas, o limite de saídas e o alvo da diferença para as linhas tracejadas aparecerem. Painel sem referência mostra só o acumulado.</p>':''}`,
   `<button id="ritmoMetas">${definiu?'Ajustar metas':'Definir metas do ano'}</button>`);
 }
 function formularioMetas(){
  const ano=state.periodo.split('/')[1],m=metasAno(ano),original=JSON.parse(JSON.stringify(state.cfg?.gestao?.['metas:'+ano]??null));
  dialog('Metas de '+ano,`<form id="metasForm"><p>Valores do ano inteiro. São salvos na nuvem com data e histórico. Só administradores podem alterar. Não modificam o realizado nem o Mubisys.</p>
+  <p class="hint">A meta de resultado de cada mês fica em Parâmetros e entra em Preço e equilíbrio.</p>
   <label>Meta de entradas no ano (R$)<input name="receita" type="number" step="0.01" min="0" value="${esc(m.receita??'')}" placeholder="Ex.: 5000000"><small>${COMPOE.entradas}</small></label>
   <label>Limite de saídas no ano (R$)<input name="custos" type="number" step="0.01" min="0" value="${esc(m.custos??'')}" placeholder="Ex.: 4500000"><small>${COMPOE.saidas}</small></label>
   <label>Alvo de entradas menos saídas no ano (R$)<input name="caixa" type="number" step="0.01" value="${esc(m.caixa??'')}" placeholder="Ex.: 180000"><small>${COMPOE.diferenca}</small></label>
@@ -357,10 +362,10 @@ function graficoLinhas(meses,series,label,sufixo='%'){
  const marcas=[];for(let v=Math.ceil(baixo/passo)*passo;v<=alto;v+=passo)marcas.push(v+0);
  const caminho=s=>{let d='',ab=false;meses.forEach((m,i)=>{const v=m.valores[s.id];if(v==null){ab=false;return;}d+=(ab?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)+' ';ab=true;});return d.trim();};
  return `<div class="chart-legend">${series.map(s=>`<span><i style="--serie:${s.cor}"></i>${esc(s.nome)}</span>`).join('')}</div>
-  <div class="chart-scroll" tabindex="0" role="region" aria-label="${esc(label)}"><svg class="linhas-chart" viewBox="0 0 ${W} ${H}">
-   ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="linhas-grade"/><text x="${PL-6}" y="${y(v)+3}" class="linhas-eixo">${esc(v.toLocaleString('pt-BR',{maximumFractionDigits:1})+sufixo)}</text>`).join('')}
+  <div class="chart-scroll" tabindex="0" role="region" aria-label="${esc(label)}"><svg class="linhas-chart" aria-hidden="true" viewBox="0 0 ${W} ${H}">
+   ${marcas.map(v=>`<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" class="linhas-grade"/><text x="${PL-6}" y="${y(v)+3}" class="linhas-eixo">${esc((v+0).toLocaleString('pt-BR',{maximumFractionDigits:1}).replace('-','−')+sufixo)}</text>`).join('')}
    ${series.map((s,i)=>`<path d="${caminho(s)}" class="linhas-path" style="--serie:${s.cor}" stroke-dasharray="${['none','7 3','2 3','10 3 2 3'][i%4]}"/>`).join('')}
-   ${series.map(s=>meses.map((m,i)=>m.valores[s.id]==null?'':`<circle cx="${x(i)}" cy="${y(m.valores[s.id])}" r="${m.label===state.periodo?4:2.4}" style="--serie:${s.cor}" class="linhas-ponto"><title>${esc(m.label+' · '+s.nome+': '+m.valores[s.id].toLocaleString('pt-BR',{maximumFractionDigits:1})+sufixo)}</title></circle>`).join('')).join('')}
+   ${series.map(s=>meses.map((m,i)=>m.valores[s.id]==null?'':`<circle cx="${x(i)}" cy="${y(m.valores[s.id])}" r="${m.label===state.periodo?4:2.4}" style="--serie:${s.cor}" class="linhas-ponto"><title>${esc(m.label+' · '+s.nome+': '+(Math.round(m.valores[s.id]*10)/10+0).toLocaleString('pt-BR',{maximumFractionDigits:1}).replace('-','−')+sufixo)}</title></circle>`).join('')).join('')}
    ${meses.map((m,i)=>`<text x="${x(i)}" y="${H-10}" class="linhas-mes">${esc(m.label.split('/')[0])}</text>`).join('')}
   </svg></div><p class="chart-foot">Mês sem dado interrompe a linha. Cada ponto usa a base original do mês; mudanças de empresa ou classificação exigem conferência.</p>`;
 }
@@ -409,7 +414,7 @@ function relatorioEstrutura(){
   return {label:m.label,valores,total};
  });
  const grupos=[...topo,...(temResto?[{id:'~outros',nome:'Demais grupos'}]:[])];
- return painelGrafico('A estrutura do gasto mudou?',`${ano} · cada mês em 100% — proporção de cada grupo nas saídas`,
+ return painelGrafico('A estrutura do gasto mudou?',`${ano} · cada mês em 100%: proporção de cada grupo nas saídas`,
   graficoEstrutura(meses,grupos,'Estrutura das saídas por mês')+
   `<p class="hint">Em mês de faturamento maior tudo sobe junto; aqui só muda o que mudou de <b>proporção</b>. Os grupos são os maiores de ${esc(base.label)} (até quatro)${temResto?'; o restante das saídas de cada mês entra em <b>Demais grupos</b>':''}.</p>`);
 }
@@ -472,13 +477,14 @@ function relatorioRegua(){
    ?`${esc(state.periodo)} tem lançamentos só até ${esc(corte||'uma data não registrada')} · referência dos ${fechados.length} meses completos anteriores`
    :`${esc(state.periodo)} · referência dos ${fechados.length} meses anteriores coletados até o último dia`,
   linha('Recebimentos','1',false)+linha('Pagamentos','2',true)+
-  (emAndamento?`<p class="hint">Comparar um pedaço de mês com a média de meses inteiros faria recebimentos e pagamentos parecerem abaixo da média — uma economia que não existe. A comparação volta quando ${esc(state.periodo)} for coletado até o último dia.</p>`:'')+
+  (emAndamento?`<p class="hint">Comparar um pedaço de mês com a média de meses inteiros faria recebimentos e pagamentos parecerem abaixo da média: uma economia que não existe. A comparação volta quando ${esc(state.periodo)} for coletado até o último dia.</p>`:'')+
   `<p class="hint">Entram até 12 meses anteriores, coletados até o último dia. ${temAnoAnterior?'A comparação com o mesmo mês do ano anterior está no Dashboard, em “O que mudou” e nos comparativos do ano.':`Substitui o comparativo com o ano anterior, que ainda não existe: a base começa em ${esc([...state.records].sort((a,b)=>monthSortKey(a.label)-monthSortKey(b.label))[0]?.label||'—')}.`}</p>`+
   (semValidacao?`<p class="hint marca-aviso">° A cobertura da coleta ainda não foi validada nestes meses. Os valores estão na tela e a referência é útil, mas confira antes de decidir.</p>`:''));
 }
 function relatoriosDRE(){
  return `<div class="section-heading"><div><p class="eyebrow">RELATÓRIOS</p><h2>Comparativos do ano</h2></div></div>`+
-  blocosDoCaixa()+relatorioRegua()+relatorioEstrutura()+relatorioPeso();
+  // D21: os blocos do caixa ficam na DFC; aqui só o caminho (blocosDoCaixa continua, a DFC e os testes usam)
+  '<p class="hint"><button type="button" class="text-button" data-go="dfc">O que mexeu o caixa em cada mês: ver no Fluxo de caixa DFC →</button></p>'+relatorioRegua()+relatorioEstrutura()+relatorioPeso();
 }
 
 /* ── 1. FAIXA DE COBERTURA ───────────────────────────────────────────────
@@ -508,13 +514,13 @@ function faixaCobertura(){
    <p>${esc(ano)} · como está a coleta de cada um dos doze meses</p></div>
    <div class="cobertura-conta"><b>${completos} de 12</b><span>meses coletados até o último dia</span></div></div>
   <div class="cobertura-faixa">${meses.map(x=>`<button class="cob ${x.classe}" data-period="${esc(x.label)}" ${x.reg?'':'disabled'}
-    title="${esc(x.label+' · '+x.q.rotulo+' — '+x.q.mensagem)}"><i></i><span>${esc(x.m[0])}</span></button>`).join('')}</div>
+    title="${esc(x.label+' · '+x.q.rotulo+': '+x.q.mensagem)}"><i></i><span>${esc(x.m[0])}</span></button>`).join('')}</div>
   <div class="cobertura-legenda">
    <span><i class="cob validado"></i>coletado, cobertura validada</span>
    <span><i class="cob coletado"></i>coletado, cobertura a conferir</span>
    <span><i class="cob parcial"></i>mês ainda correndo</span>
    <span><i class="cob ausente"></i>sem coleta</span></div>
-  ${validados===0&&completos>0?`<p class="hint marca-aviso">Nenhum mês teve a cobertura da coleta validada ainda. Os valores estão na tela e os comparativos funcionam, marcados com <b>°</b> — confira antes de decidir.</p>`:''}
+  ${validados===0&&completos>0?`<p class="hint marca-aviso">Nenhum mês teve a cobertura da coleta validada ainda. Os valores estão na tela e os comparativos funcionam, marcados com <b>°</b>: confira antes de decidir.</p>`:''}
   ${escopos.size>1?`<p class="hint marca-aviso">Há empresas ou critérios diferentes neste ano; os meses não formam uma série única.</p>`:''}
  </section>`;
 }
@@ -556,10 +562,10 @@ const GX=(()=>{
  const W=1000;
  const num=v=>v!=null&&v!==''&&Number.isFinite(Number(v));
  const e=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const moeda=v=>num(v)?Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}):'Não apurado';
+ const moeda=v=>num(v)?(Number(v)+0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}).replace('-','−'):'Não apurado';
  const curto=v=>num(v)?(v<0?'−':'')+'R$ '+compacto(Math.abs(v)):'—';
  // arredonda antes e soma 0: -0,4 com zero casas virava "-0%"
- const pct=(v,d=1)=>num(v)?(Math.round(Number(v)*10**d)/10**d+0).toLocaleString('pt-BR',{maximumFractionDigits:d})+'%':'—';
+ const pct=(v,d=1)=>num(v)?(Math.round(Number(v)*10**d)/10**d+0).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}).replace('-','−')+'%':'—';
  const p=(v,total)=>(v/total*100).toFixed(3)+'%';
  const sinal=v=>v>0?'+':v<0?'−':'';
  // eixo com passos limpos, sempre incluindo o zero (barras nascem da base)
@@ -573,7 +579,8 @@ const GX=(()=>{
  const legenda=itens=>itens.length?`<div class="g-legenda">${itens.map(i=>`<span class="g-leg"><i class="g-chave ${i.linha?'g-chave-linha ':''}${i.semDado?'g-chave-sem-dado':'g-cor-'+i.cor}" aria-hidden="true"></i>${e(i.rotulo)}${i.valor!=null?` <b>${e(i.valor)}</b>`:''}</span>`).join('')}</div>`:'';
   // tons (opcional): (linha,coluna)=>classe de tom, para o valor na tabela ter a cor da marca no gráfico
  const tabela=(cab,linhas,numericas=[],tons=null)=>`<details class="g-tabela"><summary>Ver os valores</summary><table class="g-tab"><thead><tr>${cab.map((c,i)=>`<th scope="col"${numericas.includes(i)?' class="num"':''}>${e(c)}</th>`).join('')}</tr></thead><tbody>${linhas.map((l,r)=>`<tr>${l.map((c,i)=>{if(!i)return `<th scope="row">${e(c)}</th>`;const k=[numericas.includes(i)?'num':'',tons?.(r,i)||''].filter(Boolean).join(' ');return `<td${k?` class="${k}"`:''}>${e(c)}</td>`;}).join('')}</tr>`).join('')}</tbody></table></details>`;
- const figura=(tipo,leitura,plot,leg,tab)=>`<figure class="g-fig g-${tipo}"><div class="g-plot" tabindex="0" role="img" aria-label="${e(leitura)}">${plot}</div>${leg}<div class="g-dica" role="status" aria-live="polite" hidden></div>${tab}</figure>`;
+ // "Ver os valores" com nome próprio para o leitor de tela (N26): o começo da leitura do gráfico
+ const figura=(tipo,leitura,plot,leg,tab)=>(tab=String(tab||'').replace('<summary>Ver os valores</summary>',`<summary>Ver os valores<span class="sr-only"> de ${e(String(leitura).split(/[:.](?:\s|$)/)[0])}</span></summary>`),`<figure class="g-fig g-${tipo}"><div class="g-plot" tabindex="0" role="img" aria-label="${e(leitura)}">${plot}</div>${leg}<div class="g-dica" role="status" aria-live="polite" hidden></div>${tab}</figure>`);
  const aviso=(tipo,texto,tab='')=>`<figure class="g-fig g-${tipo}"><div class="g-aviso" role="img" aria-label="${e(texto)}">${e(texto)}</div>${tab}</figure>`;
  const svg=(H,conteudo)=>`<svg class="g-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true" focusable="false">${conteudo}</svg>`;
  // grade horizontal + rótulos do eixo y (em HTML, fonte fixa)
@@ -591,6 +598,9 @@ const GX=(()=>{
  }
  return {W,num,e,moeda,curto,pct,p,sinal,escala,legenda,tabela,figura,aviso,svg,grade,ciclo,percentuais};
 })();
+
+// Rótulo de mês parcial termina em "*" (D11): o vazio dele é "parcial, fora do gráfico", não "sem dado".
+const rotParcial=r=>/\*$/.test(String(r??''));
 
 /* Cascata (waterfall): da receita bruta ao lucro líquido. passos =
    [{rotulo, curto?, valor, total:true|false}]. Total é valor absoluto
@@ -628,7 +638,7 @@ function gCascata(passos,op={}){
   if(b.semDado){lacunas+=`<span class="g-sem-dado" style="left:${p(i*banda+banda*.1,GX.W)};width:${p(banda*.8,GX.W)}"></span>`;return;}
   const y1=esc.y(Math.max(b.de,b.ate),H),y2=esc.y(Math.min(b.de,b.ate),H),cor=corDegrau(b,i);usadas.add(cor);
   const m=margem(b);const dica=`${b.rotulo}\n${moeda(b.valor)}${m!=null?` · ${pct(m)} da base`:''}`;
-  formas+=`<rect class="g-marca-dado g-cor-${cor}" x="${x.toFixed(2)}" y="${y1.toFixed(2)}" width="${bw.toFixed(2)}" height="${Math.max(1.5,y2-y1).toFixed(2)}" vector-effect="non-scaling-stroke" data-dica="${e(dica)}"/>`;
+  formas+=`<rect class="g-marca-dado g-cor-${cor}" x="${x.toFixed(2)}" y="${y1.toFixed(2)}" width="${bw.toFixed(2)}" height="${Math.max(1.5,y2-y1).toFixed(2)}" vector-effect="non-scaling-stroke" data-dica="${e(dica)}" data-tom="${cor==='entrada'?'tom-entra':cor==='saida'?'tom-sai':''}"/>`;
   const prox=barras[i+1];if(prox&&!prox.semDado)formas+=`<line class="g-ligacao" x1="${(x+bw).toFixed(2)}" x2="${((i+1)*banda+(banda-bw)/2).toFixed(2)}" y1="${esc.y(b.ate,H).toFixed(2)}" y2="${esc.y(b.ate,H).toFixed(2)}" vector-effect="non-scaling-stroke"/>`;
   rot+=`<span class="g-rot${b.total?' g-rot-forte':''} g-opcional" style="${vRot(i,cx)};top:${p(y1,H)}">${n>8&&!b.total&&m!=null?e((m>0?'+':'')+pct(m,Math.abs(m)<1?1:0)):`${e(b.total?curto(b.valor):sinal(Number(b.valor))+curto(Math.abs(b.valor)))}${m!=null?` · ${e(pct(m,Math.abs(m)<1?1:0))}`:''}`}</span>`;
  });
@@ -669,13 +679,13 @@ function gEmpilhadas(meses,op={}){
   else{let topo=0,fundo=0;c.vs.forEach((v,k)=>{if(!v)return;const de=v>0?topo:fundo,ate=de+v;if(v>0)topo=ate;else fundo=ate;
    const ya=esc.y(Math.max(de,ate),H),yb=esc.y(Math.min(de,ate),H);formas+=`<rect class="g-marca-dado g-cor-${corSerie(k,v)}" x="${x.toFixed(2)}" y="${ya.toFixed(2)}" width="${bw.toFixed(2)}" height="${Math.max(1.5,yb-ya).toFixed(2)}" vector-effect="non-scaling-stroke"/>`;});}
   if(c.linha!=null){const y=esc.y(c.linha,H);caminho+=`${aberto?'L':'M'}${cx.toFixed(2)} ${y.toFixed(2)} `;aberto=true;if(sel)ponto=`<span class="g-ponto g-cor-resultado" style="left:${p(cx,GX.W)};top:${p(y,H)}"></span>`;}else aberto=false;
-  const dica=[c.m.rotulo,...series.map((s,k)=>`${s.rotulo}: ${moeda(c.vs[k])}`),...(op.linha?[`${op.linha.rotulo}: ${moeda(c.linha)}`]:[])].join('\n');
+  const dica=[c.m.rotulo,...series.map((s,k)=>`${s.rotulo}: ${c.vs[k]==null&&rotParcial(c.m.rotulo)?'parcial, fora do gráfico':moeda(c.vs[k])}`),...(op.linha?[`${op.linha.rotulo}: ${moeda(c.linha)}`]:[])].join('\n');
   alvos+=`<rect class="g-alvo" x="${(i*banda).toFixed(2)}" y="0" width="${banda.toFixed(2)}" height="${H}" data-dica="${e(dica)}"/>`;
  });
  if(caminho)formas+=`<path class="g-linha g-cor-resultado" d="${caminho.trim()}" vector-effect="non-scaling-stroke"/>`;
  const leitura=`${op.titulo||'Barras empilhadas por mês'}: ${series.map(s=>s.rotulo).join(', ')}${op.linha?`, com a linha de ${op.linha.rotulo}`:''}. `+cols.filter(c=>c.completo).length+` de ${n} meses com todos os dados.`;
- const leg=GX.legenda([...series.flatMap((s,k)=>s.sinal?[{rotulo:s.rotulo+' positivo',cor:corSerie(k,1)},{rotulo:s.rotulo+' negativo',cor:corSerie(k,-1)}]:[{rotulo:s.rotulo,cor:corSerie(k)}]),...(op.linha?[{rotulo:op.linha.rotulo,cor:'resultado',linha:true}]:[]),...(lacunas?[{rotulo:'sem dado',semDado:true}]:[])]);
- const tab=GX.tabela(['Mês',...series.map(s=>s.rotulo),...(op.linha?[op.linha.rotulo]:[])],cols.map(c=>[c.m.rotulo,...c.vs.map(moeda),...(op.linha?[moeda(c.linha)]:[])]),series.map((_,k)=>k+1).concat(op.linha?[series.length+1]:[]),(r,i)=>{const s=series[i-1];return !s?'':s.sentido?tomDoValor(s.sentido,cols[r].vs[i-1]):s.sinal||op.tomPorSinal?tomDoValor('variacao',cols[r].vs[i-1]):'';});
+ const leg=GX.legenda([...series.flatMap((s,k)=>s.sinal?[{rotulo:s.rotulo+' positivo',cor:corSerie(k,1)},{rotulo:s.rotulo+' negativo',cor:corSerie(k,-1)}]:[{rotulo:s.rotulo,cor:corSerie(k)}]),...(op.linha?[{rotulo:op.linha.rotulo,cor:'resultado',linha:true}]:[]),...(lacunas?[{rotulo:meses.some(m=>rotParcial(m.rotulo))?'sem dado ou parcial (*)':'sem dado',semDado:true}]:[])]);
+ const tab=GX.tabela(['Mês',...series.map(s=>s.rotulo),...(op.linha?[op.linha.rotulo]:[])],cols.map(c=>[c.m.rotulo,...c.vs.map(v=>v==null&&rotParcial(c.m.rotulo)?'Parcial, fora do gráfico':moeda(v)),...(op.linha?[moeda(c.linha)]:[])]),series.map((_,k)=>k+1).concat(op.linha?[series.length+1]:[]),(r,i)=>{const s=series[i-1];return !s?'':s.sentido?tomDoValor(s.sentido,cols[r].vs[i-1]):s.sinal||op.tomPorSinal?tomDoValor('variacao',cols[r].vs[i-1]):'';});
  return GX.figura('empilhadas g-cartesiano',leitura,`<div class="g-area">${GX.svg(H,g.svg+formas+alvos)}<div class="g-rotulos">${g.html}${lacunas}${ponto}${rot}</div></div>`,leg,tab);
 }
 
@@ -717,27 +727,33 @@ function gBarrasOrdenadas(itens,op={}){
 /* Linha com área suave e marcador no mês selecionado (evolução de qualquer
    indicador). pontos=[{rotulo, valor}]; op.selecionado = índice;
    op.cor = classe de cor; op.formato = função de formatação; op.eixo = 'Mês'
-   ou 'Semana' (sem ele, rótulos dd/mm contam como semana). */
+   ou 'Semana' (sem ele, rótulos dd/mm contam como semana); op.referencia =
+   {valor, rotulo}: linha tracejada fixa (a reserva mínima do planejamento). */
 function gLinhaArea(pontos,op={}){
  const {num,e,p,moeda}=GX,H=200,cor=op.cor||'marca',fmt=op.formato||moeda;
  const vs=(pontos||[]).map(x=>num(x.valor)?Number(x.valor):null);
  if(!vs.some(v=>v!=null))return GX.aviso('linha-area','Não apurado: nenhum ponto com valor.');
- const esc=GX.escala(Math.min(...vs.filter(v=>v!=null)),Math.max(...vs.filter(v=>v!=null))),g=GX.grade(esc,H),n=vs.length,banda=GX.W/n,base=esc.y(Math.max(esc.lo,Math.min(0,esc.hi)),H);
+ // op.min e op.max entram na escala junto com os valores: dois gráficos lado a lado com a mesma régua (D42)
+ const ref=op.referencia&&num(op.referencia.valor)?{valor:Number(op.referencia.valor),rotulo:op.referencia.rotulo||'Referência'}:null;
+ const ok=vs.filter(v=>v!=null),esc=GX.escala(Math.min(...ok,op.min??Infinity,ref?ref.valor:Infinity),Math.max(...ok,op.max??-Infinity,ref?ref.valor:-Infinity)),g=GX.grade(esc,H),n=vs.length,banda=GX.W/n,base=esc.y(Math.max(esc.lo,Math.min(0,esc.hi)),H);
  let linha='',area='',seg=[],alvos='',rot='',lacunas='',marcador='';
  const eixo=op.eixo||((pontos||[]).length&&pontos.every(x=>/^\d{2}\/\d{2}$/.test(String(x.rotulo)))?'Semana':'Mês');
- // Muitos pontos: um rótulo a cada "passo", contando do último, para não se sobreporem (D12).
+ // Muitos pontos: um rótulo a cada "passo", contando do último, para não se sobreporem (D12); o vizinho do selecionado sai.
  const passo=n>12?Math.ceil(n/6):1;
  const fecha=()=>{if(seg.length){area+=`M${seg[0][0]} ${base.toFixed(2)} `+seg.map(([x,y])=>`L${x} ${y}`).join(' ')+` L${seg[seg.length-1][0]} ${base.toFixed(2)} Z `;linha+='M'+seg.map(([x,y])=>`${x} ${y}`).join(' L')+' ';}seg=[];};
  vs.forEach((v,i)=>{const cx=i*banda+banda/2,sel=op.selecionado===i;
-  rot+=`<span class="g-rot g-rot-x${sel?' g-selecionado':''}${passo===1&&n>6&&i%2&&!sel?' g-opcional':''}" style="left:${p(cx,GX.W)}${passo>1&&(n-1-i)%passo&&!sel?';display:none':''}">${e(pontos[i].rotulo)}</span>`;
+  rot+=`<span class="g-rot g-rot-x${sel?' g-selecionado':''}${passo===1&&n>6&&!sel&&(i%2||Math.abs(i-op.selecionado)===1)?' g-opcional':''}" style="left:${p(cx,GX.W)}${passo>1&&((n-1-i)%passo||Math.abs(i-op.selecionado)===1)&&!sel?';display:none':''}">${e(pontos[i].rotulo)}</span>`;
   if(v==null){fecha();lacunas+=`<span class="g-sem-dado" style="left:${p(i*banda+banda*.2,GX.W)};width:${p(banda*.6,GX.W)}"></span>`;}
   else{const y=esc.y(v,H);seg.push([cx.toFixed(2),y.toFixed(2)]);if(sel)marcador=`<span class="g-ponto g-cor-${cor}" style="left:${p(cx,GX.W)};top:${p(y,H)}"></span><span class="g-rot g-rot-forte" style="left:${p(cx,GX.W)};top:${p(y,H)};transform:translate(${n>1&&i===n-1?'-100%':n>1&&i===0?'0':'-50%'},-160%)">${e(fmt(v))}</span>`;}
-  alvos+=`<rect class="g-alvo" x="${(i*banda).toFixed(2)}" y="0" width="${banda.toFixed(2)}" height="${H}" data-dica="${e(`${pontos[i].rotulo}\n${v==null?'sem dado':fmt(v)}`)}"/>`;
+  alvos+=`<rect class="g-alvo" x="${(i*banda).toFixed(2)}" y="0" width="${banda.toFixed(2)}" height="${H}" data-dica="${e(`${pontos[i].rotulo}\n${v==null?(rotParcial(pontos[i].rotulo)?'parcial, fora do gráfico':'sem dado'):fmt(v)}`)}"/>`;
  });fecha();
  const conhecidos=vs.map((v,i)=>[v,i]).filter(([v])=>v!=null),pri=conhecidos[0],ult=conhecidos[conhecidos.length-1];
- const leitura=`${op.titulo||'Evolução'}: de ${fmt(pri[0])} em ${pontos[pri[1]].rotulo} para ${fmt(ult[0])} em ${pontos[ult[1]].rotulo}.`+(lacunas?` Há ${eixo==='Semana'?'semanas':'meses'} sem dado.`:'');
- const tab=GX.tabela([eixo,op.rotulo||'Valor'],pontos.map((x,i)=>[x.rotulo,vs[i]==null?'Não apurado':fmt(vs[i])]),[1]);
- return GX.figura('linha-area g-cartesiano',leitura,`<div class="g-area">${GX.svg(H,g.svg+`<path class="g-area-preenchida g-cor-${cor}" d="${area.trim()}"/><path class="g-linha g-cor-${cor}" d="${linha.trim()}" vector-effect="non-scaling-stroke"/>`+alvos)}<div class="g-rotulos">${g.html}${lacunas}${marcador}${rot}</div></div>`,lacunas?GX.legenda([{rotulo:'sem dado',semDado:true}]):'',tab);
+ const plural=/semana/i.test(eixo)?'semanas':'meses',abaixo=ref?ok.filter(v=>v<ref.valor).length:0;
+ const leitura=`${op.titulo||'Evolução'}: de ${fmt(pri[0])} em ${pontos[pri[1]].rotulo} para ${fmt(ult[0])} em ${pontos[ult[1]].rotulo}.`+(lacunas?` Há ${plural} sem dado.`:'')+(ref?` ${ref.rotulo}: ${fmt(ref.valor)}; ${abaixo?`${abaixo} ${abaixo===1?(plural==='semanas'?'semana':'mês'):plural} abaixo dela`:'nenhum ponto abaixo dela'}.`:'');
+ const yRef=ref?esc.y(ref.valor,H).toFixed(2):'',linhaRef=ref?`<line class="g-referencia" x1="0" x2="${GX.W}" y1="${yRef}" y2="${yRef}" vector-effect="non-scaling-stroke"/>`:'',rotRef=ref?`<span class="g-rot g-rot-ref" style="top:${p(yRef,H)}">${e(ref.rotulo+': '+fmt(ref.valor))}</span>`:'';
+ const leg=[...(lacunas?[{rotulo:pontos.some(x=>rotParcial(x.rotulo))?'sem dado ou parcial (*)':'sem dado',semDado:true}]:[]),...(ref?[{rotulo:ref.rotulo,cor:'atencao',linha:true,valor:fmt(ref.valor)}]:[])];
+ const tab=GX.tabela([eixo,op.rotulo||'Valor'],pontos.map((x,i)=>[x.rotulo,vs[i]==null?(rotParcial(x.rotulo)?'Parcial, fora do gráfico':'Não apurado'):fmt(vs[i])]),[1]);
+ return GX.figura('linha-area g-cartesiano',leitura,`<div class="g-area">${GX.svg(H,g.svg+`<path class="g-area-preenchida g-cor-${cor}" d="${area.trim()}"/>${linhaRef}<path class="g-linha g-cor-${cor}" d="${linha.trim()}" vector-effect="non-scaling-stroke"/>`+alvos)}<div class="g-rotulos">${g.html}${lacunas}${rotRef}${marcador}${rot}</div></div>`,GX.legenda(leg),tab);
 }
 
 /* Sparkline de 12 meses para cards: sem eixo, sem rótulo, só a tendência.
@@ -795,7 +811,7 @@ function gCiclo(d,op={}){
  if(falta.length)return GX.aviso('ciclo',`Não apurado: falta ${falta.map(k=>({pme:'o prazo de estoque',pmr:'o prazo de recebimento',pmpf:'o prazo de pagamento'}[k])).join(', ')}.`);
  const pme=Number(d.pme),pmr=Number(d.pmr),pmpf=Number(d.pmpf),oper=pme+pmr,cf=GX.ciclo(pme,pmr,pmpf),topo=Math.max(oper,pmpf)*1.1||1,x=v=>v/topo*GX.W;
  const faixa=(nome,de,ate,cor,dica)=>`<div class="g-linha-h"><span class="g-nome">${e(nome)}</span><div class="g-trilho">${GX.svg(22,`<rect class="g-marca-dado g-cor-${cor}" x="${x(Math.min(de,ate)).toFixed(2)}" y="3" width="${Math.max(1.5,x(Math.abs(ate-de))).toFixed(2)}" height="16" data-dica="${e(dica)}"/>`)}<span class="g-valor-ponta" style="left:${p(x(Math.max(de,ate)),GX.W)}">${e(Math.round(Math.abs(ate-de)))} dias</span></div></div>`;
- const linhas=faixa('Estoque (PME)',0,pme,'serie-3',`Prazo médio de estoque\n${pme} dias`)+faixa('Recebimento (PMR)',pme,oper,'serie-2',`Prazo médio de recebimento\n${pmr} dias (do dia ${pme} ao ${oper})`)+faixa('Pagamento (PMPF)',0,pmpf,'resultado',`Prazo médio de pagamento a fornecedores\n${pmpf} dias`)+faixa(cf>=0?'Ciclo financeiro':'Ciclo financeiro (negativo)',pmpf,oper,'marca',`Ciclo financeiro\n${cf} dias${cf<0?' — os fornecedores financiam a operação':''}`);
+ const linhas=faixa('Estoque (PME)',0,pme,'serie-3',`Prazo médio de estoque\n${pme} dias`)+faixa('Recebimento (PMR)',pme,oper,'serie-2',`Prazo médio de recebimento\n${pmr} dias (do dia ${pme} ao ${oper})`)+faixa('Pagamento (PMPF)',0,pmpf,'resultado',`Prazo médio de pagamento a fornecedores\n${pmpf} dias`)+faixa(cf>=0?'Ciclo financeiro':'Ciclo financeiro (negativo)',pmpf,oper,'marca',`Ciclo financeiro\n${cf} dias${cf<0?': os fornecedores financiam a operação':''}`);
  const resumo=`Ciclo operacional ${oper} dias · ciclo financeiro ${cf} dias${num(op.custo)?` · custo do ciclo ${moeda(op.custo)}`:''}`;
  const leitura=`${resumo}. Estoque ${pme} dias, recebimento ${pmr} dias, pagamento ${pmpf} dias.`;
  return GX.figura('ciclo',leitura,`<div class="g-linhas">${linhas}</div>`,`<div class="g-legenda"><span class="g-leg"><b>${e(resumo)}</b></span></div>`,GX.tabela(['Prazo','Dias'],[['Estoque (PME)',pme],['Recebimento (PMR)',pmr],['Pagamento (PMPF)',pmpf],['Ciclo operacional',oper],['Ciclo financeiro',cf]].map(([a,b])=>[a,String(b)]),[1]));
@@ -809,7 +825,11 @@ function ligarDicasGraficos(raiz=document){
  raiz.querySelectorAll('.g-fig .g-plot').forEach(plot=>{
   if(plot.dataset.gLigado)return;plot.dataset.gLigado='1';
   const fig=plot.closest('.g-fig'),dica=fig.querySelector('.g-dica'),marcas=()=>[...plot.querySelectorAll('[data-dica]')];let atual=-1;
-  const mostrar=m=>{marcas().forEach(x=>x.classList.remove('g-ativo'));if(!m||!dica)return;m.classList.add('g-ativo');dica.textContent=m.getAttribute('data-dica');dica.hidden=false;
+  const mostrar=m=>{marcas().forEach(x=>x.classList.remove('g-ativo'));if(!m||!dica)return;m.classList.add('g-ativo');
+   // primeira linha como texto e o valor num <b> com o tom da marca (C18); tudo por textContent
+   const [cab,...resto]=String(m.getAttribute('data-dica')||'').split('\n');dica.textContent=cab;
+   if(resto.length){const b=document.createElement('b');b.textContent=resto.join('\n');b.className=m.getAttribute('data-tom')||'';dica.append('\n',b);}
+   dica.hidden=false;
    const fr=fig.getBoundingClientRect(),mr=m.getBoundingClientRect(),dw=dica.offsetWidth,dh=dica.offsetHeight;
    const esq=Math.min(Math.max(0,mr.left-fr.left+mr.width/2-dw/2),fr.width-dw),topo=mr.top-fr.top-dh-8;dica.style.left=esq+'px';dica.style.top=(topo<0?mr.bottom-fr.top+8:topo)+'px';};
   const esconder=()=>{marcas().forEach(x=>x.classList.remove('g-ativo'));if(dica)dica.hidden=true;atual=-1;};
@@ -839,7 +859,7 @@ const GRAFICOS_EXEMPLOS={
 };
 function galeriaGraficos(){
  const X=GRAFICOS_EXEMPLOS,item=(t,d,h)=>painelGrafico(t,d,h);
- return `<details class="card galeria-graficos"><summary>Como ler os gráficos do painel</summary><div class="card-body"><p class="hint">Exemplos com números fictícios, só para mostrar a leitura. Mês sem dado aparece hachurado e nunca como zero. Toque numa barra ou use Tab e as setas para ver os valores; cada gráfico tem a tabela em “Ver os valores”.</p>`
+ return `<details class="card galeria-graficos"><summary><h2 class="card-titulo">Como ler os gráficos do painel</h2></summary><div class="card-body"><p class="hint">Exemplos com números fictícios, só para mostrar a leitura. Mês sem dado aparece hachurado e nunca como zero. Toque numa barra ou use Tab e as setas para ver os valores; cada gráfico tem a tabela em “Ver os valores”.</p>`
   +item('Cascata do resultado','Da receita bruta ao resultado, com a margem de cada degrau sobre a receita.',gCascata(X.cascata,{inicio:'entrada'}))
   +item('Barras empilhadas com linha','Operação, investimento e financiamento por mês, com o saldo acumulado no mesmo eixo.',gEmpilhadas(X.empilhadas,{series:[{chave:'fco',rotulo:'Operação',sinal:true},{chave:'fci',rotulo:'Investimento'},{chave:'fcf',rotulo:'Financiamento'}],linha:{rotulo:'Saldo acumulado'},selecionado:8,titulo:'Fluxo de caixa por mês'}))
   +item('Barra 100% em escala de risco','Quanto do que está a receber já está atrasado, por faixa.',gCemPorCento(X.aging,{titulo:'Recebíveis por faixa'}))

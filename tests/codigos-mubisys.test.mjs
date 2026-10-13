@@ -69,5 +69,6 @@ test('plano de contas: mostra o código do Mubisys, acha a conta pelos dois cód
  const achou=q=>JSON.parse(vm.runInContext(`JSON.stringify(PlanoContas.filtrar(PlanoContas.catalogo(__r,'2026','Set/2026'),{query:${JSON.stringify(q)}}).map(x=>x.code))`,p));
  assert.ok(achou('2.3.2').includes('2.4.2'),'busca pelo código do Mubisys acha o ICMS');assert.ok(achou('2.4.2').includes('2.4.2')&&achou('2.4.2').includes('2.5.2'),'o código 2.4.2 acha o ICMS (painel) e o Aluguel (Mubisys)');
  assert.match(vm.runInContext("planoMubisys({mubisys:CodigosMubisys.noMubisys('2.5.2')})",p),/ · Mubisys 2\.4\.2/);
- assert.match(ler('plano-contas.js'),/<small>· \$\{esc\(c\.code\)\}\$\{planoMubisys\(c\)\}<\/small><\/h2>/,'o cabeçalho da conta mostra os dois códigos');
+ assert.match(ler('plano-contas.js'),/<small>· \$\{esc\(c\.code\)\}\$\{planoMubisys\(c\)\}<\/small>\$\{semConta\}<\/h2>/,'o cabeçalho da conta mostra os dois códigos');
+ assert.match(ler('plano-contas.js'),/<small>\$\{esc\(n\.code\)\}\$\{planoMubisys\(n\)\}<\/small><\/button>/,'a lista lateral também (I22)');
 });

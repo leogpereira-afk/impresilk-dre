@@ -56,7 +56,7 @@ test('DFC no ano: cartões com o acumulado de janeiro ao último mês, saldo do 
  // FCO de cada mês = geração (só operação): 3.000 + 3.000 + 6.000 + 1.500 = 13.500; saldo 10.000 + 13.500
  assert.deepEqual(k.map(x=>[x.rotulo,x.valor]),[['Caixa da operação (FCO) · 2026','R$ 13.500,00'],['Investimentos (FCI) · 2026','R$ 0,00'],['Financiamentos (FCF) · 2026','R$ 0,00'],['Saldo final · Abr/2026','R$ 23.500,00']]);
  assert.match(k[0].nota,/de janeiro a Abr de 2026 · inclui Abr\/2026 \(mês em andamento\)$/);assert.equal(k[0].tom,'tom-entra','com mês em andamento, a cor segue o sinal (v133, C3): só setas e Δ ficam neutros');
- assert.match(h,/Ano 2026 inteiro, de janeiro a Abr\. As contas de cada bloco são mostradas por mês/);assert.doesNotMatch(h,/De onde vem cada bloco/);
+ assert.match(h,/2026 somado de janeiro a Abr[^.]*em andamento[^.]*\. As contas de cada bloco são mostradas por mês/,'v135 (I16): o texto do Ano diz o mês em andamento');assert.doesNotMatch(h,/De onde vem cada bloco/);
  const m=app();m.run("selecionarPeriodo('Mar/2026')");assert.equal(cartoes(m.run('renderDFC()'))[0].rotulo,'Caixa da operação (FCO) · Mar/2026','no mês, tudo como antes');
 });
 test('DFC no ano com mês faltando no caminho: acumulado não somado, dito qual falta; nunca zero',()=>{
@@ -73,7 +73,7 @@ test('DRE no ano: cartões e cascata com o ano somado de janeiro ao último mês
  const c=app({view:'dre'});c.run("selecionarAno('2026')");const s=c.json('dreSimplesCaixa()'),k=cartoes(s.cards);
  // vendas 10.000 + 10.000 + 20.000 + 5.000; resultado = 3.000 × (1 + 1 + 2 + 0,5)
  assert.deepEqual(k.map(x=>[x.rotulo,x.valor]),[['Vendas · 2026','R$ 45.000,00'],['Margem de contribuição','R$ 22.500,00'],['Resultado operacional (EBITDA de caixa)','R$ 13.500,00'],['Resultado de 2026','R$ 13.500,00']]);
- assert.match(k[0].nota,/de janeiro a Abr de 2026 · inclui Abr\/2026 \(parcial\)$/);assert.match(s.resto,/Da venda ao resultado · 2026/);assert.match(s.resto,/Ano 2026 inteiro, de janeiro a Abr/);assert.doesNotMatch(s.resto,/De onde vem cada linha/);
+ assert.match(k[0].nota,/de janeiro a Abr de 2026 · inclui Abr\/2026 \(parcial\)$/);assert.match(s.resto,/Da venda ao resultado · 2026/);assert.match(s.resto,/2026 somado de janeiro a Abr, com Abr\/2026 em andamento/,'v135 (I16)');assert.doesNotMatch(s.resto,/De onde vem cada linha/);
  const f=app({view:'dre',registros:[ANO[0],ANO[2],ANO[3]]});f.run("selecionarAno('2026')");const kf=cartoes(f.json('dreSimplesCaixa()').cards);
  assert.equal(kf[0].valor,'Não apurado');assert.match(kf[0].nota,/^Fev\/2026 sem dados coletados: sem todos os meses, o ano de 2026 não é somado/);
  const m=app({view:'dre'});m.run("selecionarPeriodo('Mar/2026')");assert.equal(cartoes(m.json('dreSimplesCaixa()').cards)[0].rotulo,'Vendas · Mar/2026','no mês, tudo como antes');
@@ -140,5 +140,49 @@ test('planejamento: compromissos, semanas e cartões com a cor do sentido; data 
  const m=els.planMovimentos.innerHTML,r=els.planResultado.innerHTML;
  assert.match(m,/<td>Folha<\/td><td>28\/09\/2026<\/td><td>Saída<\/td><td class="num tom-sai">/);assert.match(m,/<td>Cliente<\/td><td>30\/09\/2026<\/td><td>Entrada<\/td><td class="num tom-entra">/);
  assert.match(r,/<span class="label">Menor saldo projetado<\/span><strong class="tom-sai">/,'saldo projetado negativo em vermelho');
- const sem=[...r.matchAll(/<tr><td>1<\/td>((?:<td class="num [^"]*">[^<]*<\/td>){3})/g)][0][1];assert.deepEqual([...sem.matchAll(/class="num ([^"]*)"/g)].map(x=>x[1]),['tom-entra','tom-sai','tom-sai']);
+ const sem=[...r.matchAll(/<tr><td>1 · 28\/09 a 04\/10<\/td>((?:<td class="num [^"]*">[^<]*<\/td>){3})/g)][0][1];assert.deepEqual([...sem.matchAll(/class="num ([^"]*)"/g)].map(x=>x[1]),['tom-entra','tom-sai','tom-sai']);
+});
+
+// v135 (D22, I24): o planejamento vem antes da planilha, as semanas dizem as datas e o saldo da DFC
+// é oferecido (botão Usar), sem preencher sozinho e sem salvar na nuvem.
+test('planejamento antes da planilha, semanas com data e saldo do Fluxo de caixa pelo botão Usar',()=>{
+ const c=app({view:'caixa',periodo:'Abr/2026'});
+ c.run("plano={saldo:'',reserva:0,inicio:'2026-09-28',cenario:1,movimentos:[]}");
+ let h=c.run('renderCaixa(regAtual())');
+ const iPlano=h.indexOf('Planejar as próximas 13 semanas'),iPlanilha=h.indexOf('Planilha de caixa · evolução mensal e acumulado');
+ assert.ok(iPlano>0&&iPlanilha>iPlano,'o planejamento vem antes da planilha');
+ assert.match(h,/<details class="card" id="secao-caixa-plano" data-card="caixa:Planejar as próximas 13 semanas"><summary>/,'sem saldo, o planejamento começa fechado; id estável para o "Ver em" do Glossário (N24)');
+ assert.match(h,/<details class="card" data-card="caixa:Planilha de caixa · evolução mensal e acumulado" open><summary>/,'a planilha continua aberta');
+ const ref=c.json('saldoReferenciaPlano()');assert.equal(ref.label,'Abr/2026');assert.equal(ref.parcial,true);
+ assert.match(h,new RegExp(`<p class="hint" id="planSaldoRef">Fluxo de caixa: <b>${c.run('money(saldoReferenciaPlano().final)').replace(/[$.]/g,'\\$&')}</b> \\(Abr/2026, mês em andamento ou incompleto, não conciliado\\) <button type="button" class="text-button" id="planUsarSaldo">Usar</button></p>`));
+ assert.equal(c.run('plano.saldo'),'','nada é preenchido sozinho');
+ c.run("plano.saldo=5000");assert.match(c.run('renderCaixa(regAtual())'),/data-card="caixa:Planejar as próximas 13 semanas" open>/,'com saldo, abre');
+ c.run("dfcSaldos=()=>new Map()");assert.doesNotMatch(c.run('renderCaixa(regAtual())'),/planSaldoRef/,'sem saldo na DFC, sem a dica');
+ // Semanas com o intervalo de datas a partir do início; a marca * de semana incompleta continua.
+ const els={planMovimentos:{innerHTML:''},planResultado:{innerHTML:''}};c.__els=els;
+ c.run("document.getElementById=id=>__els[id]||null;plano={saldo:1000,reserva:0,inicio:'2026-09-28',cenario:1,movimentos:[],carteira:{incompletas:[13]}};mostrarPlano()");
+ const r=els.planResultado.innerHTML;
+ assert.match(r,/<tr><td>2 · 05\/10 a 11\/10<\/td>/);assert.match(r,/<tr><td>13 · 21\/12 a 27\/12 \*<\/td>/);
+});
+test('botão Usar: grava o saldo da DFC no campo e no rascunho, sem chamar a nuvem',()=>{
+ const c=app({view:'caixa',periodo:'Abr/2026'});
+ const el=()=>({value:'',innerHTML:'',textContent:'',onclick:null,oninput:null,addEventListener(){}});
+ const els={pageContent:{innerHTML:''},planSaldo:el(),planReserva:el(),planData:el(),planCenario:el(),planCalcular:el(),planUsarSaldo:el(),planEstado:el(),planMovimentos:el(),planResultado:el()};c.__els=els;
+ c.run("document.getElementById=id=>__els[id]||null;api=()=>{throw new Error('não deve chamar a nuvem')};plano={saldo:'',reserva:0,inicio:'2026-09-28',cenario:1,movimentos:[]};planoSujo=false;wireGraficos=()=>{};wireDRE=()=>{};wireGlossario=()=>{};wireCFO=()=>{};wireGestao=()=>{};wireContent()");
+ assert.equal(typeof els.planUsarSaldo.onclick,'function');
+ els.planUsarSaldo.onclick();
+ const final=c.run('saldoReferenciaPlano().final');
+ assert.equal(c.run('plano.saldo'),final);assert.equal(els.planSaldo.value,final);assert.equal(c.run('planoSujo'),true);assert.equal(els.planEstado.textContent,'Alterações não salvas');
+ assert.match(els.planResultado.innerHTML,/Menor saldo projetado/,'o cenário é recalculado com o saldo');
+});
+// v135 (D21): no Dashboard, o mês primeiro e os Comparativos anuais no fim; a planilha mês a mês fica em Caixa.
+test('Dashboard: O que mudou e Conferência antes dos Comparativos; a planilha vira link para Caixa',()=>{
+ const c=app({view:'inicio',periodo:'Mar/2026'});c.run("renderComparativos=()=>'<section class=\"cmp\"><h2>Comparativos anuais</h2></section>'");
+ const h=c.run('renderInicio(regAtual(),F.qualidade(regAtual()))');
+ const iConf=h.indexOf('Conferência e próximos passos'),iCmp=h.indexOf('Comparativos anuais');
+ assert.ok(iConf>0&&iCmp>iConf,'Conferência antes dos Comparativos');
+ assert.ok(h.trimEnd().endsWith('</section>'),'Comparativos no fim');
+ assert.doesNotMatch(h,/Planilha do Dashboard/);
+ assert.match(h,/<p class="hint"><button type="button" class="text-button" data-go="caixa">Planilha de caixa mês a mês: ver em Caixa e planejamento →<\/button><\/p>/);
+ const iMudou=h.indexOf('O que mudou</h2>');assert.ok(iMudou>0&&iMudou<iConf,'O que mudou (gestão) antes da Conferência e dos Comparativos');
 });

@@ -29,7 +29,7 @@ function tela({periodo='Set/2026',registros=REG,op=OP,balanco=BAL,hist=HIST(),da
  if(d)c.run('giroUI.dados=__d;giroUI.em=Date.now()');return c;
 }
 const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"><span class="label">([^<]*)<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],tom:m[2],valor:m[3].replace(/\s/g,' '),nota:m[4].replace(/\s/g,' ')}));
-const linha=(h,nome)=>{const t=h.slice(h.indexOf('bal-tabela" style='));const m=new RegExp(`<tr class="dre-l-detalhe"><th scope="row">${nome.replace(/[()*]/g,'\\$&')}( ≈)?( †)?</th><td class="num( tom-entra| tom-sai)?">((?:(?!</td>).)*)</td><td>([^<]*)</td></tr>`).exec(t);return m?{valor:m[4].replace(/<[^>]*>/g,'').replace(/\s/g,' '),origem:m[5],marca:!!m[1],herdado:!!m[2],tom:(m[3]||'').trim()}:null;};
+const linha=(h,nome)=>{const t=h.slice(h.indexOf('bal-tabela" style='));const m=new RegExp(`<tr class="dre-l-detalhe"><th scope="row">${nome.replace(/[()*]/g,'\\$&')}( ≈)?( †)?</th><td class="num( tom-entra| tom-sai)?">((?:(?!</td>).)*)</td><td>([^<]*)((?: <button [^>]*>[^<]*</button>)?)</td></tr>`).exec(t);return m?{valor:m[4].replace(/<[^>]*>/g,'').replace(/\s/g,' '),origem:m[5],marca:!!m[1],herdado:!!m[2],tom:(m[3]||'').trim(),ir:m[6]}:null;};
 
 test('servidor: cada classe do a pagar sem o corte de 60 dias, total do a pagar e o que fica fora, à parte',()=>{
  const m=resumirHistorico([pos('2026-09')]).meses[0];
@@ -144,7 +144,7 @@ test('caixa negativo, ativo zero e patrimônio negativo: sinais certos, sem divi
  assert.deepEqual([b.linhas.caixa.valor,b.linhas.bancoNegativo.valor,b.ativo,b.passivo,b.pl,b.endiv],[0,52500,6000,55300,-49300,921.7]);assert.match(b.linhas.caixa.nota,/negativo: está no passivo, em "Banco no vermelho"/);
  const h=c.run('renderBalanco()'),k=cartoes(h);assert.deepEqual([k[2].tom,k[3].valor],['tom-sai','921,7%']);assert.match(k[3].nota,/^As dívidas passam do que a empresa tem: são 9,2 vezes o ativo e o patrimônio está negativo/);
  assert.match(k[1].nota,/mais R\$\s52\.500,00 de banco no vermelho/);assert.match(linha(h,'Banco no vermelho').valor,/R\$\s52\.500,00/);
- const g=h.slice(h.indexOf('Tem · ativo'),h.indexOf('Deve · passivo'));assert.doesNotMatch(g,/-R\$/,'nenhuma barra negativa no ativo');
+ const g=h.slice(h.indexOf('Tem · ativo'),h.indexOf('Deve · passivo'));assert.doesNotMatch(g,/[-−]R\$/,'nenhuma barra negativa no ativo');
  const z=tela({op:{'2026-08':{saldoInicial:-30000}},balanco:{'2026-09':{imobilizado:0,emprestimos:0,parcelamentoDAS:0}},hist:resumirHistorico([pos('2026-09',{receber:{...pos('2026-09').receber,total:0,alemHorizonte:{quantidade:0,valor:0}}})]).meses}).json("balApurar('Set/2026',giroUI.dados.historico.meses,dfcSaldos())");
  assert.deepEqual([z.ativo,z.endiv],[0,null],'ativo zero: sem divisão');
  const n=cartoes(tela().run('renderBalanco()'))[3];assert.match(n.nota,/^De cada R\$\s100,00 do ativo, R\$\s26,19 são de terceiros/,'até 100%: em reais, com centavos');
@@ -160,7 +160,9 @@ test('ano mês a mês e planilha: mesmas regras, sem fórmula executável; rota 
  // agosto: ativo 23.000 + 6.000 + 100.000; passivo 2.800 + 7.500 de parcelas (aproximado) · setembro completo
  assert.deepEqual(rows.find(r=>r[0]==='Patrimônio líquido').slice(7,10),['Não apurado','118700,00','103700,00']);
  assert.equal(rows.find(r=>r[0]==='Caixa e bancos')[8],'23000,00');
- const h=c.run('renderBalanco()');assert.match(h,/<summary>Balanço mês a mês · 2026<\/summary><div class="card-body"><div class="actions"><button type="button" data-bal-csv>/);assert.match(h,/<th scope="col" class="num ">Ago\/2026 \*<\/th>/);assert.match(h,/<th scope="col" class="num selected-month">Set\/2026 †<\/th>/);
+ const h=c.run('renderBalanco()');// N25: a planilha sai pelo "↓ Planilha" do topo (balCSV global), não de dentro do cartão; N10: rolagem com nome acessível.
+ assert.match(h,/<summary><h2 class="card-titulo">Balanço mês a mês · 2026<\/h2><\/summary><div class="card-body"><div class="table-scroll" role="region" tabindex="0" aria-label="Balanço mês a mês"><table/);assert.doesNotMatch(h,/data-bal-csv/);assert.equal(c.run('typeof balCSV'),'function');
+ assert.match(h,/<div class="table-scroll" role="region" tabindex="0" aria-label="Balanço por conta"><table class="tabela-controle dre-simples-meses bal-tabela"/);assert.match(h,/<th scope="col" class="num ">Ago\/2026 \*<\/th>/);assert.match(h,/<th scope="col" class="num selected-month">Set\/2026 †<\/th>/);
  assert.match(h,/<td class="num selected-month tom-entra">R\$\s100\.000,00 †<\/td>/,'célula herdada marcada (ativo em azul)');assert.match(h,/<td class="num  tom-sai">R\$\s7\.500,00 ≈<\/td>/,'célula aproximada marcada (passivo em vermelho)');assert.match(h,/class="tabela-controle dre-simples-meses bal-meses"/);
  // C10: PL mês a mês pelo sinal, como o cartão e o balanço por conta; v134: também no mês em andamento (regra do dono)
  const pl=h.match(/<tr class="dre-l-resultado"><th scope="row">Patrimônio líquido<\/th>.*?<\/tr>/)[0];
@@ -317,4 +319,14 @@ test('9.2 revisão: retorno antecipado com o formato inteiro; competência de ou
  const c=tela();c.run("state.cfg.demonstrativosCompetencia={meses:{Set_2026:{label:'Set/2026',company:'Impresilk',valores:{produtos:40000,servicos:0,outrasVendas:0,devolucoes:100,descontos:0,tributosVendas:2800,custos:16000,despesasVendas:1500,administrativas:12000,outrasDespesas:0,outrasReceitas:0,equivalencia:0,receitasFinanceiras:200,despesasFinanceiras:150,descontinuadas:0,da:500}}}}");
  const r=rent(c,'2026-09-01','2026-09-30');assert.equal(r.base,'caixa');assert.ok(r.marcas.some(m=>/competência de outro escopo \(Impresilk\)/.test(m)));
  assert.deepEqual([r.ini.parcial,!!r.ini.marca,r.fim.herdado],[true,true,true]);assert.match(r.ini.marca,/^parcial: sem estoque e parcelamento do DAS/);
+});
+
+// ── v135 ──────────────────────────────────────────────────────────────────
+test('origem em Parâmetros vira link para o mês de onde o valor veio (N14)',()=>{
+ const c=tela({op:{...OP,'2026-10':{saldoInicial:31000}}}),h=c.run('renderBalanco()');
+ const ir=nome=>(linha(h,nome)?.ir||'').match(/data-go="parametros" data-rec-mes="([^"]+)">Ver em Parâmetros →/)?.[1]||null;
+ assert.equal(ir('Imobilizado'),'Ago/2026','herdado: abre o mês do cadastro');assert.equal(ir('Empréstimos e financiamentos'),'Set/2026');assert.equal(ir('Estoques'),'Set/2026');
+ assert.equal(ir('Caixa e bancos'),'Out/2026','saldo bancário do início do mês seguinte: abre esse mês');
+ assert.equal(ir('Contas a receber'),null,'valor do Mubisys não leva a Parâmetros');
+ const sem=tela().run('renderBalanco()');assert.equal((linha(sem,'Caixa e bancos')?.ir||''),'','caixa do Fluxo de caixa: sem link');
 });

@@ -142,3 +142,70 @@ test('controles sem efeito ficam escondidos: mês, Comparar e cobertura',()=>{
  run("state.view='inicio';render()");assert.match(els.qualityBar.innerHTML,/<span>Dez\/2025 · <b>/,'fora das telas do Ano, só o mês');
 });
 
+// v135: harness de render com menu, foco e Indicadores (N3, N4, N7, N16, N25, N26).
+function telaRender(){
+ const els={};const el=id=>els[id]||(els[id]={id,hidden:false,open:true,innerHTML:'',textContent:'',style:{},dataset:{},classList:{toggle(){}},setAttribute(){},focus(){},addEventListener(){},contains:()=>false});
+ const menu=['inicio','indicadores','caixa','dfc'].map(v=>{const b={dataset:{view:v},attrs:{},ativo:false,classList:{toggle:(c,on)=>{if(c==='active')b.ativo=!!on;}},setAttribute:(k,x)=>{b.attrs[k]=x;}};return b;});
+ const c={structuredClone,document:{body:{dataset:{}},activeElement:null,addEventListener(){},getElementById:el,querySelector:s=>s==='.period'?el('.period'):c.__qs?.(s)||null,querySelectorAll:s=>s==='[data-view]'?menu:[]},localStorage:{getItem:()=>null,setItem(){}},navigator:{onLine:true},location:{hash:''},URLSearchParams};
+ vm.createContext(c);for(const f of ['financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','cfo-modelo.js','cfo.js','app.js','gestao.js','pdf-cfo.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c);
+ const run=s=>vm.runInContext(s,c);run("state.periodo='Set/2026';state.cfg={};state.D={accounts:[]};paginasDoApp=()=>({});wireContent=()=>{};renderInicio=()=>'<p>tela</p>';window={}");
+ return {c,els,menu,run};
+}
+test('menu: Despesas acende Indicadores e Composição acende Caixa, com aria-current="true" no item-pai',()=>{
+ const {menu,run}=telaRender();const estado=()=>Object.fromEntries(menu.map(b=>[b.dataset.view,[b.ativo,b.attrs['aria-current']]]));
+ assert.deepEqual(JSON.parse(run('JSON.stringify(MENU_PAI)')),{custos:'indicadores',resultado:'caixa'});
+ run("state.view='custos';render()");assert.deepEqual(estado(),{inicio:[false,'false'],indicadores:[true,'true'],caixa:[false,'false'],dfc:[false,'false']});
+ run("state.view='resultado';render()");assert.deepEqual(estado().caixa,[true,'true']);
+ run("state.view='dfc';render()");assert.deepEqual(estado().dfc,[true,'page']);assert.deepEqual(estado().caixa,[false,'false']);
+});
+test('"Veja também" vem depois da página; ↓ Planilha no topo em DFC, Balanço e Preço, sem PDF',()=>{
+ const {els,run}=telaRender();run(`navContexto=()=>'<nav class="context-nav veja-tambem" aria-label="Veja também">x</nav>'`);
+ run("state.view='inicio';render()");assert.equal(els.pageContent.innerHTML,'<p>tela</p><nav class="context-nav veja-tambem" aria-label="Veja também">x</nav>');
+ const topo=v=>{run(`state.view=${JSON.stringify(v)};render()`);return [!els.cfoTools.hidden,!els.cfoPDF.hidden];};
+ for(const v of ['dfc','balanco','precos'])assert.deepEqual(topo(v),[true,false],v+': planilha sim, PDF não');
+ for(const v of ['giro','recebiveis','parametros','config','ajuda','indicadores','dre'])assert.equal(topo(v)[0],false,v+': sem ferramentas no topo');
+ assert.deepEqual(topo('glossario'),[true,false]);assert.deepEqual(topo('inicio'),[true,true]);assert.deepEqual(topo('detalhe'),[true,true]);
+});
+test('Indicadores recebem a rota (área e fonte) no mount, uma vez só',()=>{
+ const {run}=telaRender();run("__ctx=[];window={DREIndicadores:{mount:(el,ctx)=>__ctx.push(ctx.rota)}};api=()=>{};state.view='indicadores';state.indicadoresRota={area:'custos',fonte:'compras'};render()");
+ assert.deepEqual(JSON.parse(run('JSON.stringify(__ctx)')),[{area:'custos',fonte:'compras'}]);assert.equal(run('state.indicadoresRota'),null,'a rota é usada uma vez e zerada');
+ run('render()');assert.deepEqual(JSON.parse(run('JSON.stringify(__ctx)')),[{area:'custos',fonte:'compras'},null]);
+});
+test('foco volta ao controle depois do render na mesma tela; trocar de tela vai ao título',()=>{
+ const {c,els,run}=telaRender();run("state.view='detalhe';render()");
+ const aba={id:'',hasAttribute:a=>a==='data-plano-tab',getAttribute:()=>'planilha'},novo={focus(o){novo.foco=o;}};
+ els.pageContent.contains=x=>x===aba;c.document.activeElement=aba;c.CSS={escape:s=>String(s).replace(/"/g,'\\"')};
+ const pedidos=[];c.__qs=s=>{pedidos.push(s);return s.startsWith('#pageContent')?novo:null;};
+ assert.equal(run('seletorFocoConteudo()'),'#pageContent [data-plano-tab="planilha"]');
+ run('render()');assert.ok(pedidos.includes('#pageContent [data-plano-tab="planilha"]'));assert.equal(novo.foco?.preventScroll,true,'foco de volta na aba, sem rolar');
+ novo.foco=null;run("state.view='dfc';render()");assert.equal(novo.foco,null,'outra tela: o foco vai ao título, não ao controle antigo');
+ const comId={id:'planSaldo',hasAttribute:()=>false};els.pageContent.contains=()=>true;c.document.activeElement=comId;assert.equal(run('seletorFocoConteudo()'),'#planSaldo');
+ els.pageContent.contains=()=>false;assert.equal(run('seletorFocoConteudo()'),'','foco fora do conteúdo: nada');
+});
+test('cartões com título h2 e cabeçalhos de tabela com scope',()=>{
+ const c=context();assert.match(c.run("card('Saúde da informação','x')"),/<summary><h2 class="card-titulo">Saúde da informação<\/h2><\/summary><div class="card-body">x<\/div>/);
+ const src=fs.readFileSync(new URL('../app.js',import.meta.url),'utf8');
+ assert.doesNotMatch(src,/<th>|<th class=/,'todo th do app.js diz o scope');assert.match(src,/<th scope="col">Semana<\/th>/);
+});
+test('chip Ano depois da faixa de meses; mês apurado com classe, sem texto ✓; título do Ano sem "inteiro"',()=>{
+ const els={};const el=id=>els[id]||(els[id]={id,innerHTML:'',textContent:'',style:{},setAttribute(){},querySelector:()=>null});
+ const depois=[];els.monthChips={id:'monthChips',innerHTML:'',scrollWidth:0,clientWidth:0,querySelector:()=>null,parentNode:{insertBefore(){throw new Error('o chip vai depois da faixa');}},after:x=>depois.push(x)};
+ const criado={style:{},setAttribute(){},addEventListener(){},innerHTML:''};
+ const c={structuredClone,document:{addEventListener(){},getElementById:id=>id==='anoChip'?(depois[0]||null):el(id),createElement:()=>criado,querySelector:()=>null,querySelectorAll:()=>[]},localStorage:{getItem:()=>null,setItem(){}},navigator:{onLine:true},location:{hash:''},URLSearchParams};
+ vm.createContext(c);for(const f of ['financeiro.js','graficos.js','dre-modelo.js','demonstrativos.js','glossario.js','cfo-modelo.js','cfo.js','app.js','gestao.js','pdf-cfo.js'])vm.runInContext(fs.readFileSync(new URL('../'+f,import.meta.url),'utf8'),c);
+ const run=s=>vm.runInContext(s,c);run("state.periodo='Ago/2026';state.records=[{label:'Ago/2026'}];state.cfg={demonstrativosCompetencia:{meses:{Ago_2026:{label:'Ago/2026'}}}};state.view='dre';dreUI.base='caixa';periodoOptions()");
+ assert.equal(depois.length,1);assert.equal(depois[0].id,'anoChip');assert.match(criado.innerHTML,/title="2026: de janeiro até o último mês com dados">Ano</);
+ run("dreUI.base='competencia';periodoOptions()");
+ assert.match(els.monthChips.innerHTML,/data-period="Ago\/2026"[^>]*class="has-data apurado" title="Ago\/2026 · Apuração cadastrada">Ago<\/button>/);
+ assert.match(els.monthChips.innerHTML,/class="no-data" title="Jul\/2026 · Sem apuração">Jul<\/button>/);assert.doesNotMatch(els.monthChips.innerHTML,/✓/);
+ run("dreUI.base='caixa';periodoOptions()");assert.doesNotMatch(els.monthChips.innerHTML,/apurado/,'no caixa, sem marca de apuração');
+ assert.equal(run('METADATA_TELAS.dre[1]'),'Movimento de caixa e resultado por competência, por mês ou no ano.');
+});
+// v135 (N18): o logo leva ao Dashboard pelo próprio app (sem navegar pelo href), com o Ano como estava.
+test('logo leva ao Dashboard sem trocar a página e mantém o Ano',async()=>{
+ const {c,run}=telaRender();const marca={};c.__qs=s=>s==='.brand'?marca:null;c.window={addEventListener(){}};c.history={state:null,replaceState(){},pushState(){}};c.document.body.classList={toggle(){},contains:()=>false};
+ c.location.hash='#tela=detalhe&conta=2.4&ano=1';run('initApp()');assert.deepEqual([run('state.view'),run('state.anoTodo'),run('state.contaSelecionada')],['detalhe',true,'2.4']);await new Promise(r=>setTimeout(r,0));
+ assert.equal(typeof marca.onclick,'function');let impediu=false;run("__renders=0;const __r=render;render=()=>{__renders++;__r()}");
+ marca.onclick({preventDefault(){impediu=true;}});
+ assert.equal(impediu,true,'o href não navega: a rota é gravada pelo render');assert.equal(run('state.view'),'inicio');assert.equal(run('state.anoTodo'),true);assert.equal(run('__renders'),1);
+});

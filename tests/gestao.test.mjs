@@ -82,9 +82,9 @@ function ctxResumo(){
  state.records=[mes('Fev/2025',900,850,400,450),mes('Jan/2026',1000,700,300,400),{...mes('Fev/2026',1200,800,500,300),pendencias:[{tipo:'Classificação',texto:'A',conta:'2.5',valor:10},{tipo:'Cobertura',texto:'B',conta:'2.5',valor:20},{tipo:'Cobertura',texto:'C',conta:'1',valor:30}]}];`);
  return c;
 }
-test('O que mudou: Diferença logo depois da Categoria, saída que sobe em vermelho e dívida neutra; ano anterior com os dois valores (C11, D9, I27, N15)',()=>{
+test('O que mudou: Diferença logo depois do Grupo, saída que sobe em vermelho e dívida neutra; ano anterior com os dois valores (C11, D9, I27, N15)',()=>{
  const c=ctxResumo(),h=c.run('resumoGestao(regAtual())');
- assert.match(h,/<thead><tr><th>Categoria<\/th><th class="num">Diferença<\/th><th class="num">Atual<\/th><th class="num">Anterior<\/th><\/tr><\/thead>/);
+ assert.match(h,/<thead><tr><th scope="col">Grupo<\/th><th scope="col" class="num">Diferença<\/th><th scope="col" class="num">Atual<\/th><th scope="col" class="num">Anterior<\/th><\/tr><\/thead>/,'I26: "Grupo" como termo único; N26: scope');assert.match(h,/variações dos grupos de saídas/);assert.doesNotMatch(h,/categorias/);
  assert.match(h,/>Despesas Fixas \(grupo 2\.5 do Mubisys\)<\/button><\/td><td class="num delta-ruim">▲ <span class="nowrap">R\$\s200,00<\/span><\/td><td class="num tom-sai">R\$\s500,00<\/td><td class="num tom-sai">R\$\s300,00<\/td>/,'despesa fixa subiu: ruim');
  assert.match(h,/>Despesas financeiras<\/button><\/td><td class="num ">▼ <span class="nowrap">R\$\s100,00<\/span><\/td>/,'2.13 é dívida: sem bom nem ruim, e sem sinal de menos ao lado da seta (C29)');
  assert.match(h,/permanecem no Plano de contas\./);assert.doesNotMatch(h,/Contas e origem/);
@@ -107,11 +107,93 @@ test('fila de conferência: "pendência(s) a conferir" e valor com o tom da cont
  assert.match(h,/3 pendência\(s\) a conferir\./);assert.doesNotMatch(h,/ocorrências/);
  assert.match(h,/<b class="tom-sai">R\$\s10,00<\/b>/);assert.match(h,/<b class="tom-entra">R\$\s30,00<\/b>/);
 });
-test('barra de contexto usa os nomes do menu (N15)',()=>{
+test('Veja também usa os nomes do menu, em texto, sem aria-current (N15, N16)',()=>{
  const c=context();
- assert.match(c.run("state.view='cfo';navContexto()"),/>Indicadores<\/button><button data-go="custos"[^>]*>Despesas e categorias<\/button>/);
- assert.match(c.run("state.view='custos';navContexto()"),/>Análise CFO<\/button>/);
- assert.match(c.run("state.view='resultado';navContexto()"),/>Caixa e planejamento<\/button>/);
- assert.match(c.run("state.view='conferencia';navContexto()"),/>Sistemas e configurações<\/button>/);
+ assert.equal(c.run("state.view='cfo';navContexto()"),'<nav class="context-nav veja-tambem" aria-label="Veja também"><span class="muted">Veja também:</span> <button type="button" class="text-button" data-go="indicadores">Indicadores →</button> <button type="button" class="text-button" data-go="custos">Despesas e categorias →</button></nav>');
+ assert.match(c.run("state.view='custos';navContexto()"),/>Análise CFO →<\/button>/);
+ assert.match(c.run("state.view='resultado';navContexto()"),/>Caixa e planejamento →<\/button>/);
+ assert.match(c.run("state.view='caixa';navContexto()"),/data-go="resultado">Composição do caixa →<\/button>/,'Composição do caixa alcançável a partir do Caixa');
+ assert.match(c.run("state.view='conferencia';navContexto()"),/>Sistemas e configurações →<\/button>/);
+ for(const v of ['cfo','custos','resultado','caixa','conferencia','config','indicadores'])assert.doesNotMatch(c.run(`state.view='${v}';navContexto()`),/aria-current/);
+ for(const v of ['inicio','dre','detalhe','glossario','dfc','balanco','giro','recebiveis','precos','parametros','ajuda'])assert.equal(c.run(`state.view='${v}';navContexto()`),'',v+': sem item, sem barra');
  for(const v of ['cfo','custos','resultado','caixa','conferencia','config'])assert.doesNotMatch(c.run(`state.view='${v}';navContexto()`),/Investigar variações|Movimento e previsão|Contas e origem|>Configurações</);
+});
+
+// ── v135 ──────────────────────────────────────────────────────────────────
+test('DRE compacta: AV % só na competência, p.p. com uma casa fixa e linha com scope (D16, D20, N26)',()=>{
+ const c=context();c.run("state.periodo='Fev/2026';state.comparar='Jan/2026';gestaoUI.dre='mes'");
+ const linhas="[{id:'entradas',nome:'Entradas',tipo:'result'},{id:'margem',nome:'Margem',tipo:'ratio'}]";
+ const caixa=c.run(`tabelaDRECompacta({competencia:false,ate:2,cols:[{label:'Jan/2026'},{label:'Fev/2026'}],valores:[{entradas:100,saidas:50,margem:10},{entradas:120,saidas:60,margem:12}],linhas:${linhas},soma:{entradas:220,margem:null}})`);
+ assert.doesNotMatch(caixa,/AV %|AV sobre/,'DRE de caixa sem a coluna AV % (só traços)');assert.match(caixa,/<caption>Caixa gerencial · Fev\/2026 · valores em R\$<\/caption>/);
+ assert.match(caixa,/<tr class="dre-row-result"><th scope="row">Entradas<\/th>/);assert.match(caixa,/<thead><tr><th scope="col">Rubrica<\/th><th scope="col" class="num">Fev\/2026<\/th><th scope="col" class="num">Jan\/2026<\/th>/);
+ const comp=c.run(`tabelaDRECompacta({competencia:true,ate:2,cols:[{label:'Jan/2026',comp:{company:'Impresilk'}},{label:'Fev/2026',comp:{company:'Impresilk'}}],valores:[{liquida:100,entradas:100,margem:10},{liquida:200,entradas:150,margem:12}],linhas:${linhas},soma:{entradas:250,margem:null}})`);
+ assert.match(comp,/<caption>Competência · Fev\/2026 · valores em R\$ · AV sobre receita líquida<\/caption>/);assert.match(comp,/<th scope="col" class="num">AV %<\/th>/);
+ assert.match(comp,/▲ 2,0 p\.p\./,'diferença de margem com uma casa fixa');
+});
+test('Fila de conferência: código do Mubisys ao lado do código do painel (I22)',()=>{
+ const c=ctxResumo();c.run("regAtual().pendencias=[{tipo:'Classificação',texto:'Conta nova',conta:'2.12',valor:5},{tipo:'Classificação',texto:'Mesma',conta:'1.2',valor:6},{tipo:'Cobertura',texto:'Sem conta',valor:7}]");
+ const h=c.run('painelPendencias(regAtual())');
+ assert.match(h,/<small>2\.12 · Mubisys 2\.9 · A conferir<\/small>/);assert.match(h,/<small>1\.2 · A conferir<\/small>/,'código igual não ganha sufixo');assert.match(h,/<small> · A conferir<\/small>/,'sem conta, sem código');
+});
+test('alerta de coleta antiga só para mês ainda aberto (I23)',()=>{
+ const c=context(),h=n=>new Date(Date.now()-n*36e5).toISOString();
+ const fechado=c.run(`alertasPeriodo({label:'Ago/2026',origem:'erp',qualidade:{ate:'2026-08-31',coletadoEm:'${h(20*24)}'},cells:[]})`);
+ assert.ok(!fechado.some(a=>/Coleta/.test(a)),'mês coletado até o último dia não envelhece');
+ const aberto=c.run(`alertasPeriodo({label:'Out/2026',origem:'erp',qualidade:{ate:'2026-10-05',coletadoEm:'${h(30)}'},cells:[]})`);
+ assert.ok(aberto.includes('Coleta deste mês com mais de 24h'));
+ assert.ok(!c.run(`alertasPeriodo({label:'Out/2026',origem:'erp',qualidade:{ate:'2026-10-05',coletadoEm:'${h(2)}'},cells:[]})`).some(a=>/Coleta/.test(a)),'coleta recente: sem alerta');
+ // mês de planilha não tem qualidade.ate: vale a data da importação (verificação v135)
+ assert.ok(!c.run(`alertasPeriodo({label:'Jan/2026',origem:'planilha',atualizadoEm:'2026-02-10T12:00:00Z',qualidade:{estado:'cobertura-nao-validada'},cells:[]})`).some(a=>/Coleta/.test(a)),'planilha importada depois do fim do mês não envelhece');
+ assert.ok(c.run(`alertasPeriodo({label:'Jan/2026',origem:'planilha',atualizadoEm:'2026-01-15T12:00:00Z',qualidade:{estado:'cobertura-nao-validada'},cells:[]})`).includes('Coleta deste mês com mais de 24h'),'importada no meio do mês: continua aberto');
+});
+test('O que mudou: grupo parado fica fora do "Demais", que diz quais grupos soma (I26)',()=>{
+ const c=ctxResumo();c.run("state.records.filter(r=>r.label!=='Fev/2025').forEach(r=>r.cells.push({code:'2.7',name:'Veículos',value:50}));state.cfg={gestao:{alertas:{variacao:150}}}");
+ const h=c.run('resumoGestao(regAtual())');
+ assert.match(h,/<tr><td title="Despesas financeiras">Demais 1 grupo<\/td>/);assert.doesNotMatch(h,/Veículos/,'diferença zero não entra');assert.doesNotMatch(h,/categorias comparáveis/);
+});
+test('rota: aba e "juntas" do Plano, área e fonte dos Indicadores, sem entrada nova no histórico (N3)',()=>{
+ const {c,hist}=ctxRota('#tela=detalhe&mes=Fev%2F2026&aba=planilha&juntas=1');
+ c.run("globalThis.planoUI={aba:'dashboard',juntas:false};restaurarRota()");
+ assert.deepEqual([c.run('planoUI.aba'),c.run('planoUI.juntas')],['planilha',true],'o link abre a aba Mês a mês');
+ const n=hist.length;c.run('gravarRota()');assert.equal(hist.length,n+1);assert.equal(hist.at(-1)[0],'replace');let q0=new URLSearchParams(c.location.hash.slice(1));assert.deepEqual([q0.get('tela'),q0.get('aba'),q0.get('juntas')],['detalhe','planilha','1'],'a aba e o "juntas" seguem no link');
+ c.run('gravarRota()');assert.equal(hist.length,n+1,'mesma rota: nada a gravar');
+ c.run("planoUI.aba='dashboard';planoUI.juntas=null;gravarRota()");assert.equal(hist.at(-1)[0],'replace','trocar de aba substitui a entrada');
+ assert.equal(new URLSearchParams(c.location.hash.slice(1)).has('aba'),false);assert.equal(new URLSearchParams(c.location.hash.slice(1)).has('juntas'),false,'automático não vai ao link');
+ c.run("planoUI.juntas=false;gravarRota()");assert.equal(new URLSearchParams(c.location.hash.slice(1)).get('juntas'),'0');
+ c.location.hash='#tela=detalhe&mes=Fev%2F2026';c.run('restaurarRota()');assert.deepEqual([c.run('planoUI.aba'),c.run('planoUI.juntas')],['dashboard',null]);
+ // Indicadores: a área do link vale até o mount; depois, a da tela.
+ const chamadas=[];c.window.DREIndicadores={area(a,f){chamadas.push([a,f]);},rota:()=>({area:'receita',fonte:'recebimentos'})};
+ c.location.hash='#tela=indicadores&mes=Fev%2F2026&area=custos&fonte=compras';c.run('restaurarRota()');
+ assert.deepEqual(JSON.parse(c.run('JSON.stringify(state.indicadoresRota)')),{area:'custos',fonte:'compras'});assert.deepEqual(chamadas,[['custos','compras']],'módulo já carregado: a área muda na hora');
+ c.run('gravarRota()');let q=new URLSearchParams(c.location.hash.slice(1));assert.deepEqual([q.get('area'),q.get('fonte')],['custos','compras'],'antes do mount, a rota do link');
+ c.window.DREIndicadores.rota=()=>({area:'custos',fonte:'notas'});const antes=hist.length;c.run('state.indicadoresRota=null;gravarRota()');q=new URLSearchParams(c.location.hash.slice(1));
+ assert.deepEqual([q.get('area'),q.get('fonte')],['custos','notas']);assert.equal(hist.length,antes+1);assert.equal(hist.at(-1)[0],'replace','trocar de fonte não empilha');
+ c.location.hash='#tela=dre&mes=Fev%2F2026';c.run('restaurarRota()');assert.equal(c.run('state.indicadoresRota'),null);
+});
+test('links profundos inválidos: comparar o próprio mês, tela inexistente e seção do Glossário (N22)',()=>{
+ const {c,hist}=ctxRota('#tela=dre&mes=Fev%2F2026&comparar=Fev%2F2026');
+ assert.equal(c.run('state.comparar'),'','comparar com o próprio mês abre sem comparação');
+ for(const [h,esperado] of [['comparar=Xyz%2F2026',''],['comparar=',''],['comparar=Jan%2F2026','Jan/2026']]){c.location.hash='#tela=dre&mes=Fev%2F2026&'+h;c.run('restaurarRota()');assert.equal(c.run('state.comparar'),esperado,h);}
+ const r2=ctxRota('#tela=inexistente&mes=Fev%2F2026');r2.c.run('gravarRota()');
+ assert.deepEqual(r2.hist.map(x=>x[0]),['replace'],'tela inexistente: a primeira gravação substitui, sem entrada extra');assert.equal(r2.c.run('state.view'),'inicio');
+ const r3=ctxRota('#tela=glossario&secao=painel');assert.equal(r3.c.run('state.glossarioSecao'),'painel');
+ r3.c.location.hash='#tela=dre&secao=painel';r3.c.run('restaurarRota()');assert.equal(r3.c.run('state.glossarioSecao'),'','secao só no Glossário');
+ assert.ok(hist.every(x=>x[0]!=='push'));
+});
+test('menu: tela sem item próprio abre o grupo do item-pai (N4)',()=>{
+ const c=context(),vistos=[],grupo={open:false};
+ c.run("if(typeof MENU_PAI==='undefined')globalThis.MENU_PAI={custos:'indicadores',resultado:'caixa'}");
+ c.document.querySelector=sel=>{vistos.push(sel);return {closest:()=>grupo};};
+ c.run("state.view='resultado';sincronizarMenu()");assert.equal(vistos.at(-1),'#viewTabs [data-view="caixa"]');assert.equal(grupo.open,true,'Composição do caixa abre o grupo de Caixa e planejamento');
+ c.run("state.view='custos';sincronizarMenu()");assert.equal(vistos.at(-1),'#viewTabs [data-view="indicadores"]');
+ c.run("state.view='dfc';sincronizarMenu()");assert.equal(vistos.at(-1),'#viewTabs [data-view="dfc"]');
+});
+test('"↑ Topo e menu": volta ao topo com o menu aberto e o foco no Menu (N13)',()=>{
+ const c=context(),ouv={},rolou=[],estado={aberto:false,expandido:'false',focoMenu:0};
+ const el=(id,extra={})=>({id,addEventListener(t,f){ouv[id+':'+t]=f;},setAttribute(k,v){if(id==='menuToggle'&&k==='aria-expanded')estado.expandido=v;},getAttribute:k=>k==='aria-expanded'?estado.expandido:null,querySelectorAll:()=>[],offsetParent:{},...extra});
+ const els={viewTabs:el('viewTabs'),menuToggle:el('menuToggle',{focus(){estado.focoMenu++;}}),pageTitle:el('pageTitle'),voltarMenu:el('voltarMenu')};
+ Object.assign(c.document,{getElementById:id=>els[id]||null,querySelector:s=>s==='.sidebar'?{classList:{toggle(k,v){if(k==='menu-aberto')estado.aberto=v;}},addEventListener(){}}:null});
+ c.window={scrollTo:o=>rolou.push(o)};c.run('wireMenuLateral()');
+ assert.equal(typeof ouv['voltarMenu:click'],'function');ouv['voltarMenu:click']();
+ assert.equal(JSON.stringify(rolou),'[{"top":0}]');assert.deepEqual([estado.aberto,estado.expandido,estado.focoMenu],[true,'true',1]);
 });
