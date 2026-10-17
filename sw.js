@@ -15,6 +15,7 @@ const V = CACHE.split('-v')[1];
 // para o app abrir offline. Outras origens passam direto pela rede; nada de CDN
 // é guardado.
 const SHELL = [
+  `./silk-design.css?v=${V}`, `./silk-compacto.webp?v=${V}`,
   `./plano-contas.js?v=${V}`,
   `./auditoria.js?v=${V}`,
   `./fechamento.js?v=${V}`,
