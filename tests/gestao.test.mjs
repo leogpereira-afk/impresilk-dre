@@ -126,7 +126,9 @@ test('DRE compacta: AV % só na competência, p.p. com uma casa fixa e linha com
  const caixa=c.run(`tabelaDRECompacta({competencia:false,ate:2,cols:[{label:'Jan/2026'},{label:'Fev/2026'}],valores:[{entradas:100,saidas:50,margem:10},{entradas:120,saidas:60,margem:12}],linhas:${linhas},soma:{entradas:220,margem:null}})`);
  assert.doesNotMatch(caixa,/AV %|AV sobre/,'DRE de caixa sem a coluna AV % (só traços)');assert.match(caixa,/<caption>Caixa gerencial · Fev\/2026 · valores em R\$<\/caption>/);
  assert.match(caixa,/<tr class="dre-row-result"><th scope="row">Entradas<\/th>/);assert.match(caixa,/<thead><tr><th scope="col">Rubrica<\/th><th scope="col" class="num">Fev\/2026<\/th><th scope="col" class="num">Jan\/2026<\/th>/);
- const comp=c.run(`tabelaDRECompacta({competencia:true,ate:2,cols:[{label:'Jan/2026',comp:{company:'Impresilk'}},{label:'Fev/2026',comp:{company:'Impresilk'}}],valores:[{liquida:100,entradas:100,margem:10},{liquida:200,entradas:150,margem:12}],linhas:${linhas},soma:{entradas:250,margem:null}})`);
+ // O par é resolvido nas apurações, não nos valores artificiais da matriz anual.
+ c.run(`dreUI.base='competencia';state.cfg={demonstrativosCompetencia:{meses:{}}};for(const [mes,produtos,custos] of [['Jan',100,90],['Fev',200,176]])state.cfg.demonstrativosCompetencia.meses[mes+'_2026']={label:mes+'/2026',company:'Empresa fictícia',fonte:'Fixture',valores:{...Object.fromEntries(DREModelo.campos.map(c=>[c.id,0])),produtos,custos}}`);
+ const comp=c.run('tabelaDRECompacta(dadosDRE())');
  assert.match(comp,/<caption>Competência · Fev\/2026 · valores em R\$ · AV sobre receita líquida<\/caption>/);assert.match(comp,/<th scope="col" class="num">AV %<\/th>/);
  assert.match(comp,/▲ 2,0 p\.p\./,'diferença de margem com uma casa fixa');
 });

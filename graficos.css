@@ -149,7 +149,30 @@ body.dark{
  .g-linha-h{grid-template-columns:minmax(72px,34%) 1fr}
  .g-linha-h .g-nome{-webkit-line-clamp:3}
 }
-/* cascata em cartão de até 900 px: os rótulos de valor se cruzam; fica o resumo em texto */
-@container (max-width:900px){.g-cascata .g-opcional{display:none}.g-cascata .g-resumo-estreito{display:block}}
+/* Etapas numeradas: a escala permanece frontal; os textos têm espaço próprio.
+   A lista é também um controle de toque/teclado para as mesmas marcas do SVG. */
+.g-cascata .g-plot{padding:8px 0 32px}
+.g-cascata .g-area{height:200px}
+.g-cascata .g-cascata-numero{font-size:11px;font-weight:650;padding-top:6px;color:var(--g-texto)}
+.g-cascata-etapas{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;list-style:none;padding:0;margin:12px 0 0}
+.g-cascata-etapas>li{min-width:0;margin:0}
+.g-cascata-etapa{display:flex;align-items:flex-start;gap:7px;min-height:58px;width:100%;padding:7px 8px;border:1px solid var(--g-grade);border-radius:9px;background:var(--g-superficie);text-align:left;font-size:12px;line-height:1.3;font-weight:400}
+.g-cascata-etapa[disabled]{opacity:1;cursor:default;background:var(--bg);color:var(--g-texto-2)}
+.g-cascata-etapa:not([disabled]):hover,.g-cascata-etapa[aria-pressed=true]{background:var(--selected);border-color:var(--blue)}
+.g-cascata-etapa:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.g-etapa-indice{display:inline-flex;align-items:center;justify-content:center;flex:0 0 20px;min-height:20px;border-radius:6px;color:var(--g-superficie);font-size:11px;font-weight:650}
+.g-etapa-indice.g-cor-sem-dado{color:var(--g-texto-2);background:var(--g-hachura);border:1px dashed var(--g-texto-2)}
+.g-etapa-texto{min-width:0;flex:1}
+.g-etapa-nome{display:block;overflow-wrap:anywhere;color:var(--g-texto);font-size:11px;line-height:1.3}
+.g-etapa-valores{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 6px;margin-top:3px;font-variant-numeric:tabular-nums}
+.g-etapa-valores b{color:var(--g-texto);font-size:12px;font-weight:600}
+.g-etapa-valores small{color:var(--g-texto-2);font-size:11px}
+.g-etapa-total{background:color-mix(in srgb,var(--selected) 48%,var(--g-superficie))}
+.g-cascata .g-legenda{margin-top:4px}
+@container (max-width:900px){.g-cascata-etapas{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@container (max-width:580px){.g-cascata-etapas{grid-template-columns:repeat(2,minmax(0,1fr))}.g-cascata .g-area{height:170px}.g-cascata-etapa{padding:7px 6px;gap:5px}.g-cascata .g-legenda{gap:5px 12px;font-size:11px}}
+@container (max-width:280px){.g-cascata-etapas{grid-template-columns:1fr}}
+@media print{.g-cascata-etapa{box-shadow:none;break-inside:avoid}.g-cascata-etapas{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (forced-colors:active){.g-etapa-indice{border:1px solid CanvasText;color:CanvasText}.g-cascata-etapa[aria-pressed=true]{outline:2px solid Highlight}}
 @media print{.g-dica{display:none}.g-tabela{display:block}.g-tabela[open]>*{display:block}}
 @media (forced-colors:active){.g-svg .g-marca-dado{stroke:CanvasText}.g-sem-dado,.g-aviso{background:none;border:1px dashed CanvasText}}

@@ -92,3 +92,33 @@ test('cartões da auditoria: meses sem problema em verde de status, falhas em ve
  const h=c.run('renderAuditoria()');assert.match(h,/<span class="label">Meses sem problema<\/span><strong class="st-ok">3<\/strong>/);assert.doesNotMatch(h,/Meses sem problema<\/span><strong class="tom-/);
  c.run('audUI.resultado.limpos=1');assert.match(c.run('renderAuditoria()'),/<span class="label">Meses sem problema<\/span><strong class="">1<\/strong>/);
 });
+test('auditoria invalida parâmetros e versões confirmadas; CSV antigo não é exportado',()=>{
+ const c=app(BOM,{simples:structuredClone(aliquotas),op:{'2026-01':{saldoInicial:1000}}});
+ c.run("toast=()=>{};download=()=>{globalThis.__baixou=true};state.cfgVersion='v1';audUI.resultado=auditarTudo()");
+ c.run('delete state.cfg.parametros.simples');
+ assert.match(c.run('renderAuditoria()'),/Os dados mudaram depois desta auditoria/);
+ assert.match(c.run('renderAuditoria()'),/data-aud-csv disabled/);
+ assert.equal(c.run('audCSV()'),null);assert.notEqual(c.run('globalThis.__baixou'),true);
+ assert.ok(c.json('auditarTudo().total.atencao')>c.json('audUI.resultado.total.atencao'));
+ c.run("audUI.resultado=auditarTudo();state.cfgVersion='v2'");
+ assert.match(c.run('renderAuditoria()'),/Os dados mudaram depois desta auditoria/,'atualização remota da configuração invalida a análise');
+});
+test('auditoria acompanha conteúdo de todo mês e histórico de posições, não só o maior timestamp',()=>{
+ const c=app(BOM,{simples:aliquotas});
+ c.run("state.records[0].atualizadoEm='2026-02-01';state.records[1].atualizadoEm='2026-04-01';audUI.resultado=auditarTudo();state.records[0].cells[0].value=1");
+ assert.match(c.run('renderAuditoria()'),/Os dados mudaram depois desta auditoria/);
+ c.run('audUI.resultado=auditarTudo();giroUI.dados={historico:{meses:[]}}');
+ assert.match(c.run('renderAuditoria()'),/Os dados mudaram depois desta auditoria/);
+ c.run("audUI.resultado=auditarTudo();giroUI.dados.historico.meses.push({id:'2026-01'})");
+ assert.match(c.run('renderAuditoria()'),/Os dados mudaram depois desta auditoria/);
+ c.run("audUI.resultado=auditarTudo();giroUI.dados.historico.meses[0].receber={total:100}");
+ assert.match(c.run('renderAuditoria()'),/Os dados mudaram depois desta auditoria/,'conteúdo da mesma posição também invalida');
+ c.run("audUI.resultado=auditarTudo();state.records[0].previaERP={geradoEm:'2026-02-01T12:00:00Z'}");
+ assert.match(c.run('renderAuditoria()'),/Os dados mudaram depois desta auditoria/,'versão da coleta usada como fallback de qualidade também invalida');
+});
+test('recalcular auditoria não reutiliza apuração de contas modificadas no mesmo objeto',()=>{
+ const c=app(BOM,{simples:aliquotas});
+ c.run("globalThis.__apurou=0;globalThis.__ctx={hoje:'2026-10-24',saldos:new Map()};DRESimples.apurar=r=>{__apurou++;return {diferenca:r.cells[0].value===1?20:0,caixa:1,conferir:[],linhas:{}}};audMes(state.records[0],__ctx)");
+ assert.equal(c.run('__apurou'),1);c.run('state.records[0].cells[0].value=1;globalThis.__achados=audMes(state.records[0],__ctx)');
+ assert.equal(c.run('__apurou'),2);assert.ok(c.json('__achados').some(x=>x.grupo==='caixa'&&x.nivel==='falha'));
+});

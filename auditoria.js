@@ -33,8 +33,16 @@ function audTrechos(labels){
  return g.map(x=>({...x,texto:x.ini===x.fim?x.ini:`${x.ini} a ${x.fim}`}));
 }
 const audFaixas=labels=>audTrechos(labels).map(x=>x.texto);
-// Os dados de que a auditoria depende: muda quando chega ou sai um mês.
-const audAssinatura=()=>state.records.length+'|'+state.records.reduce((m,r)=>String(r?.atualizadoEm||'')>m?String(r.atualizadoEm):m,'');
+// A assinatura fica somente em memória. Conteúdo e versões entram juntos: uma
+// alteração num mês antigo, nos parâmetros ou nas posições invalida a análise,
+// mesmo que a quantidade de meses e o maior timestamp permaneçam iguais.
+const audAssinatura=()=>JSON.stringify({modelo:2,
+ hoje:typeof dfcHoje==='function'?dfcHoje():new Date().toISOString().slice(0,10),
+ registros:state.records.map(r=>({id:r.id,label:r.label,company:r.company,basis:r.basis,origem:r.origem,atualizadoEm:r.atualizadoEm,coletadoEm:r.previaERP?.geradoEm,qualidade:r.qualidade,cells:r.cells,pendencias:r.pendencias,temTrilha:Array.isArray(r.eventos)&&r.eventos.length>0,osFaltando:r.previaERP?.diagOS?.osFaltando})),
+ cfg:state.cfg,cfgVersion:state.cfgVersion||null,
+ posicoes:typeof giroUI!=='undefined'?giroUI.dados?.historico||null:null
+});
+const audDesatualizada=r=>!!r&&r.assinatura!==audAssinatura();
 // Por que a sequência do saldo parou no começo de um trecho (a causa mais antiga).
 function audCausaSaldo(q){
  const f=x=>x.mesAte&&x.mesAte!==x.mes?`${x.mes} a ${x.mesAte}`:x.mes;
@@ -64,7 +72,7 @@ function audMes(reg,ctx){
  if(erradas.length)add('estrutura','falha',`${erradas.length} conta(s)-mãe não fecham com as filhas: ${audLista(erradas)}`);
  if(diretas)add('estrutura','info',`${diretas} conta(s)-mãe com lançamento direto, além das subcontas`);
  // DRE Simples contra o caixa do ERP.
- let a=null;if(typeof DRESimples!=='undefined'&&mapa.has('1')&&mapa.has('2')){if(!audApuracao.has(reg))audApuracao.set(reg,DRESimples.apurar(reg));a=audApuracao.get(reg);}
+ let a=null;if(typeof DRESimples!=='undefined'&&mapa.has('1')&&mapa.has('2')){const assinatura=JSON.stringify(reg.cells),cache=audApuracao.get(reg);if(!cache||cache.assinatura!==assinatura)audApuracao.set(reg,{assinatura,valor:DRESimples.apurar(reg)});a=audApuracao.get(reg).valor;}
  if(a){
   if(Math.abs(a.diferenca||0)>=.01)add('caixa','falha',`as linhas da DRE ficam ${money(Math.abs(a.diferenca))} ${a.diferenca>0?'acima':'abaixo'} do caixa do ERP (${money(a.caixa)})`);
   if(a.linhas?.vendas<0)add('caixa','atencao',`vendas negativas no mês (${money(a.linhas.vendas)})`);
@@ -122,10 +130,10 @@ function auditarTudo(){
  return {em:new Date().toISOString(),meses:regs.map(r=>r.label),de:regs[0]?.label||null,ate:regs[regs.length-1]?.label||null,achados,total:{falha:conta('falha'),atencao:conta('atencao'),info:conta('info')},limpos:regs.filter(r=>!comProblema.has(r.label)).length,posicoes:!!ctx.hist,aguardando:typeof giroUI!=='undefined'&&!!giroUI.busy,assinatura:audAssinatura()};
 }
 function renderAuditoria(){
- const n=state.records.length,r=audUI.resultado,botoes=`<div class="actions"><button type="button" class="primary" data-aud-rodar>${r?'Rodar de novo':'Rodar auditoria'}</button>${r?'<button type="button" data-aud-csv>Baixar achados (CSV)</button>':''}</div>`;
- const intro=`<p>Confere todos os ${n} meses carregados, de todos os anos, campo a campo: estrutura das contas, DRE contra o caixa do ERP, classificação, coleta, sequência dos meses, saldos do Fluxo de caixa, cadastros e balanço. Nada é alterado; roda neste navegador.</p>`;
+ const n=state.records.length,r=audUI.resultado,desatualizada=audDesatualizada(r),botoes=`<div class="actions"><button type="button" class="primary" data-aud-rodar>${r?'Rodar de novo':'Rodar auditoria'}</button>${r?`<button type="button" data-aud-csv${desatualizada?' disabled':''}>Baixar achados (CSV)</button>`:''}</div>`;
+ const intro=`<p>Confere os ${n} meses carregados: estrutura, cálculos, classificação, cobertura registrada, sequência, saldos, parâmetros e posições disponíveis. Nada é alterado; roda neste navegador.</p><p class="hint">Ausência de falhas locais não comprova cobertura da origem, sucesso da última execução da coleta ou conciliação bancária. Confira cada estado em Saúde da informação e no acompanhamento da atualização.</p>`;
  if(!r)return card(`Auditoria completa · ${n} meses`,intro+botoes+'<p class="hint">Para auditar todos os anos, traga antes os meses antigos pela carga histórica (GitHub do DRE, Actions, "Carga histórica do DRE (Mubisys)").</p>');
- const cards=`<div class="cards cards-controle">${recCartao('Meses conferidos',String(r.meses.length),r.de?`${r.de} a ${r.ate}`:'Nenhum mês carregado')}${recCartao('Falhas',String(r.total.falha),'Números que não podem estar certos',r.total.falha?'tom-sai':'')}${recCartao('Atenções',String(r.total.atencao),'Pedem conferência ou cadastro')}${recCartao('Meses sem problema',String(r.limpos),'Sem falha nem atenção',r.limpos&&r.limpos===r.meses.length?'st-ok':'')}</div>`;
+ const cards=`<div class="cards cards-controle">${recCartao('Meses conferidos',String(r.meses.length),r.de?`${r.de} a ${r.ate}`:'Nenhum mês carregado')}${recCartao('Falhas',String(r.total.falha),'Inconsistências nos dados carregados',r.total.falha?'tom-sai':'')}${recCartao('Atenções',String(r.total.atencao),'Pedem conferência ou cadastro')}${recCartao('Meses sem problema',String(r.limpos),'Sem falha ou atenção nas verificações executadas',r.limpos&&r.limpos===r.meses.length?'st-ok':'')}</div>`;
  const problemas=r.achados.filter(x=>x.nivel!=='info'),porGrupo=AUD_GRUPOS.map(([id,nome])=>({rotulo:nome,valor:problemas.filter(x=>x.grupo===id).length})).filter(x=>x.valor>0);
  const g1=recPainel('Onde estão os problemas?','Falhas e atenções por verificação, em todos os meses.',porGrupo.length?gBarrasOrdenadas(porGrupo,{cor:'saida',limite:8,titulo:'Achados por verificação',formato:v=>`${v} achado(s)`,curto:v=>String(v),coluna:'Achados'}):'<p class="hint">Nenhuma falha nem atenção.</p>');
  const ano=String(state.periodo).split('/')[1],mesesAno=PT_MON.map(m=>m+'/'+ano);
@@ -134,11 +142,11 @@ function renderAuditoria(){
  const lista=r.achados.filter(x=>audUI.nivel==='todos'||(audUI.nivel==='problemas'?x.nivel!=='info':x.nivel===audUI.nivel));
  const filtro=`<label class="aud-filtro">Mostrar<select data-aud-nivel>${[['problemas','Falhas e atenções'],['falha','Só falhas'],['atencao','Só atenções'],['info','Só informações'],['todos','Tudo']].map(([v,t])=>`<option value="${v}"${audUI.nivel===v?' selected':''}>${t}</option>`).join('')}</select></label>`;
  const tabela=`<div class="table-scroll"><table class="tabela-controle aud-tabela"><caption>${lista.length} achado(s) · auditoria de ${esc(recHora(r.em))}${r.posicoes?'':r.aguardando?' · aguardando o histórico de posições (a auditoria se refaz quando ele chegar)':' · balanço não conferido (histórico de posições não lido)'}</caption><thead><tr><th scope="col">Mês</th><th scope="col">Verificação</th><th scope="col">Nível</th><th scope="col">O que foi achado</th></tr></thead><tbody>${lista.slice(0,500).map(x=>`<tr><th scope="row">${esc(x.mes)}</th><td>${esc(AUD_GRUPOS.find(g=>g[0]===x.grupo)?.[1]||x.grupo)}</td><td class="${x.nivel==='falha'?'tom-sai':''}">${esc(AUD_NIVEIS[x.nivel])}</td><td>${esc(x.texto)}</td></tr>`).join('')||'<tr><td colspan="4">Nenhum achado neste filtro.</td></tr>'}</tbody></table></div>${lista.length>500?`<p class="hint">Mostrando 500 de ${lista.length}; a planilha traz todos.</p>`:''}`;
- const velho=r.assinatura!==audAssinatura()?'<p class="param-avisos">Os dados mudaram depois desta auditoria: rode de novo.</p>':'';
+ const velho=desatualizada?'<p class="param-avisos" role="status">Os dados mudaram depois desta auditoria: rode de novo para atualizar os achados e liberar a exportação.</p>':'';
  return card(`Auditoria completa · ${r.meses.length} meses`,intro+velho+botoes+cards+`<div class="graficos-controle">${g1}${g2}</div>`+filtro+tabela);
 }
 function audCSV(){
- const r=audUI.resultado;if(!r)return null;
+ const r=audUI.resultado;if(!r)return null;if(audDesatualizada(r)){if(typeof toast==='function')toast('Rode a auditoria de novo antes de exportar: os dados mudaram.');if(typeof render==='function')render();return null;}
  const rows=[['Auditoria completa do DRE',recHora(r.em)],['Meses conferidos',String(r.meses.length),r.de||'',r.ate||''],['Falhas',String(r.total.falha)],['Atenções',String(r.total.atencao)],['Informações',String(r.total.info)],[],['Mês','Verificação','Nível','O que foi achado'],...r.achados.map(x=>[x.mes,AUD_GRUPOS.find(g=>g[0]===x.grupo)?.[1]||x.grupo,AUD_NIVEIS[x.nivel],x.texto])];
  download('auditoria-dre.csv','﻿'+rows.map(l=>l.map(celulaCSV).join(';')).join('\n'),'text/csv');
  return rows;

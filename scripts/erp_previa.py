@@ -28,6 +28,7 @@ def call(fn, payload, timeout=90, tentativas=4):
         raise RuntimeError("Configure DRE_MACHINE_TOKEN no ambiente da rotina. Não use credencial de navegador.")
     ultimo = None
     for n in range(tentativas):
+        ultimo_http = None
         try:
             req = urllib.request.Request(
                 f"{BASE}/{fn}",
@@ -37,6 +38,7 @@ def call(fn, payload, timeout=90, tentativas=4):
             return json.loads(urllib.request.urlopen(req, timeout=timeout).read().decode())
         except urllib.error.HTTPError as e:
             corpo = e.read().decode()[:200]
+            ultimo_http = e.code
             ultimo = f"HTTP {e.code}: falha no serviço {fn}"
             # O dre-financas repassa o 404 do Mubisys ("nenhum registro", mas que também
             # pisca) como 502: não é estouro de tempo; quem decide é coletar (três 404).
@@ -48,12 +50,16 @@ def call(fn, payload, timeout=90, tentativas=4):
             ultimo = str(e)[:160]
         if eh_estouro(ultimo):
 
-            raise JanelaGrande(ultimo)
+            raise JanelaGrande(ultimo, http=ultimo_http)
         time.sleep(5 * (n + 1))
     raise RuntimeError(ultimo)
 
 class JanelaGrande(Exception):
-    """JanelaGrande: processa dados recebidos da origem autenticada."""
+    """Permite reduzir a janela sem confundir HTTP do gateway com timeout."""
+
+    def __init__(self, mensagem="Consulta incompleta", http=None):
+        super().__init__(mensagem)
+        self.http = http if type(http) is int and 100 <= http <= 599 else None
 
 class Mubisys404(Exception):
     """O Mubisys respondeu 404 (nenhum registro, ou o 404 que pisca em rota válida)."""
@@ -191,6 +197,28 @@ def aplicar_trilha(registro, ini, fim, coletado_em):
     trilha["movimentosVinculados"] = sum(bool(e.get("contaGerencial")) for e in registro.get("eventos", []))
     registro["trilhaClassificacao"] = trilha
 
+def diagnostico_janela(resposta):
+    """Somente motivos fixos e status HTTP; nunca corpo, itens ou credenciais."""
+    d = resposta.get("diagnostico") if isinstance(resposta, dict) else None
+    d = d if isinstance(d, dict) else {}
+    motivos = {
+        "tempo-ou-rede": "tempo de resposta ou rede",
+        "orcamento-esgotado": "tempo total esgotado no conector",
+        "http": "falha HTTP",
+        "resposta-invalida": "resposta fora do contrato",
+        "lista-ausente": "lista de títulos ausente",
+        "paginacao-inconsistente": "paginação inconsistente",
+        "pagina-repetida": "página repetida",
+        "limite-de-paginas": "limite de páginas",
+    }
+    motivo = d.get("motivo")
+    motivo = motivo if isinstance(motivo, str) and motivo in motivos else "nao-informado"
+    http = d.get("http")
+    http = http if type(http) is int and 100 <= http <= 599 else None
+    texto = f"HTTP {http}" if motivo == "http" and http else motivos.get(motivo, "motivo não informado pelo conector")
+    return {"motivo": motivo, "http": http, "texto": texto}
+
+
 def coletar(recurso, ini, fim):
     """coletar: processa dados recebidos da origem autenticada."""
     vistos = {}
@@ -204,37 +232,42 @@ def coletar(recurso, ini, fim):
                     "filtrodata": "PAGAMENTO",
                     "datainicial": a.isoformat(), "datafinal": b.isoformat(),
                 })
-            except JanelaGrande:
-                r = {"ok": True, "parcial": True, "diagnostico": {"motivo": "tempo-ou-rede"}}
+            except JanelaGrande as e:
+                r = {"ok": True, "parcial": True, "diagnostico": {"motivo": "http", "http": e.http} if e.http else {"motivo": "tempo-ou-rede"}}
             except Mubisys404:
                 r = {"ok": True, "parcial": True, "diagnostico": {"motivo": "http", "http": 404}}
-            diag = r.get("diagnostico") or {}
+            if not isinstance(r, dict):
+                r = {"ok": False, "parcial": True, "diagnostico": {"motivo": "resposta-invalida"}}
+            diag = diagnostico_janela(r)
             completa = r.get("ok") is True and not r.get("parcial") and isinstance(r.get("itens"), list)
             if completa:
                 break
             # O 404 também chega como resposta parcial do dre-financas (paginação): conta igual.
             if diag.get("motivo") == "http" and diag.get("http") == 404 and not (r.get("itens") or []):
                 vazios += 1
+            nome_recurso = recurso if recurso in ("contas-pagar", "contas-receber") else "recurso financeiro"
+            print(f"  {nome_recurso} · janela {a} → {b} · tentativa {tentativa + 1}/3 incompleta: {diag['texto']}", flush=True)
             if tentativa < 2:
-                print(f"  janela {a} → {b} incompleta; repetindo consulta", flush=True)
                 time.sleep(5 * (tentativa + 1))
         # Regra da casa: só é vazio quando três 404 seguidos concordam.
         if vazios == 3:
             print(f"  janela {a} → {b}: três 404 seguidos do Mubisys, sem pagamentos", flush=True)
             time.sleep(1.2)
             return
-        diag = (r or {}).get("diagnostico") or {}
+        diag = diagnostico_janela(r)
         expansiva = diag.get("motivo") in ("tempo-ou-rede", "orcamento-esgotado") or (
             diag.get("motivo") == "http" and diag.get("http") in (502, 504))
         if not completa and expansiva:
             if a >= b:
+                print(f"  janela mínima {a}: consulta continua incompleta ({diag['texto']}); última versão preservada", flush=True)
                 raise RuntimeError("Coleta incompleta; última versão preservada.")
             meio = a + (b - a) // 2
-            print(f"  janela {a} → {b} estourou o tempo; partindo ao meio", flush=True)
+            print(f"  janela {a} → {b} incompleta ({diag['texto']}); partindo ao meio", flush=True)
             buscar(a, meio, nivel + 1)
             buscar(meio + datetime.timedelta(days=1), b, nivel + 1)
             return
         if r.get("ok") is not True or r.get("parcial") or not isinstance(r.get("itens"), list):
+            print(f"  janela {a} → {b} não confirmada ({diag['texto']}); última versão preservada", flush=True)
             raise RuntimeError("Coleta incompleta; última versão preservada.")
         for t in (r.get("itens") or []):
             if t.get("id") is None:

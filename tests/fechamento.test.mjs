@@ -19,6 +19,28 @@ test('lista: mês completo e cadastrado fica todo certo',()=>{
  const c=app();assert.deepEqual(ok(c),{coleta:true,caixa:true,classificacao:true,saldo:true,aliquota:true,cadastros:true,posicao:true,auditoria:true});
  assert.match(c.run('renderFechamento()'),/Todos os itens certos/);
 });
+test('saldo informado sem base calculável continua pendente no fechamento',()=>{
+ const cfg=structuredClone(CFG_OK);delete cfg.parametros.operacao['2026-09'].saldoInicial;
+ const c=app({cfg}),s=c.json("fechConferir('Set/2026').find(x=>x.id==='saldo')");
+ assert.equal(s.ok,false);assert.match(s.texto,/sem saldo calculado para comparar/);
+ assert.match(c.run('renderFechamento()'),/Justificativa dos 1 item/);
+ const parcial=app({regs:[reg('Set/2026','2026-09-20'),reg('Out/2026','2026-10-12')]});
+ assert.equal(parcial.json("fechConferir('Set/2026').find(x=>x.id==='saldo').ok"),false,'mês parcial interrompe a base calculada');
+});
+test('saldo reconciliado exige igualdade em centavos e aceita zero conhecido',()=>{
+ const c=app();
+ c.run("state.cfg.parametros.operacao['2026-10'].saldoInicial=0;dfcSaldos=()=>new Map([[monthSortKey('Out/2026'),{calculado:0,divergencia:null}]])");
+ assert.equal(c.json("fechConferir('Set/2026').find(x=>x.id==='saldo').ok"),true);
+ c.run("state.cfg.parametros.operacao['2026-10'].saldoInicial=100.01;dfcSaldos=()=>new Map([[monthSortKey('Out/2026'),{calculado:100,divergencia:null}]])");
+ const s=c.json("fechConferir('Set/2026').find(x=>x.id==='saldo')");assert.equal(s.ok,false);assert.match(s.texto,/difere R\$\s0,01/);
+ c.run("dfcSaldos=()=>new Map([[monthSortKey('Out/2026'),{calculado:NaN,divergencia:null}]])");
+ assert.equal(c.json("fechConferir('Set/2026').find(x=>x.id==='saldo').ok"),false);
+});
+test('selo de auditoria delimita verificações locais e nunca aprova módulo ausente',()=>{
+ const c=app(),s=c.json("fechConferir('Set/2026').find(x=>x.id==='auditoria')");
+ assert.equal(s.titulo,'Verificações locais sem falha');assert.match(s.texto,/dados carregados/);assert.match(s.texto,/cobertura.*coleta.*conciliação/i);
+ c.run('audMes=undefined');const sem=c.json("fechConferir('Set/2026').find(x=>x.id==='auditoria')");assert.equal(sem.ok,false);assert.match(sem.texto,/não disponível/);
+});
 test('lista: cada falta vira ⚠️ com o que fazer',()=>{
  const cfg=structuredClone(CFG_OK);delete cfg.parametros.operacao['2026-10'];delete cfg.parametros.simples;delete cfg.parametros.operacao['2026-09'].estoque;
  const c=app({regs:[reg('Set/2026','2026-09-20',{pendencias:[{tipo:'sem-classe'}]}),reg('Out/2026','2026-10-12')],cfg,hist:[]});const L=c.json(`fechConferir('Set/2026')`),t=Object.fromEntries(L.map(x=>[x.id,x]));

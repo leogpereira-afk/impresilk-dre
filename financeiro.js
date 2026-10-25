@@ -36,8 +36,10 @@ var DREFinancas = (() => {
   }
   function comparacao(a,b,agora=new Date()){
     const c=comparavelComRessalva(a,b,agora);
+    const atual=resumo(a).variacao,anterior=resumo(b).variacao;
+    if(c.pode&&(!Number.isFinite(atual)||!Number.isFinite(anterior)))return {permitida:false,ressalva:false,motivo:'Total de entradas ou saídas ausente ou inválido em um dos períodos.',delta:null};
     return {permitida:c.pode,ressalva:c.ressalva,motivo:c.motivo,
-      delta:c.pode?reais(cents(resumo(a).variacao)-cents(resumo(b).variacao)):null};
+      delta:c.pode?reais(cents(atual)-cents(anterior)):null};
   }
   function residuos(reg){const cells=reg?.cells||[];return cells.flatMap(c=>{const filhos=cells.filter(x=>x.code.substring(0,x.code.lastIndexOf('.'))===c.code&&x.code!==c.code);if(!filhos.length)return[];const v=cents(c.value)-filhos.reduce((n,x)=>n+cents(x.value),0);return v?[{code:c.code,name:c.name,value:reais(v)}]:[];});}
   function margemAcumulada(itens){const rec=itens.reduce((n,x)=>n+cents(x.receita),0),res=itens.reduce((n,x)=>n+cents(x.resultado),0);return rec?res/rec:null;}
@@ -126,7 +128,9 @@ var DREFinancas = (() => {
     const atual=valorConta(a,code),anterior=valorConta(b,code),ca=a?.cells?.find(c=>c.code===code),cb=b?.cells?.find(c=>c.code===code);
     if(ca?.misturado||cb?.misturado)return {permitida:false,ressalva:false,motivo:'O código foi usado para contas diferentes no ano: não se compara.',atual,anterior,delta:null,percentual:null};
     const mesmaOrigem=(a?.origem||'planilha')===(b?.origem||'planilha');
-    const c=comparacao(a,b);
+    // A conta tem seus próprios valores conhecidos; a falta de um total geral
+    // impede comparar o caixa, mas não deve trocar o motivo de uma conta renomeada.
+    const base=comparavelComRessalva(a,b),c={permitida:base.pode,ressalva:base.ressalva,motivo:base.motivo};
     const permitida=c.permitida && atual!=null && anterior!=null && ca.name===cb.name && (mesmaOrigem||code.split('.').length<=2);
     const delta=permitida?reais(cents(atual)-cents(anterior)):null;
     // O motivo tem de ser do nível que barrou: dizer "mesmo escopo" para

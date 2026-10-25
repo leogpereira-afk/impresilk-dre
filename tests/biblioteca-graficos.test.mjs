@@ -106,27 +106,32 @@ test('a classe do tipo de figura não se repete por dentro (senão a regra do mi
  }
  assert.match(ler('graficos.css'),/\.g-barras \.g-trilho,\.g-ciclo \.g-trilho\{margin-right:\d+px\}/,'barras ordenadas e ciclo reservam espaço para o valor da ponta');
 });
-test('no celular: cascata troca rótulos por uma linha de resultado e o heatmap não tira célula da grade',()=>{
+test('cascata mantém todas as etapas identificadas no celular e o heatmap não tira célula da grade',()=>{
  const X=c.run('GRAFICOS_EXEMPLOS'),h=g('gCascata',X.cascata),css=ler('graficos.css');
- assert.equal((h.match(/class="g-rot( g-rot-forte)? g-opcional" style="left:[^"]*;top:/g)||[]).length,8,'todo rótulo de valor some no estreito');
- assert.match(h,/<p class="g-resumo-estreito">\(=\) EBITDA: <b>R\$\s18\.000,00<\/b> · 18,0% da base<\/p>/);
+ assert.equal((h.match(/class="g-rot g-rot-x g-cascata-numero"/g)||[]).length,X.cascata.length,'um número por etapa, inclusive lacunas');
+ assert.equal((h.match(/class="g-cascata-etapa(?: g-etapa-total)?"/g)||[]).length,X.cascata.length,'todos os nomes na lista, sem depender do hover');
+ assert.match(h,/Etapa 8: \(=\) EBITDA\. R\$\s18\.000,00/);
+ assert.match(h,/class="g-etapa-nome">\(−\) Depreciação<\/span>[\s\S]*?Não apurado/);
+ assert.doesNotMatch(h,/g-resumo-estreito|g-opcional/,'a cascata não oculta as etapas intermediárias');
  const heat=g('gHeatmap',X.heatmap.linhas,X.heatmap.colunas);
  assert.doesNotMatch(heat.slice(heat.indexOf('g-heat-grade')),/g-opcional/,'display:none dentro da grade desloca as células');
  assert.equal((heat.match(/class="g-cab g-cab-impar"/g)||[]).length,6);
  const estreito=css.match(/@container \(max-width:520px\)\{\n([\s\S]*?)\n\}/)[1];
- assert.match(estreito,/\.g-heat \.g-cab-impar\{visibility:hidden\}/);assert.match(estreito,/\.g-resumo-estreito\{display:block\}/);
+ assert.match(estreito,/\.g-heat \.g-cab-impar\{visibility:hidden\}/);
 });
 test('cores de texto, grade e superfície seguem o tema escuro (não ficam presas no :root)',()=>{
  const css=ler('graficos.css'),raiz=css.match(/:root\{([\s\S]*?)\n\}/)[1],corpo=css.match(/\nbody\{([\s\S]*?)\n\}/)[1];
  assert.doesNotMatch(raiz,/var\(--(text|muted|surface|line)\b|--g-hachura/,'apelido no :root congela a cor do tema claro');
  for(const t of ['--g-superficie','--g-texto','--g-texto-2','--g-grade','--g-hachura'])assert.match(corpo,new RegExp(t+':'),t+' no body');
 });
-test('cascata com muitos degraus alinha o primeiro e o último rótulo à borda (não vaza do card)',()=>{
+test('cascata com muitos degraus mantém números dentro da banda e valores fora da área de medida',()=>{
  const passos=Array.from({length:11},(_,i)=>({rotulo:'Degrau '+i,valor:i%2?-10:100+i,total:!(i%2)}));
- const h=g('gCascata',passos),xs=[...h.matchAll(/<span class="g-rot g-rot-x[^"]*" style="([^"]*)">/g)].map(m=>m[1]);
- assert.equal(xs[0],'left:0;transform:none;text-align:left');assert.equal(xs.at(-1),'left:auto;right:0;transform:none;text-align:right');assert.match(xs[5],/^left:\d/);
- assert.match(h,/style="left:auto;right:0;transform:translate\(0,-115%\);top:/,'o valor do último degrau também');
- const poucos=g('gCascata',passos.slice(0,5));assert.doesNotMatch(poucos,/right:0/,'com poucos degraus continua centralizado');
+ const h=g('gCascata',passos),xs=[...h.matchAll(/g-cascata-numero" style="left:([0-9.]+)%"/g)].map(m=>Number(m[1]));
+ assert.equal(xs.length,passos.length);assert.ok(xs.every(x=>x>0&&x<100));
+ assert.ok(xs.every((x,i)=>!i||x>xs[i-1]),'números seguem a mesma ordem das barras');
+ const area=h.slice(h.indexOf('<div class="g-area">'),h.indexOf('<div class="g-legenda">'));
+ assert.doesNotMatch(area,/translate\(.*-115%|g-opcional/,'valores não são posicionados sobre barras vizinhas');
+ assert.equal((h.match(/g-etapa-valores/g)||[]).length,passos.length);
 });
 test('ligar as dicas sem DOM não quebra o carregamento',()=>{assert.doesNotThrow(()=>c.run('ligarDicasGraficos(null);ligarDicasGraficos({})'));});
 

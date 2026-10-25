@@ -63,7 +63,7 @@ test('Análise CFO: "Mais N grupos" na cauda das variações e compensação neg
  const codes=['2.1','2.2','2.3','2.4','2.5','2.6','2.7','2.8','2.9','2.10','2.11'];
  c.fixture=rec({'1':5000,'2':codes.reduce((n,_,i)=>n+100*(i+1),0),...Object.fromEntries(codes.map((k,i)=>[k,100*(i+1)]))});c.anterior=rec({'1':5000,'2':codes.reduce((n,_,i)=>n+100*(i+1)+10*(i+1),0),...Object.fromEntries(codes.map((k,i)=>[k,100*(i+1)+10*(i+1)]))},{label:'Jul/2026'});
  vm.runInContext("state.periodo='Ago/2026';state.records=[fixture,anterior];state.D={accounts:[]};state.comparar='Jul/2026';state.view='cfo';",c);
- const h=vm.runInContext('renderCFO(regAtual())',c);assert.match(h,/<b>Mais \d+ grupos?<\/b>/);assert.match(h,/Nenhum deles, sozinho, muda a decisão do mês\.|, sozinho, não muda a decisão do mês\./);
+ const h=vm.runInContext('renderCFO(regAtual())',c);assert.match(h,/<b>Mais \d+ grupos?<\/b>/);assert.match(h,/Grupos reunidos para facilitar a leitura/);
  c.fixture=rec({'1':1000,'2':100,'2.5':300,'2.6':-200});vm.runInContext("state.records=[fixture];state.comparar=''",c);
  const n=vm.runInContext('renderCFO(regAtual())',c);assert.doesNotMatch(n,/ — há compensações/);assert.match(n,/%<\/b> das saídas líquidas registradas; há compensações negativas na composição\./);
 });

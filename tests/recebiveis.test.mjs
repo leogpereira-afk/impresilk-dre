@@ -111,7 +111,7 @@ const P=()=>({ok:true,versao:1,fonte:'recebiveis',...ag([...BASE,t(11,5000,700,{
 const cartoes=h=>[...h.matchAll(/<div class="metric metric-param"(?: id="secao-[\w-]+")?><span class="label">([^<]*)(?: <button type="button" class="term-help" data-term="([^"]*)" aria-label="Entender [^"]*">\?<\/button>)?<\/span><strong class="([^"]*)">([^<]*)<\/strong><small>([^<]*)<\/small>/g)].map(m=>({rotulo:m[1],termo:m[2]||'',tom:m[3],valor:m[4].replace(/\s/g,' '),nota:m[5]}));
 test('tela: quatro cards, provisão pelo % de Parâmetros do mês da posição, três gráficos e a data da posição',()=>{
  const h=tela({payload:P(),pdd:{'2026-10':50}}).run('renderRecebiveis()'),k=cartoes(h);
- assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['A receber','tom-entra','R$ 6.600,00'],['Vencido','tom-sai','R$ 3.600,00'],['Provisão estimada (PDD)','tom-sai','R$ 750,00'],['Maior devedor','tom-sai','R$ 800,00']]);
+ assert.deepEqual(k.map(x=>[x.rotulo,x.tom,x.valor]),[['A receber · 90 dias','tom-entra','R$ 6.600,00'],['Vencido','tom-sai','R$ 3.600,00'],['Provisão estimada (PDD)','tom-sai','R$ 750,00'],['Maior devedor','tom-sai','R$ 800,00']]);
  assert.match(k[1].nota,/^54,5% do que há a receber · 8 títulos$/);assert.match(k[2].nota,/^Estimativa: 50% de Out\/2026 \(Parâmetros\) sobre R\$\s1\.500,00 vencidos há mais de 90 dias; não entra no caixa nem na DRE$/);
  assert.match(k[3].nota,/^Cliente 10 · 22,2% do vencido · atraso de até 400 dias$/);
  assert.equal((h.match(/<figure class="g-fig g-(cem|barras|linha-area)/g)||[]).length,3);
@@ -187,7 +187,7 @@ test('série do Painel: os 90 pontos mais recentes, não os mais antigos',()=>{
 });
 test('tela sem vencido: zeros confirmados sem vermelho e gráfico de concentração que diz isso',()=>{
  const p={ok:true,versao:1,fonte:'recebiveis',...ag([t(1,100,-5),t(2,700,-20)])};const h=tela({payload:p,pdd:{'2026-10':50}}).run('renderRecebiveis()');
- assert.deepEqual(cartoes(h).map(x=>[x.rotulo,x.tom,x.valor]),[['A receber','tom-entra','R$ 800,00'],['Vencido','','R$ 0,00'],['Provisão estimada (PDD)','','R$ 0,00'],['Maior devedor','','R$ 0,00']]);
+ assert.deepEqual(cartoes(h).map(x=>[x.rotulo,x.tom,x.valor]),[['A receber · 90 dias','tom-entra','R$ 800,00'],['Vencido','','R$ 0,00'],['Provisão estimada (PDD)','','R$ 0,00'],['Maior devedor','','R$ 0,00']]);
  assert.match(h,/Nenhum título vencido na posição\./);assert.doesNotMatch(h,/os cinco primeiros somam|Não apurado: nenhum item/);
 });
 test('tela: textos de prazo sem dado, concentração com demais, série por semana e barras de dívida em vermelho',()=>{

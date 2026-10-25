@@ -41,7 +41,13 @@ export function contasDoMes(r,rp,natureza){
  const cells=(r.cells||[]).filter(c=>/^\d+(\.\d+)*$/.test(codigo(c))&&(codigo(c)===raiz||codigo(c).startsWith(raiz+'.'))&&cent(c.value)!=null);
  const valor=new Map(cells.map(c=>[codigo(c),cent(c.value)])),filhas=new Map();
  for(const c of cells){const p=codigo(c).split('.');for(let i=p.length-1;i>0;i--){const a=p.slice(0,i).join('.');if(valor.has(a)){filhas.set(a,(filhas.get(a)||0)+valor.get(codigo(c)));break;}}}
- return cells.map(c=>{const code=codigo(c),proprio=valor.get(code)-(filhas.get(code)||0);return proprio?{id:`mes:${r.id}:${code}`,numero:code,data:rp.de,nome:c.name||code,grupo:c.name||code,valor:proprio/100,conta:code,origem:`DRE / ${r.label} / conta ${code} · total do mês, sem trilha por pagamento`,agregado:true}:null;}).filter(Boolean);
+ const linha=(c,proprio)=>{const code=codigo(c);return {id:`mes:${r.id}:${code}`,numero:code,data:rp.de,nome:c.name||code,grupo:c.name||code,valor:proprio/100,conta:code,origem:`DRE / ${r.label} / conta ${code} · total do mês, sem trilha por pagamento`,agregado:true};};
+ const rows=cells.flatMap(c=>{const proprio=valor.get(codigo(c))-(filhas.get(codigo(c))||0);return proprio?[linha(c,proprio)]:[];});
+ // Nenhuma movimentação pode ser um zero informado, não ausência de fonte.
+ // A linha zero só existe se o total da raiz estiver explicitamente presente e
+ // válido; o chamador continua exigindo mês inteiro para usar o total mensal.
+ if(!rows.length&&valor.get(raiz)===0)rows.push(linha(cells.find(c=>codigo(c)===raiz),0));
+ return rows;
 }
 // O mesmo intervalo levado ao ano dado (pelo ano do início). Fim de mês continua fim de mês (29/02 ↔ 28/02).
 export function periodoNoAno(p,ano){

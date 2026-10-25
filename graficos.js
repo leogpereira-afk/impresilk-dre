@@ -59,8 +59,8 @@ function contaConhecida(code){return nomeConta(regAtual(),code)||[...state.recor
 function movimentosDoAno(){
  return F.serieAnual(state.records,state.periodo,'1').map(x=>({...x,entradas:x.value,saidas:F.valorConta(x.reg,'2')}));
 }
-function painelGrafico(titulo,descricao,html,extra=''){
- return `<section class="chart-card"><div class="chart-heading"><div><h2>${esc(titulo)}</h2><p>${esc(descricao)}</p></div>${extra}</div>${html}</section>`;
+function painelGrafico(titulo,descricao,html,extra='',contexto=[]){
+ return `<section class="chart-card"><div class="chart-heading"><div><h2>${esc(titulo)}</h2><p>${esc(descricao)}</p>${contexto.length?`<div class="chart-context">${contexto.map(t=>`<span>${esc(t)}</span>`).join('')}</div>`:''}</div>${extra}</div>${html}</section>`;
 }
 // Cor de cada barra: porSinal pinta pelo sinal; sentido (1 entra, -1 sai) faz o estorno de uma saída sair azul.
 const corDaBarra=(s,v)=>s.porSinal?(v<0?'var(--chart-out)':'var(--chart-in)'):(s.sentido&&v?(v*s.sentido>0?'var(--chart-in)':'var(--chart-out)'):s.cor);
@@ -95,10 +95,28 @@ function rankingCustos(reg,code='2',limite=6){
  return `<div class="expense-ranking">${mostrados.map((x,i)=>`<button class="expense-row" ${x.residuo?'data-go="detalhe"':`data-cost="${esc(x.code)}"`}><span class="expense-name"><i style="--serie:var(--chart-out)"></i>${esc(x.name)}</span><b class="${tomDoValor('saidas',x.value)}">${money(x.value)}</b><span class="expense-track" aria-hidden="true"><i style="width:${Math.abs(x.value)/max*100}%;--serie:var(--chart-out)"></i></span></button>`).join('')}</div>${c.incompleta?'<p class="hint">Há contas sem valor válido; composição incompleta.</p>':''}`;
 }
 function atalhosCustos(){
- const atalhos=[['⚡','Energia','2.5.3'],['💧','Água','2.5.1'],['📡','Telefone e internet','2.5.4'],['🏠','Aluguel','2.5.2']];
+ const atalhos=[['⚡','Energia',/\b(energia|cemig)\b/],['💧','Água',/\b(agua|copasa)\b/],['📡','Telefone e internet',/\b(telefone|telefonia|internet|telecom)\b/],['🏠','Aluguel',/\b(aluguel|alugueis)\b/]];
  // No Ano, o valor é o do ano somado; sem o ano somado, "Não apurado".
  const ra=grafNoAno()?registroDoAno(anoDaTela()):null,base=ra?(ra.disponivel?ra.reg:null):regAtual(),texto=v=>ra&&!ra.disponivel?'Não apurado':valorTexto(v);
- return `<div class="cost-shortcuts">${atalhos.map(([icon,nome,code])=>`<button data-cost="${code}" class="cost-shortcut ${state.view==='custos'&&custoUI.conta===code?'active':''}"><span class="cost-emoji">${icon}</span><span><span class="label">${nome}</span><strong class="${tomDoValor('saidas',F.valorConta(base,code))}">${texto(F.valorConta(base,code))}</strong><small>${esc(contaConhecida(code))}</small></span><span class="shortcut-arrow" aria-hidden="true">↗</span></button>`).join('')}</div>`;
+ // O código identifica a conta, não seu significado: o plano pode mudar.
+ // Só vincula um atalho quando há uma única conta com nome reconhecido.
+ const categoria=c=>{
+  if(!String(c?.code??'').startsWith('2.'))return -1;
+  const nome=String(c.name??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const encontradas=atalhos.map((x,i)=>x[2].test(nome)?i:-1).filter(i=>i>=0);
+  return encontradas.length===1?encontradas[0]:-1;
+ };
+ const atuais=base?.cells||[],historico=state.records.flatMap(r=>r.cells||[]),codigosAtuais=new Set(atuais.map(c=>c.code));
+ const anteriores=[...new Map(historico.filter(c=>!codigosAtuais.has(c.code)).map(c=>[c.code,c])).values()];
+ const mesesAno=new Set(ra?.meses||base?.ano?.meses||[]),celulasAno=ra?state.records.filter(r=>mesesAno.has(r.label)).flatMap(r=>r.cells||[]):[];
+ return `<div class="cost-shortcuts">${atalhos.map(([icon,nome],i)=>{
+  const presentes=atuais.filter(c=>categoria(c)===i),opcoes=presentes.length?presentes:anteriores.filter(c=>categoria(c)===i&&historico.filter(x=>x.code===c.code).every(x=>categoria(x)===i));
+  let conta=opcoes.length===1?opcoes[0]:null,nota=opcoes.length>1?'Mais de uma conta: consulte o detalhamento':'Conta não identificada';
+  if(conta&&ra&&(conta.misturado||celulasAno.some(c=>c.code===conta.code&&categoria(c)!==i))){conta=null;nota='Conta mudou no período: consulte o detalhamento';}
+  const code=conta?.code,v=conta?F.valorConta(base,code):null;
+  if(conta)nota=conta.name+(presentes.length?'':' · histórico');
+  return `<button ${conta?`data-cost="${esc(code)}"`:'disabled'} class="cost-shortcut ${conta&&state.view==='custos'&&custoUI.conta===code?'active':''}"><span class="cost-emoji">${icon}</span><span><span class="label">${nome}</span><strong class="${tomDoValor('saidas',v)}">${texto(v)}</strong><small>${esc(nota)}</small></span><span class="shortcut-arrow" aria-hidden="true">${conta?'↗':'—'}</span></button>`;
+ }).join('')}</div>`;
 }
 function resumoMovimento(reg){
  if(grafNoAno()){
@@ -680,7 +698,7 @@ const rotParcial=r=>/\*$/.test(String(r??''));
    (subtotal, cor neutra); os demais são variações (+ entrada, − saída).
    Cada degrau leva a margem sobre a base (op.base ou o primeiro total). */
 function gCascata(passos,op={}){
- const {num,e,p,curto,pct,moeda,sinal}=GX,H=220;
+ const {num,e,p,pct,moeda}=GX,H=220;
  if(!passos?.length)return GX.aviso('cascata','Não apurado: nenhum degrau informado.');
  const base=op.base??(passos[0].total&&num(passos[0].valor)?Number(passos[0].valor):null);
  // −0 vira 0 (senão o degrau zerado sai como "Soma" azul com "-0%")
@@ -697,33 +715,28 @@ function gCascata(passos,op={}){
  let formas='',rot='',lacunas='';
  // v134 (decisão do dono): com op.inicio, o primeiro degrau é o dinheiro que entra e sai azul (vermelho se negativo).
  const corDegrau=(b,i)=>op.inicio&&i===0&&b.total&&Number(b.valor)?(Number(b.valor)>0?'entrada':'saida'):b.total||!Number(b.valor)?'resultado':Number(b.valor)>0?'entrada':'saida',usadas=new Set();
- // Com muitos degraus a faixa fica estreita: o primeiro e o último rótulo se
- // alinham à borda do gráfico em vez de centralizar e vazar para fora do card.
- // Com mais de 8 degraus, o rótulo dos degraus intermediários mostra só o
- // percentual (o valor fica na dica e na tabela), para não se sobreporem.
- const borda=i=>n>6&&i===0?'ini':n>6&&i===n-1?'fim':'';
- const xRot=(i,cx)=>borda(i)==='ini'?'left:0;transform:none;text-align:left':borda(i)==='fim'?'left:auto;right:0;transform:none;text-align:right':`left:${p(cx,GX.W)}`;
- const vRot=(i,cx)=>borda(i)==='ini'?'left:0;transform:translate(0,-115%)':borda(i)==='fim'?'left:auto;right:0;transform:translate(0,-115%)':`left:${p(cx,GX.W)};transform:translate(-50%,-115%)`;
+ // O número liga a forma à lista de etapas. Nomes e valores ficam em células
+ // próprias, sem texto absoluto sobre outras barras em cartões estreitos.
  barras.forEach((b,i)=>{
   const x=i*banda+(banda-bw)/2,cx=i*banda+banda/2;
-  // no estreito, com muitos degraus, só o primeiro e o último nome ficam (o resto não cabe)
-  rot+=`<span class="g-rot g-rot-x${b.total?' g-rot-forte':''}${!b.total||(n>8&&!borda(i))?' g-opcional':''}" style="${xRot(i,cx)}">${e(b.curto||b.rotulo)}</span>`;
+  rot+=`<span class="g-rot g-rot-x g-cascata-numero" style="left:${p(cx,GX.W)}" aria-hidden="true">${i+1}</span>`;
   if(b.semDado){lacunas+=`<span class="g-sem-dado" style="left:${p(i*banda+banda*.1,GX.W)};width:${p(banda*.8,GX.W)}"></span>`;return;}
   const y1=esc.y(Math.max(b.de,b.ate),H),y2=esc.y(Math.min(b.de,b.ate),H),cor=corDegrau(b,i);usadas.add(cor);
   const m=margem(b);const dica=`${b.rotulo}\n${moeda(b.valor)}${m!=null?` · ${pct(m)} da base`:''}`;
-  formas+=`<rect class="g-marca-dado g-cor-${cor}" x="${x.toFixed(2)}" y="${y1.toFixed(2)}" width="${bw.toFixed(2)}" height="${Math.max(1.5,y2-y1).toFixed(2)}" vector-effect="non-scaling-stroke" data-dica="${e(dica)}" data-tom="${cor==='entrada'?'tom-entra':cor==='saida'?'tom-sai':''}"/>`;
+  formas+=`<rect class="g-marca-dado g-cor-${cor}" x="${x.toFixed(2)}" y="${y1.toFixed(2)}" width="${bw.toFixed(2)}" height="${Math.max(1.5,y2-y1).toFixed(2)}" vector-effect="non-scaling-stroke" data-dica="${e(dica)}" data-g-step="${i}" data-tom="${cor==='entrada'?'tom-entra':cor==='saida'?'tom-sai':''}"/>`;
   const prox=barras[i+1];if(prox&&!prox.semDado)formas+=`<line class="g-ligacao" x1="${(x+bw).toFixed(2)}" x2="${((i+1)*banda+(banda-bw)/2).toFixed(2)}" y1="${esc.y(b.ate,H).toFixed(2)}" y2="${esc.y(b.ate,H).toFixed(2)}" vector-effect="non-scaling-stroke"/>`;
-  rot+=`<span class="g-rot${b.total?' g-rot-forte':''} g-opcional" style="${vRot(i,cx)};top:${p(y1,H)}">${n>8&&!b.total&&m!=null?e((m>0?'+':'')+pct(m,Math.abs(m)<1?1:0)):`${e(b.total?curto(b.valor):sinal(Number(b.valor))+curto(Math.abs(b.valor)))}${m!=null?` · ${e(pct(m,Math.abs(m)<1?1:0))}`:''}`}</span>`;
  });
- const tot=barras.filter(b=>b.total&&!b.semDado),ult=tot[tot.length-1];
+ const tot=barras.filter(b=>b.total&&!b.semDado);
  const leitura=`Cascata de ${passos[0].rotulo} até ${passos[n-1].rotulo}. `+tot.map(b=>`${b.rotulo}: ${moeda(b.valor)}${margem(b)!=null?` (${pct(margem(b))})`:''}`).join('; ')+(barras.some(b=>b.semDado)?'. Há degraus sem dado.':'.');
- // no celular não cabem dez rótulos de valor: some todos e o resultado final vira uma linha abaixo
- const resumo=ult?`<p class="g-resumo-estreito">${e(ult.rotulo)}: <b>${e(moeda(ult.valor))}</b>${margem(ult)!=null?` · ${e(pct(margem(ult)))} da base`:''}</p>`:'';
+ const etapas=`<ol class="g-cascata-etapas" aria-label="Etapas da cascata">${barras.map((b,i)=>{
+  const cor=b.semDado?'sem-dado':corDegrau(b,i),valor=b.semDado?'Não apurado':moeda(b.valor),m=b.semDado?null:margem(b);
+  return `<li><button type="button" class="g-cascata-etapa${b.total?' g-etapa-total':''}" data-g-step="${i}" aria-pressed="false" aria-label="${e(`Etapa ${i+1}: ${b.rotulo}. ${valor}${m!=null?`. ${pct(m)} da base`:''}`)}"${b.semDado?' disabled':''}><span class="g-etapa-indice g-cor-${cor}" aria-hidden="true">${i+1}</span><span class="g-etapa-texto"><span class="g-etapa-nome">${e(b.rotulo)}</span><span class="g-etapa-valores"><b>${e(valor)}</b>${m!=null?`<small>${e(pct(m))}</small>`:''}</span></span></button></li>`;
+ }).join('')}</ol>`;
  const somaAzul=barras.some((b,i)=>!b.semDado&&!(op.inicio&&i===0)&&corDegrau(b,i)==='entrada'),inicioAzul=op.inicio&&!barras[0]?.semDado&&corDegrau(barras[0],0)==='entrada';
  const nomeAzul=inicioAzul&&somaAzul?`${barras[0].curto||barras[0].rotulo} e soma`:inicioAzul?(barras[0].curto||barras[0].rotulo):'Soma';
  const leg=GX.legenda([{rotulo:'Subtotal',cor:'resultado'},{rotulo:nomeAzul,cor:'entrada'},{rotulo:'Desconta',cor:'saida'}].filter(x=>usadas.has(x.cor)).concat(lacunas?[{rotulo:'sem dado',semDado:true}]:[]));
  const tab=GX.tabela(['Degrau','Valor','% da base'],barras.map(b=>[b.rotulo,b.semDado?'Não apurado':moeda(b.valor),b.semDado?'—':pct(margem(b))]),[1,2],(r,i)=>i===1&&!barras[r].semDado?tomDoValor('variacao',barras[r].valor):'');
- return GX.figura('cascata g-cartesiano',ult?leitura:leitura,`<div class="g-area">${GX.svg(H,g.svg+formas)}<div class="g-rotulos">${g.html}${lacunas}${rot}</div></div>`,resumo+leg,tab);
+ return GX.figura('cascata g-cartesiano',leitura,`<div class="g-area">${GX.svg(H,g.svg+formas)}<div class="g-rotulos">${g.html}${lacunas}${rot}</div></div>`,leg+etapas,tab);
 }
 
 /* Barras empilhadas com linha sobreposta no mesmo eixo (ex.: DFC: operação,
@@ -898,14 +911,29 @@ function ligarDicasGraficos(raiz=document){
  raiz.querySelectorAll('.g-fig .g-plot').forEach(plot=>{
   if(plot.dataset.gLigado)return;plot.dataset.gLigado='1';
   const fig=plot.closest('.g-fig'),dica=fig.querySelector('.g-dica'),marcas=()=>[...plot.querySelectorAll('[data-dica]')];let atual=-1;
-  const mostrar=m=>{marcas().forEach(x=>x.classList.remove('g-ativo'));if(!m||!dica)return;m.classList.add('g-ativo');
+  const etapas=[...fig.querySelectorAll('.g-cascata-etapa')];
+  const selecionar=m=>{marcas().forEach(x=>x.classList.toggle('g-ativo',x===m));etapas.forEach(x=>x.setAttribute('aria-pressed',String(!!m&&x.getAttribute('data-g-step')===m.getAttribute('data-g-step'))));};
+  const mostrar=m=>{selecionar(m);if(!m||!dica)return;
    // primeira linha como texto e o valor num <b> com o tom da marca (C18); tudo por textContent
    const [cab,...resto]=String(m.getAttribute('data-dica')||'').split('\n');dica.textContent=cab;
    if(resto.length){const b=document.createElement('b');b.textContent=resto.join('\n');b.className=m.getAttribute('data-tom')||'';dica.append('\n',b);}
    dica.hidden=false;
    const fr=fig.getBoundingClientRect(),mr=m.getBoundingClientRect(),dw=dica.offsetWidth,dh=dica.offsetHeight;
-   const esq=Math.min(Math.max(0,mr.left-fr.left+mr.width/2-dw/2),fr.width-dw),topo=mr.top-fr.top-dh-8;dica.style.left=esq+'px';dica.style.top=(topo<0?mr.bottom-fr.top+8:topo)+'px';};
-  const esconder=()=>{marcas().forEach(x=>x.classList.remove('g-ativo'));if(dica)dica.hidden=true;atual=-1;};
+   const esq=Math.max(0,Math.min(Math.max(0,mr.left-fr.left+mr.width/2-dw/2),fr.width-dw)),topo=mr.top-fr.top-dh-8;dica.style.left=esq+'px';dica.style.top=(topo<0?mr.bottom-fr.top+8:topo)+'px';};
+  const esconder=()=>{selecionar(null);if(dica)dica.hidden=true;atual=-1;};
+  const abrirEtapa=etapa=>{const ms=marcas(),m=ms.find(x=>x.getAttribute('data-g-step')===etapa.getAttribute('data-g-step'));atual=ms.indexOf(m);mostrar(m);};
+  etapas.forEach(etapa=>{
+   const abrir=()=>abrirEtapa(etapa);
+   etapa.addEventListener('click',abrir);etapa.addEventListener('focus',abrir);etapa.addEventListener('blur',esconder);
+   etapa.addEventListener('keydown',ev=>{
+    if(ev.key==='Escape'){esconder();return;}
+    if(!['ArrowRight','ArrowLeft','ArrowDown','ArrowUp','Home','End'].includes(ev.key))return;
+    const ms=marcas(),disponiveis=etapas.filter(x=>!x.disabled&&ms.some(m=>m.getAttribute('data-g-step')===x.getAttribute('data-g-step')));
+    if(!disponiveis.length)return;ev.preventDefault();
+    const indice=disponiveis.indexOf(etapa),destino=ev.key==='Home'?0:ev.key==='End'?disponiveis.length-1:Math.min(disponiveis.length-1,Math.max(0,indice+(['ArrowRight','ArrowDown'].includes(ev.key)?1:-1)));
+    disponiveis[destino].focus();abrirEtapa(disponiveis[destino]);
+   });
+  });
   plot.addEventListener('pointerover',ev=>{const m=ev.target.closest?.('[data-dica]');if(m&&plot.contains(m)){atual=marcas().indexOf(m);mostrar(m);}});
   plot.addEventListener('pointerleave',ev=>{if(ev.pointerType==='mouse')esconder();});
   plot.addEventListener('click',ev=>{const m=ev.target.closest?.('[data-dica]');if(m){atual=marcas().indexOf(m);mostrar(m);}});

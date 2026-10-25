@@ -49,6 +49,25 @@ test('comparação percentual continua bloqueada entre empresas apesar do histó
 // ── Fase 12.3: meses sem trilha pelas contas da DRE; o mesmo período um ano antes ──
 const mesConta=(label,ate,cells)=>({id:label.replace('/','_'),label,company:'Impresilk + Universo',basis:'Caixa',qualidade:{ate,apiContratoValidado:true},cells});
 const C=(code,name,value)=>({code,name,value});
+test('zero mensal conhecido sem trilha permanece zero em indicadores, histórico e comparação',()=>{
+ const zero=mesConta('Set/2026','2026-09-30',[C('1','Receitas',0),C('2','Despesas',0)]);
+ const ant=mesConta('Set/2025','2025-09-30',[C('1','Receitas',0),C('2','Despesas',0)]);
+ for(const [natureza,fonte] of [['entrada','recebimentos'],['saida','pagamentos']]){
+  const c=M.caixa([zero],p,natureza);assert.equal(c.disponivel,true);assert.equal(M.resumir(c.rows).valor,0);
+  assert.equal(M.historicoCaixa([zero],p,fonte,{},'2026-10-24')[8].valor,0);
+  const cmp=M.compararAno([ant,zero],p,fonte);assert.equal(cmp.disponivel,true);assert.equal(cmp.delta,0);assert.equal(cmp.percentual,null);
+ }
+ assert.equal(M.historicoCaixa([zero],p,'variacao',{},'2026-10-24')[8].valor,0);
+ assert.equal(M.historicoCaixa([zero],p,'recebimentos',{query:'inexistente'},'2026-10-24')[8].valor,null,'filtro sem correspondência não recebe zero inventado');
+ assert.equal(M.caixa([zero],{...p,ate:'2026-09-10'},'entrada').disponivel,false,'não proporcionaliza total mensal para um recorte');
+ const parcial={...zero,qualidade:{...zero.qualidade,ate:'2026-09-12'}};
+ assert.equal(M.caixa([parcial],p,'entrada').qualidade,'Parcial');assert.equal(M.historicoCaixa([parcial],p,'recebimentos',{},'2026-10-24')[8].marca,'*');
+});
+test('sem raiz ou raiz inválida não cria um total mensal zero',()=>{
+ for(const cells of [[],[C('1','Receitas',null)],[C('1','Receitas','inválido')],[C('1.1','Vendas',0)]]){
+  const r=mesConta('Set/2026','2026-09-30',cells);assert.equal(M.caixa([r],p,'entrada').disponivel,false);assert.equal(M.historicoCaixa([r],p,'recebimentos',{},'2026-10-24')[8].valor,null);
+ }
+});
 test('mês sem trilha entra pelas contas da DRE, com o valor próprio de cada uma; soma igual ao total',()=>{
  const r=mesConta('Set/2025','2025-09-30',[C('1','Receitas',1000),C('1.1','Comunicação Visual',900),C('1.1.1','Produtos',700),C('1.4','Empréstimos',100),C('2','Despesas',600),C('2.1','Pessoal',600),C('2.1.4','Salário',500)]);
  const p={de:'2025-09-01',ate:'2025-09-30'},e=M.caixa([r],p,'entrada'),s=M.caixa([r],p,'saida');

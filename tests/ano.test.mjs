@@ -66,6 +66,14 @@ test('DFC no ano com mês faltando no caminho: acumulado não somado, dito qual 
  assert.deepEqual(k.slice(0,3).map(x=>x.valor),['Não apurado','Não apurado','Não apurado']);assert.match(k[0].nota,/^Fev\/2026 sem dados coletados: sem todos os meses, o acumulado de 2026 não é somado\.$/);
  assert.doesNotMatch(c.run('renderDFC()'),/Infinity|NaN|undefined/);
 });
+test('atalho de conferência mantém as pendências do ano mesmo sem acumulado financeiro disponível',()=>{
+ const registros=[{...ANO[0],pendencias:[{id:'p1'}]},{...ANO[2],pendencias:[{id:'p2'}]}];
+ const c=app({registros,view:'inicio'});c.run("selecionarAno('2026')");
+ assert.equal(c.run("registroDoAno('2026').reg"),null,'fevereiro ausente bloqueia a soma financeira');
+ assert.match(c.run('acoesDashboard(null)'),/>2 pendências a conferir</);
+ c.run("selecionarPeriodo('Mar/2026')");
+ assert.match(c.run("acoesDashboard(regDoMes('Mar/2026'))"),/>1 pendência a conferir</);
+});
 test('o lugar do chip é criado ao lado da barra de meses (que continua com 12 botões); index.html sem marcação nova',()=>{
  assert.doesNotMatch(ler('index.html'),/anoChip/);assert.match(ler('app.js'),/chipAno\.id='anoChip'/);
  assert.match(ler('indicadores.js'),/ano\(label\)\{anoDoRotulo\(label\);\}/);
@@ -155,7 +163,7 @@ test('planejamento antes da planilha, semanas com data e saldo do Fluxo de caixa
  const iPlano=h.indexOf('Planejar as próximas 13 semanas'),iPlanilha=h.indexOf('Planilha de caixa · evolução mensal e acumulado');
  assert.ok(iPlano>0&&iPlanilha>iPlano,'o planejamento vem antes da planilha');
  assert.match(h,/<details class="card" id="secao-caixa-plano" data-card="caixa:Planejar as próximas 13 semanas"><summary>/,'sem saldo, o planejamento começa fechado; id estável para o "Ver em" do Glossário (N24)');
- assert.match(h,/<details class="card" data-card="caixa:Planilha de caixa · evolução mensal e acumulado" open><summary>/,'a planilha continua aberta');
+ assert.match(h,/<details class="card" data-card="caixa:Planilha de caixa · evolução mensal e acumulado"><summary>/,'a planilha continua acessível, recolhida inicialmente');
  const ref=c.json('saldoReferenciaPlano()');assert.equal(ref.label,'Abr/2026');assert.equal(ref.parcial,true);
  assert.match(h,new RegExp(`<p class="hint" id="planSaldoRef">Fluxo de caixa: <b>${c.run('money(saldoReferenciaPlano().final)').replace(/[$.]/g,'\\$&')}</b> \\(Abr/2026, mês em andamento ou incompleto, não conciliado\\) <button type="button" class="text-button" id="planUsarSaldo">Usar</button></p>`));
  assert.equal(c.run('plano.saldo'),'','nada é preenchido sozinho');
@@ -184,9 +192,9 @@ test('Dashboard: O que mudou e Conferência antes dos Comparativos; a planilha v
  const h=c.run('renderInicio(regAtual(),F.qualidade(regAtual()))');
  const iConf=h.indexOf('Conferência e próximos passos'),iCmp=h.indexOf('Comparativos anuais');
  assert.ok(iConf>0&&iCmp>iConf,'Conferência antes dos Comparativos');
- assert.ok(h.trimEnd().endsWith('</section>'),'Comparativos no fim');
+ assert.ok(h.trimEnd().endsWith('</section></div></details>'),'Comparativos no fim');
  assert.doesNotMatch(h,/Planilha do Dashboard/);
- assert.match(h,/<p class="hint"><button type="button" class="text-button" data-go="caixa">Planilha de caixa mês a mês: ver em Caixa e planejamento →<\/button><\/p>/);
+ assert.match(h,/data-go="caixa"><b>Planejar o caixa<\/b><span>Histórico e próximas 13 semanas →<\/span><\/button>/);assert.doesNotMatch(h,/class="cfo-intro"/);
  const iMudou=h.indexOf('O que mudou</h2>');assert.ok(iMudou>0&&iMudou<iConf,'O que mudou (gestão) antes da Conferência e dos Comparativos');
 });
 

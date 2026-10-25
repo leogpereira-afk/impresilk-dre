@@ -90,14 +90,14 @@ test('o imposto do mês vem dos títulos do Mubisys; se o DAS pago no mês segui
 test('sem caixa ou sem a posição do mês: nada é somado e a tela diz por quê; nunca zero',()=>{
  const semSaldo=tela({op:{'2026-09':{estoque:7000}}}),b=semSaldo.json("balApurar('Set/2026',giroUI.dados.historico.meses,dfcSaldos())");
  assert.deepEqual([b.apurado,b.ativo,b.pl,b.faltaBase],[false,null,null,['caixa','bancoNegativo']]);
- const h=semSaldo.run('renderBalanco()'),k=cartoes(h);assert.deepEqual(k.map(x=>x.valor),['Não apurado','Não apurado','Não apurado','Não apurado']);
- assert.equal(k[0].nota,'Não somado: sem o saldo inicial no Fluxo de caixa.');assert.match(h,/<h2>Falta o caixa do fim de Set\/2026<\/h2>[\s\S]*data-go="dfc">Ver o Fluxo de caixa/);
+ const h=semSaldo.run('renderBalanco()'),k=cartoes(h);assert.equal(k.length,0);assert.match(h,/class="bal-indisponivel"/);assert.match(h,/Ativo total · Passivo total · Patrimônio líquido · Endividamento/);
+ assert.match(h,/Não somado: sem o saldo inicial no Fluxo de caixa\./);assert.match(h,/<h2>Falta o caixa do fim de Set\/2026<\/h2>[\s\S]*data-go="dfc">Ver o Fluxo de caixa/);
  assert.match(h,/<tr class="dre-l-subtotal"><th scope="row">Total do ativo<\/th><td class="num"><span class="nao-apurado">Não apurado<\/span><\/td><td>Não somado: sem o saldo inicial no Fluxo de caixa\.<\/td>/);
  // mês em andamento, mês sem posição antes do histórico e depois dele
- const out=tela({periodo:'Out/2026'}).run('renderBalanco()');assert.equal(cartoes(out)[0].nota,'Não somado: Out/2026 ainda não fechou; sem a posição do fim de Out/2026.');
+ const out=tela({periodo:'Out/2026'}).run('renderBalanco()');assert.match(out,/Não somado: Out\/2026 ainda não fechou; sem a posição do fim de Out\/2026\./);
  assert.match(out,/<h2>O balanço é do fim do mês<\/h2><p>Out\/2026 ainda não fechou[^<]*O último fechamento é Set\/2026\.<\/p><\/div><button type="button" data-go="balanco" data-rec-mes="Set\/2026">Ver Set\/2026<\/button>/);
  const jul=tela({periodo:'Jul/2026'}).run('renderBalanco()');assert.match(jul,/<h2>Sem a posição de Jul\/2026<\/h2><p>O histórico de posições vai de Ago\/2026 a Set\/2026\. Jul\/2026 também não tem dados coletados/);
- assert.equal(cartoes(jul)[0].nota,'Não somado: sem a posição do fim de Jul/2026.','o caixa do fim de julho existe: é o saldo informado do início de agosto');
+ assert.match(jul,/Não somado: sem a posição do fim de Jul\/2026\./,'o caixa do fim de julho existe: é o saldo informado do início de agosto');
  const parcialColeta=tela({registros:[REG[0],reg('Set/2026','2026-09-20',mes(1.5)),REG[2]]}).json("balApurar('Set/2026',giroUI.dados.historico.meses,dfcSaldos()).linhas.caixa");
  assert.deepEqual([parcialColeta.valor,parcialColeta.motivo],[null,'Set/2026 coletado só até 20/09'],'saldo de mês incompleto não é o do fim do mês');
 });

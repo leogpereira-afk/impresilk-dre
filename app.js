@@ -637,6 +637,28 @@ function atualizarChipsPeriodo(p){
  document.querySelector('#anoChip button')?.setAttribute('aria-pressed',String(inteiro));
  return inteiro;
 }
+// Reposiciona só a faixa de meses quando sua largura muda (desktop/celular).
+// Não move a página e não impede a rolagem manual da faixa.
+let observadorMeses=null;
+function revelarMesSelecionado(){
+ const barra=$$('monthChips'),selecionado=barra?.querySelector?.('[aria-pressed="true"]');
+ if(!selecionado||!barra.clientWidth||barra.scrollWidth<=barra.clientWidth)return;
+ const b=barra.getBoundingClientRect(),s=selecionado.getBoundingClientRect();
+ if(s.left<b.left||s.right>b.right)barra.scrollLeft+=s.left-b.left-(barra.clientWidth-selecionado.offsetWidth)/2;
+}
+function acompanharFaixaMeses(){
+ const barra=$$('monthChips');if(!barra)return;
+ if(!observadorMeses&&typeof ResizeObserver!=='undefined'){observadorMeses=new ResizeObserver(revelarMesSelecionado);observadorMeses.observe(barra);}
+ if(typeof requestAnimationFrame==='function')requestAnimationFrame(revelarMesSelecionado);else revelarMesSelecionado();
+}
+function contextoMovimento(reg){
+ const r=telaNoAno()?registroDoAno(anoDaTela()).reg:reg,e=F.valorConta(r,'1'),s=F.valorConta(r,'2'),v=e==null||s==null?null:Math.round((e-s)*100)/100;
+ return `<div class="contexto-movimento" aria-label="Resumo do movimento"><span>${esc(telaNoAno()?rotuloAno(anoDaTela()):state.periodo)} · Caixa</span>${[['Entradas',e,'entradas'],['Saídas',s,'saidas'],['Variação',v,'variacao']].map(([t,n,id])=>`<span>${t} <b class="${tomDoValor(id,n)}">${n==null?'Não apurado':esc(money(n))}</b></span>`).join('')}<small>Variação não é lucro nem saldo bancário.</small></div>`;
+}
+function acoesDashboard(reg){
+ const n=telaNoAno()?mesesAteFimDoAno(anoDaTela()).reduce((s,l)=>s+(regDoMes(l)?.pendencias?.length||0),0):(reg?.pendencias?.length||0);
+ return `<nav class="dashboard-actions" aria-label="Próximos passos"><button data-go="conferencia"><b>${n} pendência${n===1?'':'s'} a conferir</b><span>Conferência e qualidade →</span></button><button data-go="cfo"><b>Investigar os números</b><span>Análise CFO →</span></button><button data-go="caixa"><b>Planejar o caixa</b><span>Histórico e próximas 13 semanas →</span></button></nav>`;
+}
 function periodoOptions(){
  // Anos pelos dados e pelo relógio do app (hojeRotulo/anoDeHoje): o ano novo aparece sozinho na virada.
  const labels=[...new Set([...state.records.map(r=>r.label),...Object.values(state.cfg.demonstrativosCompetencia?.meses||{}).map(r=>r.label),state.periodo,hojeRotulo()])].filter(l=>F.periodo(l)).sort((a,b)=>monthSortKey(b)-monthSortKey(a));
@@ -649,7 +671,7 @@ function periodoOptions(){
  $$('monthChips').innerHTML=PT_MON.map(m=>{const l=m+'/'+year,has=comp?!!state.cfg.demonstrativosCompetencia?.meses?.[safeId(l)]:disponiveis.has(l);return `<button type="button" data-period="${l}" aria-label="${l}" aria-pressed="${!ano&&state.periodo===l}" class="${has?'has-data':'no-data'}${comp&&has?' apurado':''}" title="${l} · ${has?(comp?'Apuração cadastrada':'Dados disponíveis'):(comp?'Sem apuração':'Sem base registrada')}">${m}</button>`;}).join('');
  // O lugar do chip fica ao lado da barra de meses (que continua com os 12 meses), criado uma vez.
  let chipAno=$$('anoChip');const barra=$$('monthChips');
- {const s=barra?.querySelector?.('[aria-pressed="true"]');if(s&&barra.scrollWidth>barra.clientWidth)barra.scrollLeft+=s.getBoundingClientRect().left-barra.getBoundingClientRect().left-(barra.clientWidth-s.offsetWidth)/2;}
+ acompanharFaixaMeses();
  if(!chipAno&&barra?.parentNode&&typeof document.createElement==='function'){chipAno=document.createElement('div');chipAno.id='anoChip';chipAno.className='month-chips';chipAno.setAttribute('role','group');chipAno.setAttribute('aria-label','Ano inteiro');chipAno.style.cssText='flex:0 0 auto;min-width:0;order:0';barra.after(chipAno);chipAno.addEventListener('click',e=>{const b=e.target.closest?.('[data-ano]');if(b)selecionarAno(b.dataset.ano);});}
  if(chipAno){chipAno.style.display=temAno?'flex':'none';chipAno.innerHTML=temAno?`<button type="button" data-ano="${year}" aria-pressed="${ano}" class="has-data" style="min-width:44px;padding:5px 12px" title="${year}: de janeiro até o último mês com dados">Ano</button>`:'';}
  if(focoSel)document.querySelector?.(focoSel)?.focus?.({preventScroll:true});
@@ -724,11 +746,11 @@ function renderInicio(reg,q){
  const latest=[...state.records].sort((a,b)=>monthSortKey(b.label)-monthSortKey(a.label))[0];
  let h=!reg?`<div class="month-empty"><div><b>${esc(state.periodo)} ainda não tem dados.</b><span>O histórico abaixo continua disponível para consulta.</span></div>${latest?`<button data-period="${esc(latest.label)}">Abrir ${esc(latest.label)} →</button>`:''}</div>`:'';
  h+=resumoMovimento(reg)+comparativoMovimento(reg);
- h+=`<div class="dashboard-grid">${typeof evolucaoCompacta==='function'?evolucaoCompacta():graficoEvolucao()}${painelGrafico('Para onde foi o dinheiro',state.periodo+' · principais grupos de saídas',rankingCustos(reg),'<button data-go="custos" class="text-button">Ver todas →</button>')}</div>`;
- h+=cfoResumo(reg)+resumoGestao(reg)+'<p class="hint"><button type="button" class="text-button" data-go="caixa">Planilha de caixa mês a mês: ver em Caixa e planejamento →</button></p>';
+ h+=`<div class="dashboard-grid">${typeof evolucaoCompacta==='function'?evolucaoCompacta():graficoEvolucao()}${painelGrafico('Para onde foi o dinheiro',state.periodo+' · principais grupos de saídas',rankingCustos(reg),'<button data-go="custos" class="text-button">Ver todas →</button>',['Caixa','Valores em R$'])}</div>`;
+ h+=acoesDashboard(reg)+card('Variações e orçamento',resumoGestao(reg),false);
  h+=card('Conferência e próximos passos',`<div class="review-grid"><div><span class="label">Cobertura da base</span><b>${esc(q.rotulo)}</b></div><div><span class="label">Pendências a conferir</span><b><button type="button" class="text-button" data-go="conferencia" aria-label="${(reg?.pendencias||[]).length} pendência(s) a conferir: abrir a Conferência">${(reg?.pendencias||[]).length}</button></b></div><div><span class="label"><button type="button" class="text-button" data-go="dfc">Saldo no fim do mês (Fluxo de caixa)</button></span><b>${saldoFimDoMes(reg)}</b></div></div><div class="actions"><button data-go="conferencia">Conferir dados →</button><button data-go="caixa">Planejar o caixa →</button></div>`,false);
  // Comparativos anuais no fim: o mês vem antes da leitura de vários anos.
- h+=(typeof renderComparativos==='function'?renderComparativos():'');
+ h+=(typeof renderComparativos==='function'?card('Comparativos entre anos',renderComparativos(),false):'');
  return h;
 }
 /* Operação, investimento e financiamento do mês nas telas Caixa e Composição do
@@ -754,11 +776,11 @@ function caixaEmBlocos(reg){
 function saldoReferenciaPlano(){return typeof dfcSaldos==='function'?[...dfcSaldos().values()].filter(x=>x.final!=null).pop()||null:null;}
 // O planejamento das 13 semanas é o mesmo no mês e no Ano (não depende do realizado).
 function cardPlanejamento(ref=saldoReferenciaPlano()){return card('Planejar as próximas 13 semanas',`<p>Planejamento independente do realizado. Informe saldo e compromissos e use Salvar planejamento para compartilhar na nuvem. Nenhum lançamento é enviado ao Mubisys.</p><div class="form-grid"><div><label>Saldo inicial considerado (R$)<input id="planSaldo" type="number" step="0.01" placeholder="Informe o saldo" value="${esc(plano.saldo??'')}"></label>${ref?`<p class="hint" id="planSaldoRef">Fluxo de caixa: <b>${esc(money(ref.final))}</b> (${esc(ref.label)}${ref.parcial?', mês em andamento ou incompleto':''}, não conciliado) <button type="button" class="text-button" id="planUsarSaldo">Usar</button></p>`:''}</div><label>Reserva mínima (R$)<input id="planReserva" type="number" step="0.01" min="0" value="${esc(plano.reserva)}"></label><label>Início da projeção<input id="planData" type="date" value="${esc(plano.inicio)}"></label><label>Cenário de recebimento<select id="planCenario"><option value="1">100% dos recebimentos previstos</option><option value="0.8">80% dos recebimentos previstos</option><option value="0.6">60% dos recebimentos previstos</option></select></label></div><div class="actions"><button id="planCarteira">Trazer da carteira do Mubisys</button><button id="planAdicionar">+ Compromisso previsto</button><button id="planCalcular" class="primary">Calcular cenário</button><button id="planSalvar" ${state.permissoes.admin?'':'disabled'}>Salvar planejamento</button><span id="planEstado" role="status">${plano.atualizadoEm?'Salvo: '+esc(dataBR(plano.atualizadoEm)):'Rascunho não salvo'}</span></div><div id="planMovimentos"></div><div id="planResultado"></div><p class="hint">Valores vencidos não resolvidos são considerados no início da projeção. O cenário reduz os recebimentos previstos; não altera saídas. Revise as premissas. "Trazer da carteira" soma, semana a semana, o que vence a receber e a pagar no Mubisys (carga do Painel) e as despesas previstas (fixas, cartão, folha); a pagar vencido entra na 1ª semana, a receber vencido fica de fora por prudência; trazer de novo troca só essas linhas.</p>`,plano.saldo!==''&&plano.saldo!=null,'secao-caixa-plano');}
-function renderCaixa(reg){if(telaNoAno())return renderCaixaAno(reg);let h=resumoMovimento(reg);const b=caixaEmBlocos(reg),ref=saldoReferenciaPlano();
-  if(reg)h+=`<div class="cash-context"><span>Recebimentos de vendas: <b class="${b?tomDoValor('operacionais',b.m.d.valores.vendas):''}">${money(b?b.m.d.valores.vendas:null)}</b></span><span><button type="button" class="text-button" data-go="dfc">Saldo no fim do mês (Fluxo de caixa)</button>: <b>${saldoFimDoMes(reg)}</b></span><details><summary>Critérios</summary><p>Recebimentos de vendas: pagamentos recebidos de clientes (contas 1.1, 1.2, 1.5 e 1.6). Saldo no fim do mês: o saldo inicial informado em Parâmetros mais a geração de caixa, como no Fluxo de caixa DFC; * marca o mês em andamento ou incompleto. Não substitui a conciliação bancária. A variação do período aparece no resumo acima e considera o movimento da base salva.</p></details></div>`+(b?`<div class="split">${card('Operação · '+reg.label+b.andamento,b.operacao)}${card('Investimento e financiamento · '+reg.label+b.andamento,b.outros)}</div>${b.rodape}`:`<p class="empty">Operação, investimento e financiamento: não apurados em ${esc(reg.label)}: o mês não tem contas válidas para a classificação.</p>`);
+function renderCaixa(reg){if(telaNoAno())return renderCaixaAno(reg);let h=contextoMovimento(reg);const b=caixaEmBlocos(reg),ref=saldoReferenciaPlano();
+  if(reg)h+=`<div class="cash-context"><span>Recebimentos de vendas: <b class="${b?tomDoValor('operacionais',b.m.d.valores.vendas):''}">${money(b?b.m.d.valores.vendas:null)}</b></span><span><button type="button" class="text-button" data-go="dfc">Saldo no fim do mês (Fluxo de caixa)</button>: <b>${saldoFimDoMes(reg)}</b></span><details><summary>Critérios</summary><p>Recebimentos de vendas: pagamentos recebidos de clientes (contas 1.1, 1.2, 1.5 e 1.6). Saldo no fim do mês: o saldo inicial informado em Parâmetros mais a geração de caixa, como no Fluxo de caixa DFC; * marca o mês em andamento ou incompleto. Não substitui a conciliação bancária. A variação do período aparece no resumo acima e considera o movimento da base salva.</p></details></div>`+(b?`<div class="split">${card('Operação · '+reg.label+b.andamento,b.operacao,false)}${card('Investimento e financiamento · '+reg.label+b.andamento,b.outros,false)}</div>${b.rodape}`:`<p class="empty">Operação, investimento e financiamento: não apurados em ${esc(reg.label)}: o mês não tem contas válidas para a classificação.</p>`);
   else h+='<div class="empty"><h2>Este mês ainda não foi coletado.</h2><p>Abra um mês do histórico ou confira a integração.</p></div>';
   h+=cardPlanejamento(ref);
-  h+=card('Planilha de caixa · evolução mensal e acumulado',historicoTabela(),true);
+  h+=card('Planilha de caixa · evolução mensal e acumulado',historicoTabela(),false);
   return h;
 }
 function historicoTabela(){const year=state.periodo.split('/')[1];const recs=state.records.filter(r=>r.label.endsWith('/'+year));if(!recs.length)return '<p>Sem histórico neste ano.</p>';
@@ -813,11 +835,11 @@ function renderInicioAno(reg,q){
  const latest=[...state.records].sort((a,b)=>monthSortKey(b.label)-monthSortKey(a.label))[0];
  let h=!regs.some(Boolean)?`<div class="month-empty"><div><b>${esc(ano)} ainda não tem dados.</b><span>O histórico abaixo continua disponível para consulta.</span></div>${latest?`<button data-period="${esc(latest.label)}">Abrir ${esc(latest.label)} →</button>`:''}</div>`:'';
  h+=resumoMovimento(reg)+comparativoMovimento(reg);
- h+=`<div class="dashboard-grid">${typeof evolucaoCompacta==='function'?evolucaoCompacta():graficoEvolucao()}${painelGrafico('Para onde foi o dinheiro',`${rotuloAno(ano)} · principais grupos de saídas`,ra.disponivel?rankingCustos(ra.reg):`<p class="empty">${esc(ra.motivo)}</p>`,'<button data-go="custos" class="text-button">Ver todas →</button>')}</div>`;
- h+=cfoResumo(reg)+resumoGestao(reg)+'<p class="hint"><button type="button" class="text-button" data-go="caixa">Planilha de caixa mês a mês: ver em Caixa e planejamento →</button></p>';
+ h+=`<div class="dashboard-grid">${typeof evolucaoCompacta==='function'?evolucaoCompacta():graficoEvolucao()}${painelGrafico('Para onde foi o dinheiro',`${rotuloAno(ano)} · principais grupos de saídas`,ra.disponivel?rankingCustos(ra.reg):`<p class="empty">${esc(ra.motivo)}</p>`,'<button data-go="custos" class="text-button">Ver todas →</button>',['Caixa','Valores em R$'])}</div>`;
+ h+=acoesDashboard(reg)+card('Variações e orçamento',resumoGestao(reg),false);
  const completos=regs.filter((r,i)=>mesCompleto(r,meses[i])).length,pend=regs.reduce((n,r)=>n+(r?.pendencias||[]).length,0);
  h+=card('Conferência e próximos passos',`<div class="review-grid"><div><span class="label">Cobertura da base</span><b>${completos} de ${meses.length} ${meses.length===1?'mês coletado':'meses coletados'} até o último dia</b></div><div><span class="label">Pendências a conferir</span><b><button type="button" class="text-button" data-go="conferencia" aria-label="${pend} pendência(s) a conferir em ${esc(ano)}: abrir a Conferência">${pend}</button></b></div><div><span class="label"><button type="button" class="text-button" data-go="dfc">Saldo no fim de ${esc(fim)} (Fluxo de caixa)</button></span><b>${saldoFimDoMes(regDoMes(fim))}</b></div></div><div class="actions"><button data-go="conferencia">Conferir dados →</button><button data-go="caixa">Planejar o caixa →</button></div>`,false);
- h+=(typeof renderComparativos==='function'?renderComparativos():'');
+ h+=(typeof renderComparativos==='function'?card('Comparativos entre anos',renderComparativos(),false):'');
  return h;
 }
 // Blocos do caixa no Ano contra o ano comparado, nos mesmos meses completos (dfcComparacaoAno).
@@ -836,12 +858,12 @@ function renderCaixaAno(reg){
  const ano=anoDaTela(),fim=fimDoAno(ano),rot=rotuloAno(ano),ref=saldoReferenciaPlano(),b=blocosDoAno(ano);
  let vendas=null;
  if(typeof dfcMes==='function'&&typeof dfcAcumulado==='function'&&typeof dfcSaldos==='function'){const ms=PT_MON.map(m=>dfcMes(m+'/'+ano)),todos=dfcSaldos(),saldos=ms.map(m=>todos.get(monthSortKey(m.label))||null);vendas=dfcAcumulado(ms,saldos,PT_MON.indexOf(String(fim).split('/')[0]),'vendas');}
- let h=resumoMovimento(reg);
+ let h=contextoMovimento(reg);
  h+=`<div class="cash-context"><span>Recebimentos de vendas · ${esc(rot)}: <b class="${tomDoValor('operacionais',vendas)}">${money(vendas)}</b></span><span><button type="button" class="text-button" data-go="dfc">Saldo no fim de ${esc(fim)} (Fluxo de caixa)</button>: <b>${saldoFimDoMes(regDoMes(fim))}</b></span><details><summary>Critérios</summary><p>Recebimentos de vendas: pagamentos recebidos de clientes (contas 1.1, 1.2, 1.5 e 1.6), somados de janeiro ao último mês com dados. Saldo no fim do ano: o saldo inicial informado em Parâmetros mais a geração de caixa, como no Fluxo de caixa DFC; * marca o mês em andamento ou incompleto. Não substitui a conciliação bancária. A variação do período aparece no resumo acima e considera o movimento da base salva.</p></details></div>`;
- h+=b?.operacao?`<div class="split">${card('Operação · '+rot,b.operacao)}${card('Investimento e financiamento · '+rot,b.outros)}</div>${b.rodape||''}`:blocosNaoApurados(ano,b);
+ h+=b?.operacao?`<div class="split">${card('Operação · '+rot,b.operacao,false)}${card('Investimento e financiamento · '+rot,b.outros,false)}</div>${b.rodape||''}`:blocosNaoApurados(ano,b);
  h+=caixaComparacaoAno(ano);
  h+=cardPlanejamento(ref);
- h+=card('Planilha de caixa · evolução mensal e acumulado',historicoTabela(),true);
+ h+=card('Planilha de caixa · evolução mensal e acumulado',historicoTabela(),false);
  return h;
 }
 function renderResultadoAno(reg){

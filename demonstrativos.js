@@ -10,10 +10,10 @@ const linhasCaixa=[
  ['saidas','(−) Pagamentos considerados','total','Pagamento'],
  ['variacao','(=) Variação do caixa no mês','result','Variação de caixa']
 ].map(([id,nome,tipo,termo])=>({id,nome,tipo,termo}));
-function mesesDRE(){const ano=Number(state.periodo.split('/')[1])||new Date().getFullYear();return PT_MON.map((m,i)=>{const label=m+'/'+ano,reg=state.records.find(r=>monthSortKey(r.label)===ano*12+i)||null,comp=DRECompetencia.obter(state.cfg,safeId(label));return {label,reg,comp};});}
+function mesesDRE(periodo=state.periodo){const ano=Number(periodo.split('/')[1])||new Date().getFullYear();return PT_MON.map((m,i)=>{const label=m+'/'+ano,reg=state.records.find(r=>monthSortKey(r.label)===ano*12+i)||null,comp=DRECompetencia.obter(state.cfg,safeId(label));return {label,reg,comp};});}
 function valorDRE(v,ratio=false){return v==null?'<span class="muted" title="Não apurado: faltam informações">—</span>':ratio?(Math.round(Number(v)*10)/10+0).toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1}).replace('-','−')+'%':money(v);}
-function dadosDRE(){
- const competencia=dreUI.base==='competencia',cols=mesesDRE(),ate=cols.findIndex(x=>x.label===state.periodo)+1||12,periodos=cols.slice(0,ate);
+function dadosDRE({base=dreUI.base,periodo=state.periodo}={}){
+ const competencia=base==='competencia',cols=mesesDRE(periodo),ate=cols.findIndex(x=>x.label===periodo)+1||12,periodos=cols.slice(0,ate);
  const valores=cols.map(x=>competencia?DREModelo.calcular(x.comp?.valores||{}):x.reg&&F.valorConta(x.reg,'1')!=null&&F.valorConta(x.reg,'2')!=null?F.resumo(x.reg):{});
  const escopos=new Set(periodos.filter(x=>competencia?x.comp:x.reg).map(x=>competencia?x.comp.company.trim().toLocaleLowerCase('pt-BR'):JSON.stringify([x.reg.company,x.reg.basis,x.reg.qualidade?.escopo,x.reg.qualidade?.regra])));
  let soma={};if(escopos.size<=1){if(competencia)soma=DREModelo.acumulado(periodos.map(x=>x.comp));else for(const row of linhasCaixa){const vs=valores.slice(0,ate).map(v=>v[row.id]);soma[row.id]=vs.some(v=>v==null)?null:vs.reduce((s,v)=>s+Math.round(v*100),0)/100;}}
@@ -26,6 +26,42 @@ function dreSimplesValores(labels,ate){
  return {ms,linhas:DRESimples.LINHAS,valor:(i,id)=>ms[i]?.a?.linhas?.[id]??null,acumulado:ate>=0?dreAnoCaixa(ms,ate).linhas:null};
 }
 function statusCompetencia(c){return !c?'Não preenchido':c.estado==='preenchido'?'Preenchido · a validar':'Preenchimento parcial';}
+
+// Uma seleção para tela, PDF e CSV. A comparação não depende das 12 colunas
+// do ano atual: janeiro pode comparar dezembro anterior. Vazio é SEM comparação.
+function dreResolverComparacao({base=dreUI.base,periodo=state.periodo,comparar=state.comparar}={}){
+ const competencia=base==='competencia',ativo=!!String(comparar||'').trim();
+ const obter=label=>{
+  const m=dreMesCaixa(label),comp=competencia?DRECompetencia.obter(state.cfg,safeId(label)):null;
+  const valores=competencia?DREModelo.calcular(comp?.valores||{}):m.reg&&F.valorConta(m.reg,'1')!=null&&F.valorConta(m.reg,'2')!=null?F.resumo(m.reg):{};
+  return {...m,comp,valores,simples:m.a};
+ };
+ const atual=obter(periodo),anterior=ativo?obter(comparar):null;
+ let c={pode:false,ressalva:false,motivo:'Sem comparação selecionada.'};
+ if(ativo&&!competencia)c=F.comparavelComRessalva(atual.reg,anterior.reg);
+ if(ativo&&competencia){
+  const empresa=x=>String(x?.company||'').trim().toLocaleLowerCase('pt-BR');
+  const presentes=!!atual.comp&&!!anterior.comp,mesmaEmpresa=presentes&&!!empresa(atual.comp)&&empresa(atual.comp)===empresa(anterior.comp);
+  c={pode:mesmaEmpresa,ressalva:mesmaEmpresa,motivo:!presentes?'Falta a apuração de um dos períodos.':!mesmaEmpresa?'empresas diferentes ou não informadas nas duas apurações':'Competência informada: confira as fontes das duas apurações.'};
+ }
+ return {competencia,ativo,atual,anterior,...c};
+}
+
+// Contexto reproduzível junto dos arquivos; ausência de origem/versão não vira
+// uma validação inventada. O fuso é explícito, independente do aparelho.
+function dreMetadadosExportacao(labels,{base=dreUI.base,comparar=state.comparar,agora=new Date()}={}){
+ const fuso='America/Sao_Paulo',competencia=base==='competencia';
+ const data=v=>v&&!Number.isNaN(new Date(v).getTime())?new Date(v).toLocaleString('pt-BR',{timeZone:fuso})+' ('+fuso+')':'Não informada';
+ const gerais=[['Emitido em',data(agora)],['Base',competencia?'Competência informada':'Caixa gerencial'],['Comparação selecionada',comparar||'Sem comparação'],['Leitura da nuvem',data(state.updated)],['Conciliação bancária','Não verificada nesta exportação']];
+ const periodos=[...new Set(labels.filter(Boolean))].map(label=>{
+  const m=dreResolverComparacao({base,periodo:label,comparar:''}).atual,r=competencia?m.comp:m.reg,q=competencia?null:F.qualidade(m.reg);
+  return {periodo:label,escopo:r?.company||'Não informado',fonte:competencia?r?.fonte||'Não informada':r?.origem||'Não informada',corte:competencia?'Competência de '+label:q?.coletadoAte||'Não informado',situacao:competencia?statusCompetencia(r):q.rotulo,cobertura:competencia?'Apuração informada; não valida a cobertura do ERP':r?.qualidade?.apiContratoValidado===true?'Contrato da API registrado como validado':r?.qualidade?.apiContratoValidado===false?'Contrato da API não validado':'Validação do contrato da API não informada',coleta:data(competencia?r?.revisadoEm:q?.coletadoEm),versao:competencia?r?.revisao||'Não informada':r?.qualidade?.regra||'Não informada'};
+ });
+ return {emitidoEm:data(agora),fuso,gerais,periodos};
+}
+function dreMetadadosLinhas(m){
+ return [[],['Contexto da exportação'],...m.gerais,[],['Período','Empresa / escopo','Fonte','Corte / abrangência','Situação','Cobertura','Coleta / revisão','Versão / regra'],...m.periodos.map(p=>[p.periodo,p.escopo,p.fonte,p.corte,p.situacao,p.cobertura,p.coleta,p.versao])];
+}
 
 /* ── COMPARATIVO NA PRÓPRIA LINHA ────────────────────────────────────────
    A matriz mostrava 12 números e nada mais: sem peso, sem direção e sem
@@ -173,9 +209,12 @@ function abrirCompetencia(label){
 }
 
 function exportarDRECSV(){
- const d=dadosDRE(),mensal=typeof gestaoUI!=='undefined'&&gestaoUI.dre==='mes',indices=mensal?[d.ate-1,d.cols.findIndex(x=>x.label===state.comparar)].filter(i=>i>=0):d.cols.map((_,i)=>i);
- const rows=[[(d.competencia?'DRE por competência':'Caixa gerencial'),...indices.map(i=>d.cols[i].label),'Acumulado até '+state.periodo],['Situação',...indices.map(i=>d.competencia?statusCompetencia(d.cols[i].comp):F.qualidade(d.cols[i].reg).rotulo),'Depende de todos os meses e do mesmo escopo'],['Empresa / escopo',...indices.map(i=>(d.competencia?d.cols[i].comp:d.cols[i].reg)?.company||'Não informado'),''],...d.linhas.map(r=>[r.nome,...[...indices.map(i=>d.valores[i]),d.soma].map(v=>v[r.id]==null?'Não apurado':v[r.id].toFixed(r.tipo==='ratio'?4:2).replace('.',',')+(r.tipo==='ratio'?'%':''))])];
- if(!d.competencia)rows.push(...dreSimplesCSV(indices,d.cols));
+ const d=dadosDRE(),mensal=typeof gestaoUI!=='undefined'&&gestaoUI.dre==='mes',cmp=dreResolverComparacao();
+ const cols=mensal?[cmp.atual,...(cmp.ativo?[cmp.anterior]:[])]:d.cols.map((x,i)=>({...x,valores:d.valores[i]}));
+ const rows=[[(d.competencia?'DRE por competência':'Caixa gerencial'),...cols.map(x=>x.label),'Acumulado até '+state.periodo],['Situação',...cols.map(x=>d.competencia?statusCompetencia(x.comp):F.qualidade(x.reg).rotulo),'Depende de todos os meses e do mesmo escopo'],['Empresa / escopo',...cols.map(x=>(d.competencia?x.comp:x.reg)?.company||'Não informado'),''],...d.linhas.map(r=>[r.nome,...[...cols.map(x=>x.valores),d.soma].map(v=>v[r.id]==null?'Não apurado':v[r.id].toFixed(r.tipo==='ratio'?4:2).replace('.',',')+(r.tipo==='ratio'?'%':''))])];
+ if(!d.competencia)rows.push(...dreSimplesCSV(cols.map((_,i)=>i),cols));
+ if(mensal&&cmp.ativo)rows.push([],['Comparabilidade',cmp.pode?'Permitida'+(cmp.ressalva?' com ressalva':''):'Suspensa',cmp.motivo]);
+ rows.push(...dreMetadadosLinhas(dreMetadadosExportacao(cols.map(x=>x.label))));
  download('dre-'+dreUI.base+'-'+(mensal?safeId(state.periodo):state.periodo.split('/')[1])+'.csv','\ufeff'+rows.map(r=>r.map(celulaCSV).join(';')).join('\n'),'text/csv');
 }
 
@@ -289,10 +328,10 @@ function dreSimplesCaixa(){
  const l=m.a.linhas,g=m.a.margens,ate=dreAteTexto(m),tom=v=>v>0?'tom-entra':v<0?'tom-sai':'';
  const cards=`<div class="cards cards-controle">${dreCartao(`Vendas · ${label}`,money(l.vendas),`Receita bruta de vendas${ate}`,l.vendas>0?'tom-entra':'')}${dreCartao('Margem de contribuição',money(l.margemContribuicao),`${drePct(g.margemContribuicao)} das vendas, depois do Simples, ISS, devoluções e custos variáveis${ate}`,tom(l.margemContribuicao))}${dreCartao('Resultado operacional (EBITDA de caixa)',money(l.ebitda),`${drePct(g.ebitda)} das vendas, depois das despesas fixas${ate}`,tom(l.ebitda))}${dreCartao('Resultado do mês',money(l.resultado),`${drePct(g.resultado)} das vendas, antes de retiradas, investimentos e dívidas${ate}`,tom(l.resultado))}</div>`;
  const graficos=`<div class="graficos-controle">${drePainel(`Da venda ao resultado · ${label}`,`Cada degrau com o percentual sobre as vendas${ate}. Toque num degrau para ver o valor.`,dreCascataCaixa(m),true)}${painelTendencia}</div>`;
- const outro=state.comparar||dreMesDesloca(label,-1),mb=dreMesCaixa(outro);
- let comparacao;
- if(!mb.a)comparacao=card(`Comparação · ${label} contra ${outro}`,`<p class="hint">${esc(outro)} sem dados coletados: escolha outro mês em “Comparação”, no topo.</p>`,false);
- else{const c=F.comparavelComRessalva(m.reg,mb.reg);
+ const c=dreResolverComparacao({base:'caixa',periodo:label}),outro=c.anterior?.label,mb=c.anterior;
+ let comparacao='';
+ if(c.ativo&&!mb.a)comparacao=card(`Comparação · ${label} contra ${outro}`,`<p class="hint">${esc(outro)} sem dados coletados: escolha outro mês em “Comparação”, no topo.</p>`,false);
+ else if(c.ativo){
   comparacao=card(`Comparação · ${label} contra ${outro}${c.pode?'':' · sem comparação'}`,dreComparacao(DRESimples.LINHAS,id=>m.a.linhas[id],id=>mb.a.linhas[id],id=>m.a.pct(id),id=>mb.a.pct(id),{rotuloA:label,rotuloB:outro,pode:!!c.pode,motivo:c.motivo,ressalva:!!c.ressalva,parcialB:mb.parcial})+`<p class="hint">Mude o mês em “Comparação”, no topo. Na coluna Δ, sócios, investimentos, dívidas e empréstimos aparecem sem cor: pegar ou pagar empréstimo muda o caixa, mas não é bom nem ruim por si.</p>`,!!c.pode);}
  return {cards,resto:graficos+comparacao+dreComposicao(m)+dreMesesSimples(label,meses)};
 }
@@ -318,11 +357,11 @@ function dreSimplesCompetencia(d){
  const pctBruta=(x,base)=>base>0&&x!=null?x/base*100:null;
  let nota=dreDASTexto(label,das);
  if(das.reg)nota+=` Informado em “Tributos sobre vendas”: ${v.tributosVendas==null?'não informado':money(v.tributosVendas)}${v.tributosVendas!=null&&das.guia.temGuia&&!das.parcial&&v.tributosVendas+.005<das.guia.total?', menor que o Simples pago (DAS e DARF): confira':''}.`;
- // Mês de comparação: o escolhido no topo (qualquer ano) ou o anterior, mesmo em janeiro.
- const outroLabel=state.comparar||dreMesDesloca(label,-1),outroComp=outroLabel?DRECompetencia.obter(state.cfg,safeId(outroLabel)):null,vb=outroComp?DREModelo.calcular(outroComp.valores||{}):null;
- const pode=!!outroComp&&String(outroComp.company||'').trim().toLowerCase()===String(col.comp.company||'').trim().toLowerCase();
+ // Mês de comparação: só o escolhido no topo, inclusive de outro ano.
+ const cmp=dreResolverComparacao({base:'competencia',periodo:label}),outroLabel=cmp.anterior?.label,outroComp=cmp.anterior?.comp,vb=cmp.anterior?.valores;
+ const pode=cmp.pode;
  const linhasCmp=DREModelo.linhas.filter(r=>r.tipo!=='detail'&&r.tipo!=='ratio'&&r.tipo!=='info').map(r=>({id:r.id,nome:r.nome,tipo:r.tipo==='result'?'resultado':r.tipo,sentido:DIRECAO_DA_LINHA[r.id]||0}));
- const comparacao=!outroLabel?'':!outroComp?card(`Comparação · ${label} contra ${outroLabel}`,`<p class="hint">${esc(outroLabel)} sem apuração por competência: escolha outro mês em “Comparação”, no topo.</p>`,false):card(`Comparação · ${label} contra ${outroLabel}${pode?'':' · sem comparação'}`,dreComparacao(linhasCmp,id=>v[id]??null,id=>vb[id]??null,id=>pctBruta(v[id],v.bruta),id=>pctBruta(vb[id],vb.bruta),{rotuloA:label,rotuloB:outroLabel,pode,motivo:'empresas diferentes nas duas apurações',base:'a receita bruta'}),pode);
+ const comparacao=!outroLabel?'':!outroComp?card(`Comparação · ${label} contra ${outroLabel}`,`<p class="hint">${esc(outroLabel)} sem apuração por competência: escolha outro mês em “Comparação”, no topo.</p>`,false):card(`Comparação · ${label} contra ${outroLabel}${pode?'':' · sem comparação'}`,dreComparacao(linhasCmp,id=>v[id]??null,id=>vb[id]??null,id=>pctBruta(v[id],v.bruta),id=>pctBruta(vb[id],vb.bruta),{rotuloA:label,rotuloB:outroLabel,pode,motivo:cmp.motivo,base:'a receita bruta'}),pode);
  // Mesma base do KPI "Margem líquida" (lucro líquido ÷ receita líquida), I7
  const tendencia=gLinhaArea(d.cols.map((x,k)=>({rotulo:x.label.slice(0,3),valor:x.comp?d.valores[k].margemLiquida??null:null})),{selecionado:i,titulo:'Margem líquida',formato:x=>drePct(x),rotulo:'Margem líquida',cor:'resultado'});
  return `<p class="note dre-das-ref">${esc(nota)}</p><div class="graficos-controle">${drePainel(`Da receita ao lucro · ${label}`,'Competência informada; cada degrau com o percentual sobre a receita bruta. No Simples, IRPJ e CSLL estão dentro do DAS.',gCascata(passos,{base:v.bruta>0?v.bruta:0,inicio:'entrada'}),true)}${drePainel('O lucro sobre a receita está melhorando?','Lucro líquido ÷ receita líquida, nos meses com apuração.',tendencia,true)}</div>${comparacao}<p class="hint">A composição conta a conta fica na base de caixa; na competência, as rubricas vêm da apuração informada.</p>`;

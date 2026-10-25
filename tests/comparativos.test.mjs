@@ -165,7 +165,9 @@ test('a seção no Dashboard: painéis, tabelas e a leitura, sem NaN, sem traves
  assert.match(h,/passou a girar dívida/);assert.match(h,/Pessoal<\/b>: definir um teto/);
  assert.ok((h.match(/class="g-fig/g)||[]).length>=6,'gráficos');
  // a seção continua no Dashboard, agora no fim (v135, D21): "O que mudou" e a Conferência ficam perto da Leitura CFO
- assert.match(ler('app.js'),/h\+=\(typeof renderComparativos==='function'\?renderComparativos\(\):''\)/);
+ const dashboard=c.run('state.D={accounts:[]};renderInicio(regAtual(),F.qualidade(regAtual()))');
+ assert.match(dashboard,/<details class="card"[^>]*><summary><h2 class="card-titulo">Comparativos entre anos<\/h2>/);
+ assert.ok(dashboard.includes(h),'conteúdo completo continua acessível na seção recolhida');
  for(const f of ['index.html','sw.js','scripts/build_site.py'])assert.match(ler(f),/comparativos\.js/,f);
 });
 test('sem meses fechados: aviso, não gráfico vazio; cache refeito quando a base muda',()=>{

@@ -25,6 +25,13 @@ test('gráficos distinguem conta ausente de gasto zero e rejeitam valor inválid
  assert.equal(F.valorConta(rec({'2':'inválido'}),'2'),null);
  assert.equal(F.valorConta(rec({'2':null}),'2'),null);
 });
+test('comparação de caixa exige totais conhecidos e conserva zero real',()=>{
+ const extra={origem:'planilha',qualidade:{estado:'fechado',ate:'2026-08-31',regra:'v2',escopo:'DRE'}};
+ for(const cells of [{'1':100},{'1':100,'2':null},{'1':100,'2':'inválido'}]){
+  const c=F.comparacao(rec(cells,extra),rec({'1':100,'2':20},extra));assert.equal(c.permitida,false);assert.equal(c.delta,null);assert.match(c.motivo,/total.*ausente|inválido/i);
+ }
+ const zero=F.comparacao(rec({'1':0,'2':0},extra),rec({'1':0,'2':0},extra));assert.equal(zero.permitida,true);assert.equal(zero.delta,0);
+});
 test('composição soma um nível de contas sem duplicar descendentes',()=>{
  const r=F.composicao(rec({'2':100,'2.5':60,'2.5.1':20,'2.5.3':40,'2.6':30}),'2');
  assert.equal(r.total,100);assert.equal(r.itens.length,3);
