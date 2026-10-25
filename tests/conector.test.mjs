@@ -47,16 +47,55 @@ test('recurso de item único não recebe paginação',async()=>{
   const calls=apiPaginada([{data:{id:10,itens:[]}}]);await context.buscarCompleto('ordem-servico/numero/10',creds,{});assert.equal(calls[0].searchParams.has('page'),false);assert.equal(calls.length,1);
 });
 
-test('diagnóstico distingue limite de tempo de erro HTTP sem revelar a resposta do ERP',async()=>{
+test('diagnóstico distingue rede indisponível de erro HTTP sem revelar a resposta do ERP',async()=>{
   context.fetch=async()=>{throw new Error('credencial-e-dado-privado');};
   let r=await context.buscarCompleto('contas-pagar',creds,{});
-  assert.equal(r.data.diagnostico.motivo,'tempo-ou-rede');
+  assert.equal(r.data.diagnostico.motivo,'rede-indisponivel');
   assert.equal(JSON.stringify(r).includes('credencial-e-dado-privado'),false);
   apiPaginada([{status:503,data:{error:'dado-privado'}}]);
   r=await context.buscarCompleto('contas-pagar',creds,{});
   assert.equal(r.data.diagnostico.motivo,'http');
   assert.equal(r.data.diagnostico.http,503);
   assert.equal(JSON.stringify(r).includes('dado-privado'),false);
+});
+test('tempo esgotado se distingue de falha imediata de transporte sem copiar detalhes',async()=>{
+  const privado='https://api.mubisys.com/api/credencial-sintetica token-sintetico';
+  for(const [name,motivo] of [['AbortError','tempo-esgotado'],['TimeoutError','tempo-esgotado'],['TypeError','rede-indisponivel']]){
+    context.fetch=async()=>{throw Object.assign(new Error(privado),{name});};
+    const r=await context.buscarCompleto('contas-pagar',creds,{});
+    assert.equal(r.data.diagnostico.motivo,motivo);
+    assert.equal(r.data.parcial,true);assert.equal(r.data.paginacao.paginas,0);
+    assert.equal(JSON.stringify(r).includes(privado),false);
+    assert.deepEqual(Object.keys(r.data.diagnostico),['motivo']);
+  }
+});
+test('timeout durante a leitura do corpo continua sendo tempo esgotado',async()=>{
+  context.fetch=async()=>({ok:true,status:200,json:async()=>{throw Object.assign(new Error('corpo-privado'),{name:'AbortError'});}});
+  const r=await context.buscarCompleto('contas-pagar',creds,{});
+  assert.equal(r.data.diagnostico.motivo,'tempo-esgotado');
+  assert.equal(JSON.stringify(r).includes('corpo-privado'),false);
+});
+test('cancelamento do temporizador é classificado sem depender da mensagem do fetch',async()=>{
+  context.fetch=async(_url,{signal})=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(new TypeError('cancelamento-privado')),{once:true}));
+  const r=await context.buscarCompleto('contas-pagar',creds,{},1,100);
+  assert.equal(r.data.diagnostico.motivo,'tempo-esgotado');
+});
+test('JSON inválido permanece resposta inválida, sem confundir conteúdo com falha de rede',async()=>{
+  context.fetch=async()=>new Response('conteudo-sintetico-invalido',{status:200});
+  const r=await context.buscarCompleto('contas-pagar',creds,{});
+  assert.equal(r.data.diagnostico.motivo,'resposta-invalida');
+  assert.equal(JSON.stringify(r).includes('conteudo-sintetico-invalido'),false);
+});
+test('rede falha após uma página: conserva itens coletados, mas nunca declara completude',async()=>{
+  let chamadas=0;
+  context.fetch=async()=>{
+    if(++chamadas===1)return new Response(JSON.stringify({data:[{id:1}],has_more:true}),{status:200});
+    throw new TypeError('url-privada-sintetica');
+  };
+  const r=await context.buscarCompleto('contas-pagar',creds,{});
+  assert.equal(r.ok,true);assert.equal(r.http,200);assert.equal(r.data.parcial,true);
+  assert.equal(r.data.paginacao.paginas,1);assert.deepEqual(Array.from(r.data.data,x=>x.id),[1]);
+  assert.equal(r.data.diagnostico.motivo,'rede-indisponivel');assert.equal(chamadas,2);
 });
 test('conferência identifica janela incompleta e pagamentos inválidos por contagem',()=>{
   const r=context.agregarFatias([

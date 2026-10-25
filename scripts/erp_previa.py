@@ -203,6 +203,8 @@ def diagnostico_janela(resposta):
     d = d if isinstance(d, dict) else {}
     motivos = {
         "tempo-ou-rede": "tempo de resposta ou rede",
+        "tempo-esgotado": "tempo esgotado na consulta",
+        "rede-indisponivel": "rede indisponível para consultar o Mubisys",
         "orcamento-esgotado": "tempo total esgotado no conector",
         "http": "falha HTTP",
         "resposta-invalida": "resposta fora do contrato",
@@ -230,7 +232,9 @@ def coletar(recurso, ini, fim):
                 r = call("dre-financas", {
                     "action": "listar", "recurso": recurso, "status": "PAGO",
                     "filtrodata": "PAGAMENTO",
-                    "datainicial": a.isoformat(), "datafinal": b.isoformat(),
+                    # O ERP corta datafinal na meia-noite. [a, b] continua sendo
+                    # o período contabilizado; só o limite enviado é exclusivo.
+                    "datainicial": a.isoformat(), "datafinal": (b + datetime.timedelta(days=1)).isoformat(),
                 })
             except JanelaGrande as e:
                 r = {"ok": True, "parcial": True, "diagnostico": {"motivo": "http", "http": e.http} if e.http else {"motivo": "tempo-ou-rede"}}
@@ -255,7 +259,7 @@ def coletar(recurso, ini, fim):
             time.sleep(1.2)
             return
         diag = diagnostico_janela(r)
-        expansiva = diag.get("motivo") in ("tempo-ou-rede", "orcamento-esgotado") or (
+        expansiva = diag.get("motivo") in ("tempo-esgotado", "tempo-ou-rede", "orcamento-esgotado") or (
             diag.get("motivo") == "http" and diag.get("http") in (502, 504))
         if not completa and expansiva:
             if a >= b:

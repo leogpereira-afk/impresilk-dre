@@ -126,6 +126,22 @@ function vazioConfirmado(recurso: string, r: any): boolean {
     (['data','items','results'].some(k=>Array.isArray(d?.[k]) && d[k].length===0)));
 }
 
+type MotivoTransporte = 'tempo-esgotado' | 'rede-indisponivel';
+function motivoTransporte(erro: unknown, abortado = false): MotivoTransporte {
+  const nome = (erro as Error)?.name;
+  return abortado || nome === 'AbortError' || nome === 'TimeoutError' ? 'tempo-esgotado' : 'rede-indisponivel';
+}
+// A exceção original pode conter a URL com a chave pública. Só códigos e
+// mensagens fixas atravessam o conector; não copiar message, cause ou stack.
+class FalhaConsultaERP extends Error {
+  motivo: MotivoTransporte;
+  constructor(motivo: MotivoTransporte) {
+    super(motivo === 'tempo-esgotado' ? 'Tempo esgotado na consulta ao Mubisys.' : 'Rede indisponível para consultar o Mubisys.');
+    this.name = 'FalhaConsultaERP';
+    this.motivo = motivo;
+  }
+}
+
 async function buscar(recurso: string, creds: any, f: any, timeoutMs = 22000) {
   const q = new URLSearchParams();
   for (const k of ["status", "filtrodata", "datainicial", "datafinal", "page", "per_page"]) {
@@ -139,8 +155,13 @@ async function buscar(recurso: string, creds: any, f: any, timeoutMs = 22000) {
       headers: { "Access-Token": creds.accessToken, Accept: "application/json" },
       signal: ctrl.signal,
     });
-    const data = await r.json().catch(() => null);
+    const data = await r.json().catch((erro: unknown) => {
+      if ((erro as Error)?.name === 'SyntaxError') return null;
+      throw erro;
+    });
     return { ok: r.ok, http: r.status, data };
+  } catch (erro) {
+    throw new FalhaConsultaERP(motivoTransporte(erro, ctrl.signal.aborted));
   } finally {
     clearTimeout(timer);
   }
@@ -161,7 +182,7 @@ async function buscarCompleto(recurso: string, creds: any, f: any, timeoutMs = 2
     if (restante <= 0) return resposta(true,'orcamento-esgotado');
     let r: any;
     try { r = await buscar(recurso, creds, {...f,page,per_page:tamanho},Math.min(timeoutMs,restante)); }
-    catch { return resposta(true,'tempo-ou-rede'); }
+    catch (erro) { return resposta(true,erro instanceof FalhaConsultaERP ? erro.motivo : motivoTransporte(erro)); }
     if (vazioConfirmado(recurso,r)) r = {ok:true,http:200,data:[]};
     if (!r.ok) return resposta(true,'http',r.http);
     const d = r.data;
@@ -284,6 +305,7 @@ function agregarFatias(resultados: any[], ini: string, fim: string) {
 
 function explicarConsulta(diag: any): string {
   const motivos: Record<string,string> = {'tempo-ou-rede':'tempo de resposta ou rede','orcamento-esgotado':'tempo total esgotado',
+    'tempo-esgotado':'tempo esgotado','rede-indisponivel':'rede indisponível',
     'pagina-repetida':'página repetida','paginacao-inconsistente':'paginação inconsistente','resposta-invalida':'resposta inválida',
     'lista-ausente':'lista não encontrada','limite-de-paginas':'limite de páginas','consulta-falhou':'consulta falhou'};
   const partes = diag.janelasIncompletas.map((j: any) => `${j.recurso} (${j.inicio} a ${j.fim}): ${j.motivo === 'http' ? 'HTTP '+j.http : motivos[j.motivo] || 'consulta incompleta'}`);
@@ -470,6 +492,7 @@ Deno.serve(async (req: Request) => {
       }
       if (action === "preview") {
         return json({ ok: true, recurso, total: lista.length, parcial:respostaParcial(r.data),
+          ...(r.data?.diagnostico ? {diagnostico:r.data.diagnostico} : {}),
           campos: lista[0] ? Object.keys(lista[0]) : [], amostra: lista.slice(0, 3) });
       }
       return json({ ok: true, recurso, total: lista.length, parcial:respostaParcial(r.data),
@@ -496,9 +519,13 @@ Deno.serve(async (req: Request) => {
         for (let tentativa = 1; tentativa <= 2; tentativa++) {
           if (Date.now() - inicioImport >= ORCAMENTO_MS) return { ...f, res: null, motivo:'orcamento-esgotado' };
           try {
+            // Fatias e apuração usam fim inclusivo; só a API exige o dia seguinte.
+            // listar/raw já recebem o limite exclusivo de seus próprios clientes.
+            const fimERP = new Date(f.b + 'T00:00:00Z');
+            fimERP.setUTCDate(fimERP.getUTCDate() + 1);
             const res = await buscarCompleto(f.rc.recurso, creds, {
               status: f.rc.status, filtrodata: f.rc.filtrodata,
-              datainicial: f.a, datafinal: f.b,
+              datainicial: f.a, datafinal: fimERP.toISOString().slice(0,10),
             }, 45000, Math.max(1,ORCAMENTO_MS-(Date.now()-inicioImport)));
             if (res.ok) return { ...f, res };
             if (vazioConfirmado(f.rc.recurso,res)) return {...f,res:{ok:true,data:[]}};
@@ -525,6 +552,7 @@ Deno.serve(async (req: Request) => {
 
     return json({ erro: `Ação desconhecida: ${action}` }, 400);
   } catch (e) {
+    if (e instanceof FalhaConsultaERP) return json({ok:false,erro:e.message,diagnostico:{motivo:e.motivo}},502);
     return json({ erro: (e as Error)?.message ?? String(e) }, 500);
   }
 });

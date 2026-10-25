@@ -159,6 +159,32 @@ class Coleta(unittest.TestCase):
         self.assertEqual([i["id"] for i in itens], ["2026-01-01", "2026-01-17"])
         self.assertEqual(pedidos[1]["datafinal"], "2026-01-17", "datafinal corta na meia-noite: pede-se o dia seguinte")
 
+    def test_timeout_novo_e_legado_recuperam_janela_em_dois_dias(self):
+        for motivo in ("tempo-esgotado", "tempo-ou-rede"):
+            with self.subTest(motivo=motivo):
+                def resp(p):
+                    if (p["datainicial"], p["datafinal"]) == ("2026-01-01", "2026-01-03"):
+                        return {"ok": True, "parcial": True, "diagnostico": {"motivo": motivo}}
+                    return {"ok": True, "itens": [{"id": p["datainicial"]}]}
+                chamar, pedidos = self.chamar_com(resp)
+                itens = P.listar("contas-pagar", "PAGO", "PAGAMENTO", D(2026, 1, 1), D(2026, 1, 2), chamar, lambda s: None)
+                self.assertEqual([i["id"] for i in itens], ["2026-01-01", "2026-01-02"])
+                self.assertEqual([(p["datainicial"], p["datafinal"]) for p in pedidos],
+                                 [("2026-01-01", "2026-01-03"), ("2026-01-01", "2026-01-02"),
+                                  ("2026-01-02", "2026-01-03")])
+
+    def test_rede_indisponivel_aborta_apos_tres_tentativas_sem_subdividir_nem_gravar(self):
+        chamar, pedidos = self.chamar_com(lambda p: {
+            "ok": True, "parcial": True, "itens": [{"id": "titulo-parcial-sintetico"}],
+            "diagnostico": {"motivo": "rede-indisponivel", "http": 502},
+        })
+        with patch.dict(os.environ, {"DRE_PUBLISH": "1"}):
+            with self.assertRaises(P.ColetaIncompleta):
+                P.main(D(2026, 1, 15), chamar, lambda s: None, lambda m: None)
+        self.assertEqual(len(pedidos), 3)
+        self.assertTrue(all(p == pedidos[0] for p in pedidos))
+        self.assertTrue(all(p.get("action") == "listar" for p in pedidos))
+
     def test_429_espera_e_tenta_de_novo(self):
         estado = {"n": 0}
 

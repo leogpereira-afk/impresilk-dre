@@ -335,7 +335,7 @@ def listar(recurso, status, filtrodata, a, b, chamar=None, dormir=time.sleep):
                 return []
             dormir(5)
             continue
-        expansiva = diag.get("motivo") in ("tempo-ou-rede", "orcamento-esgotado", "limite-de-paginas") or (
+        expansiva = diag.get("motivo") in ("tempo-esgotado", "tempo-ou-rede", "orcamento-esgotado", "limite-de-paginas") or (
             diag.get("motivo") == "http" and diag.get("http") in (502, 504))
         if expansiva and a < b:
             meio = a + (b - a) // 2

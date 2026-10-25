@@ -4,11 +4,11 @@ import {createHmac} from 'node:crypto';
 import {stripTypeScriptTypes} from 'node:module';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-function server({role='leitura',dbFail=false,permFail=false,response={status:200,data:[]}}={}) {
+function server({role='leitura',dbFail=false,permFail=false,response={status:200,data:[]},fetchERP}={}) {
   let handler,writes=0,erp=[];
   const env={DRE_TOKEN:'fixture-machine',DRE_COLLECTOR_TOKEN:'fixture-collector',EQUIPE_JWT_SECRET:'fixture-jwt',MUBI_PUBLIC_KEY:'fixture-public',MUBI_TOKEN:'fixture-access'};
   const sb={rpc:async()=>({data:false,error:null}),from(table){let invalid=false;const b={select(){return b;},eq(k,v){if(table==='dre_config_global'&&k==='id'&&v!==true)invalid=true;return b;},maybeSingle:async()=>({data:table==='dre_config_global'&&!permFail?{config:{permissoes:{user:role}}}:null,error:invalid||(permFail&&table==='dre_config_global')?{message:'id booleano inválido'}:null}),upsert:async()=>{writes++;return {error:dbFail?{message:'erro de teste'}:null};}};return b;}};
-  const context={Deno:{env:{get:k=>env[k]||''},serve:f=>handler=f},createClient:()=>sb,TextEncoder,TextDecoder,Request,Response,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,crypto:globalThis.crypto,atob,console,fetch:async(u)=>{erp.push(String(u));return new Response(JSON.stringify(response.data),{status:response.status});}};
+  const context={Deno:{env:{get:k=>env[k]||''},serve:f=>handler=f},createClient:()=>sb,TextEncoder,TextDecoder,Request,Response,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,crypto:globalThis.crypto,atob,console,fetch:async(u,init)=>{erp.push(String(u));return fetchERP?fetchERP(u,init):new Response(JSON.stringify(response.data),{status:response.status});}};
   vm.createContext(context);vm.runInContext(stripTypeScriptTypes(fs.readFileSync(new URL('../supabase/functions/dre-financas/index.ts',import.meta.url),'utf8').replace(/^import .*;$/mg,'')),context);
   const h=Buffer.from('{"alg":"HS256"}').toString('base64url'),p=Buffer.from(JSON.stringify({sub:'user',sis:'dre',papel:'equipe',exp:Math.floor(Date.now()/1000)+60})).toString('base64url');
   const jwt=h+'.'+p+'.'+createHmac('sha256',env.EQUIPE_JWT_SECRET).update(h+'.'+p).digest('base64url');
@@ -98,4 +98,39 @@ test('a conferência da tela (importarMes) continua aberta para quem entra no DR
   assert.equal(r.status,200);
   assert.equal(r.body.ok,true);
   assert.ok(s.erp().every(u=>/\/contas-(pagar|receber)\?/.test(u)),'só contas a pagar e a receber');
+});
+test('todos os fluxos expõem diagnóstico fixo de rede, sem URL ou mensagem privada',async()=>{
+  const privado='https://api.mubisys.com/api/fixture-public segredo-fixture-access';
+  for(const [action,recurso] of [['listar','contas-pagar'],['preview','contas-pagar'],['ping','contas-pagar'],['raw','contas-pagar'],['listar','ordem-servico/numero/1'],['importarMes','contas-pagar']]){
+    const s=server({fetchERP:async()=>{throw new TypeError(privado);}});
+    const r=await s.call({action,recurso,datainicial:'2026-08-01',datafinal:'2026-08-07'},true);
+    if(action==='importarMes'){
+      assert.equal(r.body.parcial,true);assert.equal(r.body.diag.janelasIncompletas.length,2);
+      assert.ok(r.body.diag.janelasIncompletas.every(x=>x.motivo==='rede-indisponivel'));
+      assert.match(r.body.aviso,/rede indisponível/);
+    }else assert.equal(r.body.diagnostico?.motivo,'rede-indisponivel',action);
+    assert.equal(JSON.stringify(r).includes(privado),false,action);
+    assert.equal(s.writes(),0);
+  }
+});
+test('importarMes inclui o último dia na virada de mês/ano sem somar o dia seguinte',async()=>{
+  for(const [fim,exclusivo] of [['2026-08-31','2026-09-01'],['2026-12-31','2027-01-01'],['2024-02-29','2024-03-01']]){
+    const s=server({fetchERP:async url=>{
+      const u=new URL(url),a=u.searchParams.get('datainicial'),b=u.searchParams.get('datafinal');
+      const pagar=u.pathname.includes('contas-pagar');
+      const titulos=a<=fim&&fim<b?[{id:pagar?1:2,compoe_dre:'Sim',plano_contas:pagar?'2.1 - Custo sintético':'1.1 - Entrada sintética',pagamentos:[{data_pagamento:fim,valor:pagar?40:100},{data_pagamento:exclusivo,valor:900}]}]:[];
+      return new Response(JSON.stringify(titulos),{status:200});
+    }});
+    const r=await s.call({action:'importarMes',datainicial:fim,datafinal:fim},true);
+    assert.equal(r.body.parcial,false);assert.equal(r.body.totais.receita,100);assert.equal(r.body.totais.despesa,40);
+    assert.ok(s.erp().every(url=>new URL(url).searchParams.get('datafinal')===exclusivo));
+  }
+});
+test('importarMes converte cada fim inclusivo, mas listar/raw preservam o fim recebido',async()=>{
+  const s=server();await s.call({action:'importarMes',datainicial:'2026-12-26',datafinal:'2027-01-05'},true);
+  assert.deepEqual(s.erp().map(url=>{const u=new URL(url);return [u.searchParams.get('datainicial'),u.searchParams.get('datafinal')];}).sort(),[['2026-12-26','2027-01-02'],['2026-12-26','2027-01-02'],['2027-01-02','2027-01-06'],['2027-01-02','2027-01-06']]);
+  for(const action of ['listar','raw']){
+    const t=server();await t.call({action,recurso:'contas-pagar',datainicial:'2026-12-26',datafinal:'2027-01-06'},true);
+    assert.equal(new URL(t.erp()[0]).searchParams.get('datafinal'),'2027-01-06',action);
+  }
 });

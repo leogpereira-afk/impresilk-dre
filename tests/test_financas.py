@@ -72,14 +72,15 @@ class RotinaTest(unittest.TestCase):
         calls=[]
         def api(fn,payload):
             calls.append((payload['datainicial'],payload['datafinal']))
-            if payload['datainicial'] != payload['datafinal']:
+            intervalo=datetime.date.fromisoformat(payload['datafinal'])-datetime.date.fromisoformat(payload['datainicial'])
+            if intervalo > datetime.timedelta(days=1):
                 return {'ok':True,'parcial':True,'diagnostico':{'motivo':'tempo-ou-rede'},'itens':[]}
-            return {'ok':True,'itens':[{'id':payload['datainicial']}]}
+            return {'ok':True,'itens':[{'id':payload['datainicial']}] if intervalo.days == 1 else []}
         with patch.object(previa,'call',side_effect=api),patch.object(previa.time,'sleep'),patch('builtins.print'):
             r=previa.coletar('contas-pagar',datetime.date(2026,8,1),datetime.date(2026,8,2))
         self.assertEqual([t['id'] for t in r],['2026-08-01','2026-08-02'])
-        self.assertEqual(calls,[('2026-08-01','2026-08-02')]*3+
-                               [('2026-08-01','2026-08-01'),('2026-08-02','2026-08-02')])
+        self.assertEqual(calls,[('2026-08-01','2026-08-03')]*3+
+                               [('2026-08-01','2026-08-02'),('2026-08-02','2026-08-03')])
     def test_sem_regras_privadas_interrompe_antes_de_consultar_erp(self):
         with patch.object(previa,'call',return_value={'ok':True,'cfg':{}}),patch.object(previa,'coletar') as collect,patch('builtins.print'):
             with self.assertRaisesRegex(RuntimeError,'Configuração privada'):
