@@ -390,7 +390,7 @@ def montar(label, receber, pagar, por_produto, valor_janela, codigo,
         pendencias.append({"tipo":"receita-sem-os", "conta":"1.1.98", "valor":sem_rateio,
                            "texto":"Valor recebido preservado; rateio aguarda todas as O.S."})
     for prod, v in por_produto.items():
-        if prod not in (mapa_conta or {}):
+        if prod not in (mapa_conta or {}) and not (re.fullmatch(r"1\.(?:1\.[12]|2|5|6)(?:\.\d+)+", str((registro_codigos or {}).get(prod, "")))):
             pendencias.append({"tipo":"produto-sem-categoria", "conta":"1.1.99", "valor":v,
                                "texto":f"Categoria do produto {prod} precisa de revisão."})
 

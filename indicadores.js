@@ -1,4 +1,4 @@
-import * as M from './indicadores-modelo.mjs?v=139';
+import * as M from './indicadores-modelo.mjs?v=140';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // Sinal de menos tipográfico (−) e sem "-0" em toda a tela.
 const br=v=>v==null?'Não informado':(Math.abs(Number(v))<.005?0:Number(v)).toLocaleString('pt-BR',{style:'currency',currency:'BRL'}).replace('-','−');

@@ -50,7 +50,7 @@ export async function recorteArquivado(sb, chave, p, exato, agora = new Date()) 
   const recs = (data || []).map(r => r?.registro).filter(s => recorteValido(s) && (s.chave ?? chave) === chave);
   // Recorte importado antes do fim do próprio período pode não ter o resto do mês: dito.
   const antes = s => String(s.em ?? '').slice(0, 10) < s.ate;
-  const fonte = s => ({ em: s.em ?? null, corte: s.ate, periodo: `${s.desde} a ${s.ate}`, conciliado: false });
+  const fonte = s => ({ em: s.em ?? null, corte: s.corte || s.ate, periodo: `${s.desde} a ${s.ate}`, conciliado: false });
   const um = recs.filter(s => exato ? s.desde === p.de && s.ate === p.ate : s.desde <= p.de && s.ate >= p.ate).sort(maisNovo)[0];
   if (um) return { recorte: { ...um, partes: 1, fontes: [fonte(um)], antesDoFim: antes(um) ? [`${um.desde} a ${um.ate}`] : [] } };
   const meses = mesesDe(p.de, p.ate);

@@ -107,7 +107,7 @@ export function agregarPagar({ lista, atualizadoEm = null, corte = null, agora =
 
   const avisos = [];
   if (!dataOk(corte)) avisos.push(`O corte de dívida antiga não foi lido na configuração do Painel; foi usado o padrão ${dataBR(CORTE_PADRAO)}.`);
-  if (semClasse.length) avisos.push(`${semClasse.length} conta(s) sem número de centro de custo no Mubisys ficam fora do a pagar operacional até serem reclassificadas.`);
+  if (semClasse.length) avisos.push(`${semClasse.length} conta(s) com centro de custo não reconhecido pelo DRE ficam fora do a pagar operacional até conferência da classificação.`);
   if (antigas.quantidade) avisos.push(`${antigas.quantidade} conta(s) vencida(s) antes de ${dataBR(corteUsado)} ficam fora dos números, com o mesmo corte dos recebíveis.`);
   if (semVencimento.quantidade) avisos.push(`${semVencimento.quantidade} conta(s) sem data de vencimento válida ficam fora das faixas e dos totais.`);
   if (ausentes) avisos.push(`${ausentes} conta(s) sem saldo válido não foram somadas.`);

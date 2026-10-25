@@ -35,7 +35,7 @@ test('sem classe no Mubisys: fora do operacional, à vista e marcando a leitura 
  const r=ag([...PAGAR,c(20,600,10,'Materia Prima Serralheria'),c(21,50,3,'Fornecedor')]);
  assert.deepEqual([r.totais.semClasse,r.totais.operacional,r.qualidade],[650,4750,'Parcial']);
  assert.deepEqual(r.grupos.find(x=>x.id==='semClasse').categorias.map(k=>k.rotulo),['Materia Prima Serralheria','Fornecedor']);
- assert.ok(r.avisos.some(a=>/2 conta\(s\) sem número de centro de custo no Mubisys ficam fora do a pagar operacional até serem reclassificadas/.test(a)));
+ assert.ok(r.avisos.some(a=>/2 conta\(s\) com centro de custo não reconhecido pelo DRE ficam fora do a pagar operacional até conferência/.test(a)));
 });
 test('antes do corte, sem vencimento, sem saldo e repetida: fora e contadas; mesmo id em título e projeção são coisas diferentes',()=>{
  const r=ag([...PAGAR,c(30,9000,700,'1.01 X',{vencimento:'2024-12-31'}),c(31,100,5,'1.01 X',{vencimento:'2025-01-01'}),c(32,80,5,'1.01 X',{vencimento:''}),c(33,0,5,'1.01 X'),c(34,'abc',5,'1.01 X'),{...c(1,999,3,'1.01 X')},prov(1,10,'Despesa fixa',dia(-3)),null]);
@@ -158,7 +158,7 @@ test('o que fica fora é dito, no servidor e na tela',async()=>{
  const r=ag([...PAGAR,c(30,9000,700,'1.01 X',{vencimento:'2024-12-31'}),c(32,80,5,'1.01 X',{vencimento:''}),c(33,0,5,'1.01 X'),{...c(1,999,3,'1.01 X')}],{corte:null});
  for(const re of [/1 conta\(s\) vencida\(s\) antes de 01\/01\/2025 ficam fora/,/1 conta\(s\) sem data de vencimento válida/,/1 conta\(s\) sem saldo válido/,/1 conta\(s\) repetida\(s\)/,/foi usado o padrão 01\/01\/2025/])assert.ok(r.avisos.some(a=>re.test(a)),String(re));
  const d=await payload({pag:{valor:[...PAGAR,c(20,600,10,'Materia Prima'),c(30,9000,700,'1.01 X',{vencimento:'2024-12-31'})],atualizado_em:EM}}),h=tela({dados:d}).run('renderGiro()');
- assert.match(h,/<li>A pagar: 1 conta\(s\) sem número de centro de custo no Mubisys/);
+ assert.match(h,/<li>A pagar: 1 conta\(s\) com centro de custo não reconhecido pelo DRE/);
  assert.match(h,/<tr class="giro-fora"><th scope="row">Vencidas antes de 01\/01\/2025<\/th><td>Não<\/td><td class="num">1<\/td><td class="num tom-sai">R\$\s9\.000,00<\/td>/);
  assert.match(h,new RegExp(`prazo concedido médio <b>${d.receber.prazo.concedido.dias} dias</b> e idade média <b>${d.receber.prazo.idade.dias} dias</b>`));
 });
