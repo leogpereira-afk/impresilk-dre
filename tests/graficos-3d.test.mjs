@@ -15,6 +15,17 @@ test('cascata: texto malicioso, ausência e zero conservam estados distintos na 
  assert.equal(botoes.length,5);assert.doesNotMatch(botoes[1],/disabled/);assert.match(botoes[1],/R\$\s0,00/);
  assert.match(botoes[2],/Não apurado[^>]+disabled/);assert.match(botoes[3],/Não apurado[^>]+disabled/);
 });
+test('cascata: dinheiro da lista mantém os tons da tabela, com zero e ausência neutros',()=>{
+ const c=contexto(),h=c.gCascata([{rotulo:'A receber',valor:100,total:true},{rotulo:'Estoque',valor:0},{rotulo:'A pagar operacional',valor:-20},{rotulo:'Ausente',valor:null},{rotulo:'Após lacuna',valor:-5},{rotulo:'Necessidade de giro',valor:80,total:true},{rotulo:'Resultado negativo',valor:-10,total:true}],{inicio:'entrada'});
+ const lista=[...h.matchAll(/g-etapa-valores"><b(?: class="([^"]*)")?>([^<]*)<\/b>/g)].map(m=>({tom:m[1]||'',valor:m[2]}));
+ assert.deepEqual(lista.map(x=>x.tom),['tom-entra','','tom-sai','','','tom-entra','tom-sai']);
+ const tabela=[...h.matchAll(/<th scope="row">[^<]+<\/th><td class="num(?: ([^"]+))?">([^<]+)<\/td>/g)].map(m=>({tom:m[1]||'',valor:m[2]}));
+ assert.deepEqual(lista,tabela);
+ assert.equal(lista[3].valor,'Não apurado');assert.equal(lista[4].valor,'Não apurado');
+ // A cor do número não muda a função visual de subtotal da barra nem a dica.
+ const marcas=[...h.matchAll(/<rect class="g-marca-dado g-cor-([^"]+)"[^>]*data-tom="([^"]*)"/g)].map(m=>[m[1],m[2]]);
+ assert.deepEqual(marcas,[['entrada','tom-entra'],['resultado',''],['saida','tom-sai'],['resultado',''],['resultado','']]);
+});
 test('cascata: etapa, marca e dica ficam sincronizadas por clique e setas; Escape limpa o destaque',()=>{
  const node=attrs=>({attrs,events:{},classes:new Set(),getAttribute(k){return this.attrs[k]??null;},setAttribute(k,v){this.attrs[k]=v;},addEventListener(k,fn){this.events[k]=fn;},getBoundingClientRect(){return {left:20,top:50,width:10,bottom:70};}});
  const marcas=[node({'data-g-step':'0','data-dica':'Receita\nR$ 100,00','data-tom':'tom-entra'}),node({'data-g-step':'1','data-dica':'Custos\n−R$ 20,00','data-tom':'tom-sai'})];

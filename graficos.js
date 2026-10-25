@@ -729,8 +729,8 @@ function gCascata(passos,op={}){
  const tot=barras.filter(b=>b.total&&!b.semDado);
  const leitura=`Cascata de ${passos[0].rotulo} até ${passos[n-1].rotulo}. `+tot.map(b=>`${b.rotulo}: ${moeda(b.valor)}${margem(b)!=null?` (${pct(margem(b))})`:''}`).join('; ')+(barras.some(b=>b.semDado)?'. Há degraus sem dado.':'.');
  const etapas=`<ol class="g-cascata-etapas" aria-label="Etapas da cascata">${barras.map((b,i)=>{
-  const cor=b.semDado?'sem-dado':corDegrau(b,i),valor=b.semDado?'Não apurado':moeda(b.valor),m=b.semDado?null:margem(b);
-  return `<li><button type="button" class="g-cascata-etapa${b.total?' g-etapa-total':''}" data-g-step="${i}" aria-pressed="false" aria-label="${e(`Etapa ${i+1}: ${b.rotulo}. ${valor}${m!=null?`. ${pct(m)} da base`:''}`)}"${b.semDado?' disabled':''}><span class="g-etapa-indice g-cor-${cor}" aria-hidden="true">${i+1}</span><span class="g-etapa-texto"><span class="g-etapa-nome">${e(b.rotulo)}</span><span class="g-etapa-valores"><b>${e(valor)}</b>${m!=null?`<small>${e(pct(m))}</small>`:''}</span></span></button></li>`;
+  const cor=b.semDado?'sem-dado':corDegrau(b,i),valor=b.semDado?'Não apurado':moeda(b.valor),m=b.semDado?null:margem(b),tom=b.semDado?'':tomDoValor('variacao',b.valor);
+  return `<li><button type="button" class="g-cascata-etapa${b.total?' g-etapa-total':''}" data-g-step="${i}" aria-pressed="false" aria-label="${e(`Etapa ${i+1}: ${b.rotulo}. ${valor}${m!=null?`. ${pct(m)} da base`:''}`)}"${b.semDado?' disabled':''}><span class="g-etapa-indice g-cor-${cor}" aria-hidden="true">${i+1}</span><span class="g-etapa-texto"><span class="g-etapa-nome">${e(b.rotulo)}</span><span class="g-etapa-valores"><b class="${tom}">${e(valor)}</b>${m!=null?`<small>${e(pct(m))}</small>`:''}</span></span></button></li>`;
  }).join('')}</ol>`;
  const somaAzul=barras.some((b,i)=>!b.semDado&&!(op.inicio&&i===0)&&corDegrau(b,i)==='entrada'),inicioAzul=op.inicio&&!barras[0]?.semDado&&corDegrau(barras[0],0)==='entrada';
  const nomeAzul=inicioAzul&&somaAzul?`${barras[0].curto||barras[0].rotulo} e soma`:inicioAzul?(barras[0].curto||barras[0].rotulo):'Soma';
