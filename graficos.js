@@ -1,4 +1,5 @@
 /* Gráficos e exploração por conta. Somente leitura dos registros mensais. */
+const permutaUI={modo:'com'};
 const custoUI={grupo:'2.5',conta:'2.5.3',busca:''};
 const valorTexto=v=>v==null?'Não informado':money(v);
 // Uma marca so em todo o painel: o valor esta calculado, o que falta e validar
@@ -125,9 +126,10 @@ function quadroPermutas(reg){
 }
 function resumoMovimento(reg){
  const anual=grafNoAno(),r=anual?registroDoAno(anoDaTela()):null,base=anual?(r.disponivel?r.reg:null):reg;
- const entrada=F.valorConta(base,'1'),saida=F.valorConta(base,'2'),delta=entrada!=null&&saida!=null?Math.round((entrada-saida)*100)/100:null;
+ const sem=permutaUI.modo==='sem',p=F.permutas(base);
+ const entrada=sem?(p.disponivel?p.entradasSemPermuta:null):F.valorConta(base,'1'),saida=sem?(p.disponivel?p.saidasSemPermuta:null):F.valorConta(base,'2'),delta=entrada!=null&&saida!=null?Math.round((entrada-saida)*100)/100:null;
  const nota=t=>anual&&!r.disponivel?(r.motivo||'Não apurado'):t;
- return `<div class="cards finance-kpis">${metric('O que entrou',entrada,nota(anual?`Recebimentos registrados em ${rotuloAno(anoDaTela())}`:'Recebimentos registrados no período'),'1',tomDoValor('entradas',entrada))}${metric('O que saiu',saida,nota(anual?`Pagamentos registrados em ${rotuloAno(anoDaTela())}`:'Pagamentos registrados no período'),'2',tomDoValor('saidas',saida))}${metric('Entradas menos saídas',delta,nota(`Variação do ${anual?'ano':'mês'} · não é lucro nem saldo bancário · veja permutas abaixo`),'variacao',tomDoValor('variacao',delta))}</div>${quadroPermutas(base)}`;
+ return `<div class="management-chips" role="group" aria-label="Incluir permutas no resultado"><button data-permuta-modo="com" aria-pressed="${!sem}">Com permuta</button><button data-permuta-modo="sem" aria-pressed="${sem}">Sem permuta</button></div><p class="hint">${sem?'Resumo e evolução sem permutas. As demais análises mantêm os lançamentos originais.':'Resumo e evolução com permutas, conforme os lançamentos originais.'}</p><div class="cards finance-kpis">${metric('O que entrou',entrada,nota(anual?`Recebimentos registrados em ${rotuloAno(anoDaTela())}`:'Recebimentos registrados no período'),sem?'':'1',tomDoValor('entradas',entrada))}${metric('O que saiu',saida,nota(anual?`Pagamentos registrados em ${rotuloAno(anoDaTela())}`:'Pagamentos registrados no período'),sem?'':'2',tomDoValor('saidas',saida))}${metric('Entradas menos saídas',delta,nota(`Variação do ${anual?'ano':'mês'} · não é lucro nem saldo bancário · veja permutas abaixo`),sem?'':'variacao',tomDoValor('variacao',delta))}</div>${quadroPermutas(base)}`;
 }
 
 function comparativoMovimento(reg){
@@ -288,12 +290,13 @@ async function salvarMetas(ano,metas,original=state.cfg?.gestao?.['metas:'+ano]?
  localStorage.setItem(METAS_KEY,JSON.stringify(todas));
 }
 // Acumulado mês a mês. Para no primeiro mês ausente e devolve até onde foi.
-function acumularAno(code){
+function acumularAno(code,semPermuta=false){
  const serie=F.serieAnual(state.records,state.periodo,code);
  const alvo=state.records.find(r=>r.label===state.periodo),escopo=r=>[r?.company,r?.basis,r?.qualidade?.escopo,r?.qualidade?.regra].join('|');
  let soma=0,parou=false;
  return serie.map(x=>{
-  const v=code==='variacao'?(F.valorConta(x.reg,'1')!=null&&F.valorConta(x.reg,'2')!=null?F.valorConta(x.reg,'1')-F.valorConta(x.reg,'2'):null):x.value;
+  const separado=F.permutas(x.reg);
+  const v=semPermuta?(separado.disponivel?(code==='1'?separado.entradasSemPermuta:code==='2'?separado.saidasSemPermuta:separado.variacaoSemPermuta):null):code==='variacao'?(F.valorConta(x.reg,'1')!=null&&F.valorConta(x.reg,'2')!=null?F.valorConta(x.reg,'1')-F.valorConta(x.reg,'2'):null):x.value;
   if(parou||v==null||monthSortKey(x.label)>monthSortKey(state.periodo)||escopo(x.reg)!==escopo(alvo)){parou=true;return {...x,mes:v,acumulado:null};}
   soma=Math.round((soma+v)*100)/100;
   return {...x,mes:v,acumulado:soma};

@@ -1,0 +1,33 @@
+name: Conferir permutas da DRE
+on:
+  workflow_dispatch:
+    inputs:
+      mes:
+        description: 'Mês opcional (AAAA-MM); vazio revisa anterior e atual'
+        type: string
+        default: ''
+      publicar:
+        description: 'Gravar os meses ERP após os controles (planilhas preservadas)'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: erp-previa
+  cancel-in-progress: false
+jobs:
+  previa:
+    # Ativar somente após credencial e coleta em simulação conferidas.
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar cálculos antes da coleta
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Atualizar os períodos com proteção de concorrência
+        env:
+          TZ: America/Sao_Paulo
+          DRE_MACHINE_TOKEN: ${{ secrets.DRE_MACHINE_TOKEN }}
+          DRE_PUBLISH: ${{ github.event_name == 'schedule' && '1' || inputs.publicar && '1' || '0' }}
+          DRE_MES: ${{ inputs.mes }}
+        run: python3 scripts/erp_permutas.py

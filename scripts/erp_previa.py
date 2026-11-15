@@ -578,6 +578,8 @@ def processar(ini, meses_servidor=None):
     valores = {c["code"]:c["value"] for c in registro["cells"]}
     if abs(valores.get("1",0)-rec_total) > .011 or abs(valores.get("2",0)-desp_total) > .011:
         raise RuntimeError("Os totais de controle não fecham; nada foi gravado.")
+    from erp_permutas import separar
+    registro["permutas"] = separar(pagar, receber, si, sf)
     if os.environ.get("DRE_SEM_TRILHA") == "1":
         sem_trilha(registro)
 

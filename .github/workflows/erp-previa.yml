@@ -35,4 +35,9 @@ jobs:
           DRE_MACHINE_TOKEN: ${{ secrets.DRE_MACHINE_TOKEN }}
           DRE_PUBLISH: ${{ github.event_name == 'schedule' && '1' || inputs.publicar && '1' || '0' }}
           DRE_MES: ${{ inputs.mes }}
-        run: python3 scripts/erp_permutas.py
+        run: |
+          if [ -n "$DRE_MES" ]; then
+            python3 scripts/erp_rotina.py "$DRE_MES"
+          else
+            python3 scripts/erp_rotina.py
+          fi

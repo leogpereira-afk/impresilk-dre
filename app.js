@@ -949,6 +949,7 @@ function aplicarCarteira(){
 }
 function wireContent(){
 
+  document.querySelectorAll('[data-permuta-modo]').forEach(b=>b.onclick=()=>{permutaUI.modo=b.dataset.permutaModo==='sem'?'sem':'com';render();});
   coletaControle?.show();
   wireGraficos();
   wireDRE();wireGlossario();wireCFO();
