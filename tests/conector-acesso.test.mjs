@@ -4,11 +4,11 @@ import {createHmac} from 'node:crypto';
 import {stripTypeScriptTypes} from 'node:module';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-function server({role='leitura',dbFail=false,permFail=false,response={status:200,data:[]},fetchERP}={}) {
+function server({role='leitura',dbFail=false,permFail=false,response={status:200,data:[]},fetchERP,pausaRapida=false}={}) {
   let handler,writes=0,erp=[];
   const env={DRE_TOKEN:'fixture-machine',DRE_COLLECTOR_TOKEN:'fixture-collector',EQUIPE_JWT_SECRET:'fixture-jwt',MUBI_PUBLIC_KEY:'fixture-public',MUBI_TOKEN:'fixture-access'};
   const sb={rpc:async()=>({data:false,error:null}),from(table){let invalid=false;const b={select(){return b;},eq(k,v){if(table==='dre_config_global'&&k==='id'&&v!==true)invalid=true;return b;},maybeSingle:async()=>({data:table==='dre_config_global'&&!permFail?{config:{permissoes:{user:role}}}:null,error:invalid||(permFail&&table==='dre_config_global')?{message:'id booleano inválido'}:null}),upsert:async()=>{writes++;return {error:dbFail?{message:'erro de teste'}:null};}};return b;}};
-  const context={Deno:{env:{get:k=>env[k]||''},serve:f=>handler=f},createClient:()=>sb,TextEncoder,TextDecoder,Request,Response,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,crypto:globalThis.crypto,atob,console,fetch:async(u,init)=>{erp.push(String(u));return fetchERP?fetchERP(u,init):new Response(JSON.stringify(response.data),{status:response.status});}};
+  const context={Deno:{env:{get:k=>env[k]||''},serve:f=>handler=f},createClient:()=>sb,TextEncoder,TextDecoder,Request,Response,URL,URLSearchParams,AbortController,setTimeout:(fn,ms)=>pausaRapida&&ms===31000?(queueMicrotask(fn),0):setTimeout(fn,ms),clearTimeout,crypto:globalThis.crypto,atob,console,fetch:async(u,init)=>{erp.push(String(u));return fetchERP?fetchERP(u,init):new Response(JSON.stringify(response.data),{status:response.status});}};
   vm.createContext(context);vm.runInContext(stripTypeScriptTypes(fs.readFileSync(new URL('../supabase/functions/dre-financas/index.ts',import.meta.url),'utf8').replace(/^import .*;$/mg,'')),context);
   const h=Buffer.from('{"alg":"HS256"}').toString('base64url'),p=Buffer.from(JSON.stringify({sub:'user',sis:'dre',papel:'equipe',exp:Math.floor(Date.now()/1000)+60})).toString('base64url');
   const jwt=h+'.'+p+'.'+createHmac('sha256',env.EQUIPE_JWT_SECRET).update(h+'.'+p).digest('base64url');
@@ -105,7 +105,7 @@ test('todos os fluxos expõem diagnóstico fixo de rede, sem URL ou mensagem pri
     const s=server({fetchERP:async()=>{throw new TypeError(privado);}});
     const r=await s.call({action,recurso,datainicial:'2026-08-01',datafinal:'2026-08-07'},true);
     if(action==='importarMes'){
-      assert.equal(r.body.parcial,true);assert.equal(r.body.diag.janelasIncompletas.length,2);
+      assert.equal(r.body.parcial,true);assert.equal(r.body.diag.janelasIncompletas.length,1);
       assert.ok(r.body.diag.janelasIncompletas.every(x=>x.motivo==='rede-indisponivel'));
       assert.match(r.body.aviso,/rede indisponível/);
     }else assert.equal(r.body.diagnostico?.motivo,'rede-indisponivel',action);
@@ -133,4 +133,17 @@ test('importarMes converte cada fim inclusivo, mas listar/raw preservam o fim re
     const t=server();await t.call({action,recurso:'contas-pagar',datainicial:'2026-12-26',datafinal:'2027-01-06'},true);
     assert.equal(new URL(t.erp()[0]).searchParams.get('datafinal'),'2027-01-06',action);
   }
+});
+test('confronto permite recorte de um recurso e recusa recursos estranhos',async()=>{
+ const s=server();let r=await s.call({action:'importarMes',recurso:'contas-pagar',datainicial:'2026-08-01',datafinal:'2026-08-07'});
+ assert.equal(r.status,200);assert.equal(s.erp().length,1);
+ r=await s.call({action:'importarMes',recurso:'cliente',datainicial:'2026-08-01',datafinal:'2026-08-07'});assert.equal(r.status,403);
+});
+
+test('confronto confirma ausência em três 404 espaçados, sem esconder 429',async()=>{
+ const a=server({pausaRapida:true,response:{status:404,data:{message:'Not found'}}});
+ let r=await a.call({action:'importarMes',recurso:'contas-pagar',datainicial:'2026-08-01',datafinal:'2026-08-07'});
+ assert.equal(a.erp().length,3);assert.equal(r.body.parcial,false);assert.equal(r.body.totais.despesa,0);
+ let n=0;const b=server({pausaRapida:true,fetchERP:async()=>new Response('{}',{status:++n<3?404:429})});
+ r=await b.call({action:'importarMes',recurso:'contas-pagar',datainicial:'2026-08-01',datafinal:'2026-08-07'});assert.equal(r.body.parcial,true);
 });

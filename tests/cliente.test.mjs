@@ -273,3 +273,13 @@ test('diálogo já aberto: o foco vai ao título; pular para o conteúdo foca o 
  assert.equal(h1.focado,true);assert.equal(JSON.stringify(rolou),'{"block":"start"}');assert.equal(c.location.hash,'#tela=dre','o hash não muda');
  h1.focado=false;ouvintes.click.forEach(f=>f({target:{closest:()=>null}}));assert.equal(h1.focado,false,'outro clique não mexe no foco');
 });
+test('confronto usa corte salvo e consulta cada recurso por janela sem datas futuras',async()=>{
+ const c=client(),calls=[];c.apiFn=async(_f,_a,b)=>{calls.push(b);return {ok:true,parcial:false,totais:{receita:b.recurso==='contas-receber'?10:0,despesa:b.recurso==='contas-pagar'?5:0},porCodigo:{},diag:{}}};
+ const r=await vm.runInContext("consultarPeriodoMubi({de:'2026-11-01',ate:'2026-11-30'},'2026-11-15')",c);
+ assert.equal(calls.length,6);assert.equal(r.totais.receita,30);assert.equal(r.totais.despesa,15);
+ assert.ok(calls.every(b=>b.datafinal<='2026-11-15'));assert.ok(calls.every(b=>['contas-pagar','contas-receber'].includes(b.recurso)));
+});
+test('confronto parcial nunca publica soma incompleta',async()=>{
+ const c=client();c.apiFn=async()=>({ok:true,parcial:true,aviso:'Janela incompleta'});
+ await assert.rejects(vm.runInContext("consultarPeriodoMubi({de:'2026-11-01',ate:'2026-11-30'},'2026-11-15')",c),/incompleta/);
+});

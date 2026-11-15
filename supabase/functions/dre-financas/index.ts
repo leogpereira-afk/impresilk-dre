@@ -501,6 +501,7 @@ Deno.serve(async (req: Request) => {
 
     if (action === "importarMes") {
       if (!datainicial || !datafinal) return json({ erro: "datainicial/datafinal obrigatórios" }, 400);
+      if (body.recurso && !["contas-pagar","contas-receber"].includes(body.recurso)) return json({erro:"Recurso de confronto inválido."},400);
       const fatias = fatiar(datainicial, datafinal, 7);
       const recursos = [
         { recurso: "contas-pagar", status: "PAGO", filtrodata: "PAGAMENTO" },
@@ -509,14 +510,15 @@ Deno.serve(async (req: Request) => {
       // Duas consultas simultâneas, repetição limitada e orçamento de execução.
       type Fatia = { rc: any; a: string; b: string };
       const todas: Fatia[] = [];
-      for (const rc of recursos) for (const [a, b] of fatias) todas.push({ rc, a, b });
+      for (const rc of recursos.filter(rc=>!body.recurso || rc.recurso===body.recurso)) for (const [a, b] of fatias) todas.push({ rc, a, b });
 
       const inicioImport = Date.now();
       const ORCAMENTO_MS = 120000;
       let retentadas = 0;
 
       const umaFatia = async (f: Fatia) => {
-        for (let tentativa = 1; tentativa <= 2; tentativa++) {
+        let vazios=0,ultimo:any=null;
+        for (let tentativa = 1; tentativa <= 3; tentativa++) {
           if (Date.now() - inicioImport >= ORCAMENTO_MS) return { ...f, res: null, motivo:'orcamento-esgotado' };
           try {
             // Fatias e apuração usam fim inclusivo; só a API exige o dia seguinte.
@@ -527,12 +529,21 @@ Deno.serve(async (req: Request) => {
               status: f.rc.status, filtrodata: f.rc.filtrodata,
               datainicial: f.a, datafinal: fimERP.toISOString().slice(0,10),
             }, 45000, Math.max(1,ORCAMENTO_MS-(Date.now()-inicioImport)));
+            ultimo=res;
+            const http=res.data?.diagnostico?.http ?? res.http;
+            if(http===404 && extrairLista(res.data).length===0){
+              vazios++;
+              if(vazios===3)return {...f,res:{ok:true,data:[]}};
+              if(Date.now()-inicioImport+31000>=ORCAMENTO_MS)break;
+              retentadas++;await new Promise(r=>setTimeout(r,31000));continue;
+            }
+            vazios=0;
             if (res.ok) return { ...f, res };
             if (vazioConfirmado(f.rc.recurso,res)) return {...f,res:{ok:true,data:[]}};
           } catch { /* tenta de novo */ }
           if (tentativa === 1) retentadas++;
         }
-        return { ...f, res: null };
+        return { ...f, res: ultimo };
       };
 
       const resultados: any[] = [];
