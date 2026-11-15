@@ -50,11 +50,11 @@ MAPA_CONTA = {
     "PDV": "1.6",
 }
 
-def por_conta(por_produto):
+def por_conta(por_produto, mapa_conta=None):
     """por_conta: processa dados recebidos da origem autenticada."""
     contas, sem = {}, {}
     for nome, v in por_produto.items():
-        c = MAPA_CONTA.get(nome)
+        c = (MAPA_CONTA if mapa_conta is None else mapa_conta).get(nome)
         if c:
             contas[c] = round(contas.get(c, 0.0) + v, 2)
         else:

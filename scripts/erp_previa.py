@@ -463,6 +463,14 @@ def processar(ini, meses_servidor=None):
     if not isinstance(regras_privadas,dict) or regras_privadas.get("versao") != 1:
         raise RuntimeError("Configuração privada de classificação não validada; nada foi gravado.")
 
+    produtos_aprovados = regras_privadas.get("produtos", {})
+    if not isinstance(produtos_aprovados, dict) or any(
+        not isinstance(nome, str) or conta not in set(erp_os.MAPA_CONTA.values())
+        for nome, conta in produtos_aprovados.items()
+    ):
+        raise RuntimeError("Famílias privadas de produtos inválidas; nada foi gravado.")
+    mapa_produtos = {**erp_os.MAPA_CONTA, **produtos_aprovados}
+
     pagar = coletar("contas-pagar", ini, fim_coleta)
     receber = coletar("contas-receber", ini, fim_coleta)
     na_dre = lambda L: [t for t in L if str(t.get("compoe_dre", "")).lower() == "sim"]
@@ -492,7 +500,7 @@ def processar(ini, meses_servidor=None):
     por_produto, diag_os = erp_os.ratear(operacionais, cache_os,
                                          lambda t: valor_na_janela(t, si, sf))
 
-    contas_os, produtos_sem_conta = erp_os.por_conta(por_produto)
+    contas_os, produtos_sem_conta = erp_os.por_conta(por_produto, mapa_produtos)
     for t in receber:
         if t.get("tipo") == "Receita operacional":
             continue
@@ -548,7 +556,7 @@ def processar(ini, meses_servidor=None):
 
     registro, cod_produtos, cod_remanejadas = erp_mes.montar(
         label, receber, pagar, por_produto, lambda t: valor_na_janela(t, si, sf),
-        codigo, cfg_atual.get("produtosCodigo"), erp_os.MAPA_CONTA, nomes_contas,
+        codigo, cfg_atual.get("produtosCodigo"), mapa_produtos, nomes_contas,
         cfg_atual.get("contasRemanejadas"), regras_privadas)
 
     previa["pendencias"] = registro.get("pendencias") or []

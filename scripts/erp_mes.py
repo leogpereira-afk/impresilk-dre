@@ -240,6 +240,9 @@ def galho_do_produto(nome, mapa_conta):
 def codigos_estaveis(por_produto, registro_codigos, mapa_conta):
     """codigos_estaveis: processa dados recebidos da origem autenticada."""
     reg = dict(registro_codigos or {})
+    for nome in por_produto:
+        if nome in mapa_conta and str(reg.get(nome, "")).startswith("1.1.99."):
+            del reg[nome]
     usados = {g: set() for g in set(list(GALHOS.values()) + ["1.1.1"])}
     for nome, code in reg.items():
         g = code.rsplit(".", 1)[0]
