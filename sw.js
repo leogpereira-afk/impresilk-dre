@@ -3,7 +3,7 @@
 // ▶ A cada mudança nos arquivos, SUBA o número do CACHE (v1 → v2 → …). No
 //   evento "activate" apagamos todo cache com nome diferente, o que força os
 //   aparelhos a baixarem a versão nova (evita ficar preso em arquivos antigos).
-const CACHE = 'dre-shell-v145';
+const CACHE = 'dre-shell-v146';
 
 // O MESMO número precisa estar no ?v= dos <link>/<script> do index.html. O
 // Service Worker só manda no que passa por ele; o cache HTTP do navegador é
@@ -15,6 +15,7 @@ const V = CACHE.split('-v')[1];
 // para o app abrir offline. Outras origens passam direto pela rede; nada de CDN
 // é guardado.
 const SHELL = [
+  `./permutas.js?v=${V}`,
   `./silk-design.css?v=${V}`, `./dre-3d.css?v=${V}`, `./silk-compacto.webp?v=${V}`,
   `./plano-contas.js?v=${V}`,
   `./auditoria.js?v=${V}`,

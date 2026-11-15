@@ -32,7 +32,7 @@ test('rota por hash abre as telas novas e preserva mês, comparação e base',()
 test('menu tem quatro grupos recolhíveis, com Análise CFO e as telas novas',()=>{
  const grupos=[...html.matchAll(/<details class="nav-grupo" data-grupo="([a-z]+)"[^>]*><summary>([^<]+)<\/summary>(.*?)<\/details>/g)];
  assert.deepEqual(grupos.map(g=>g[1]),['visao','demonstrativos','gestao','base']);
- assert.deepEqual(grupos.map(g=>[...g[3].matchAll(/data-view="([a-z]+)"/g)].map(m=>m[1])),[['inicio','cfo'],['dre','dfc','balanco'],['caixa','giro','recebiveis','precos','indicadores'],['detalhe','parametros','conferencia','glossario']]);
+ assert.deepEqual(grupos.map(g=>[...g[3].matchAll(/data-view="([a-z]+)"/g)].map(m=>m[1])),[['inicio','permutas','cfo'],['dre','dfc','balanco'],['caixa','giro','recebiveis','precos','indicadores'],['detalhe','parametros','conferencia','glossario']]);
  assert.match(html,/id="menuToggle"[^>]*aria-expanded="false"[^>]*aria-controls="menuLateral"/);
 });
 test('telas novas seguem a ordem cards, gráficos e tabela fechada, sem número inventado',()=>{
