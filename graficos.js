@@ -118,16 +118,18 @@ function atalhosCustos(){
   return `<button ${conta?`data-cost="${esc(code)}"`:'disabled'} class="cost-shortcut ${conta&&state.view==='custos'&&custoUI.conta===code?'active':''}"><span class="cost-emoji">${icon}</span><span><span class="label">${nome}</span><strong class="${tomDoValor('saidas',v)}">${texto(v)}</strong><small>${esc(nota)}</small></span><span class="shortcut-arrow" aria-hidden="true">${conta?'↗':'—'}</span></button>`;
  }).join('')}</div>`;
 }
-function resumoMovimento(reg){
- if(grafNoAno()){
-  // Ano: de janeiro ao último mês com dados, somado em centavos (registroDoAno).
-  const ano=anoDaTela(),r=registroDoAno(ano),rot=rotuloAno(ano),ra=r.disponivel?r.reg:null;
-  const entrada=F.valorConta(ra,'1'),saida=F.valorConta(ra,'2'),delta=entrada!=null&&saida!=null?Math.round((entrada-saida)*100)/100:null,nota=t=>r.disponivel?t:(r.motivo||'Não apurado');
-  return `<div class="cards finance-kpis">${metric('O que entrou',entrada,nota(`Recebimentos registrados em ${rot}`),'1',tomDoValor('entradas',entrada))}${metric('O que saiu',saida,nota(`Pagamentos registrados em ${rot}`),'2',tomDoValor('saidas',saida))}${metric('Entradas menos saídas',delta,nota('Variação do ano · não é lucro nem saldo bancário'),'variacao',tomDoValor('variacao',delta))}</div>`;
- }
- const entrada=F.valorConta(reg,'1'),saida=F.valorConta(reg,'2'),delta=entrada!=null&&saida!=null?Math.round((entrada-saida)*100)/100:null;
- return `<div class="cards finance-kpis">${metric('O que entrou',entrada,'Recebimentos registrados no período','1',tomDoValor('entradas',entrada))}${metric('O que saiu',saida,'Pagamentos registrados no período','2',tomDoValor('saidas',saida))}${metric('Entradas menos saídas',delta,'Variação do mês · não é lucro nem saldo bancário','variacao',tomDoValor('variacao',delta))}</div>`;
+function quadroPermutas(reg){
+ const p=F.permutas(reg);
+ if(!p.disponivel)return `<section class="panel permuta-summary" aria-label="Permutas e dinheiro"><h3>Quanto desta variação é dinheiro?</h3><p><strong>Permutas: valor ainda não separado.</strong> Os recebimentos e pagamentos registrados podem incluir baixas sem movimentação de dinheiro.</p><p>Variação sem permutas: <strong>não apurada</strong>. Este total não representa dinheiro disponível nem saldo bancário. Falta conferir o meio de quitação no Mubisys para este período.</p></section>`;
+ return `<section class="panel permuta-summary" aria-label="Permutas e dinheiro"><h3>Permutas separadas da movimentação</h3><div class="cards">${metric('Recebimentos em permuta',p.entradas,'Sem entrada de dinheiro')}${metric('Pagamentos em permuta',p.saidas,'Sem saída de dinheiro')}${metric('Variação sem permutas',p.variacaoSemPermuta,'Ainda não é saldo bancário')}</div><p>Dos totais registrados, ${money(p.entradasSemPermuta)} de entradas e ${money(p.saidasSemPermuta)} de saídas excluem permutas. Outras baixas sem dinheiro ainda devem ser conferidas. Fonte: ${esc(p.fonte)}.</p></section>`;
 }
+function resumoMovimento(reg){
+ const anual=grafNoAno(),r=anual?registroDoAno(anoDaTela()):null,base=anual?(r.disponivel?r.reg:null):reg;
+ const entrada=F.valorConta(base,'1'),saida=F.valorConta(base,'2'),delta=entrada!=null&&saida!=null?Math.round((entrada-saida)*100)/100:null;
+ const nota=t=>anual&&!r.disponivel?(r.motivo||'Não apurado'):t;
+ return `<div class="cards finance-kpis">${metric('O que entrou',entrada,nota(anual?`Recebimentos registrados em ${rotuloAno(anoDaTela())}`:'Recebimentos registrados no período'),'1',tomDoValor('entradas',entrada))}${metric('O que saiu',saida,nota(anual?`Pagamentos registrados em ${rotuloAno(anoDaTela())}`:'Pagamentos registrados no período'),'2',tomDoValor('saidas',saida))}${metric('Entradas menos saídas',delta,nota(`Variação do ${anual?'ano':'mês'} · não é lucro nem saldo bancário · veja permutas abaixo`),'variacao',tomDoValor('variacao',delta))}</div>${quadroPermutas(base)}`;
+}
+
 function comparativoMovimento(reg){
  const dirVariacao=typeof DIRECAO_DA_LINHA!=='undefined'?DIRECAO_DA_LINHA.variacao:1;
  if(grafNoAno()){

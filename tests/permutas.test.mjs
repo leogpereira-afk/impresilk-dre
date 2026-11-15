@@ -1,0 +1,8 @@
+import fs from 'node:fs';import vm from 'node:vm';import test from 'node:test';import assert from 'node:assert/strict';
+const c={};vm.createContext(c);vm.runInContext(fs.readFileSync(new URL('../financeiro.js',import.meta.url),'utf8'),c);const F=c.DREFinancas;
+const mes=(label='Jan/2026')=>({label,company:'Teste',basis:'caixa',cells:[{code:'1',value:1000},{code:'2',value:700}]});
+const confirmado=()=>({...mes(),permutas:{conferido:true,fonte:'Meio de quitação conferido',entradas:300,saidas:100,totalEntradas:1000,totalSaidas:700}});
+test('histórico sem meio de quitação não implica zero permuta nem caixa disponível',()=>{assert.equal(F.permutas(mes()).disponivel,false);assert.equal(F.permutas(mes()).variacaoSemPermuta,null)});
+test('permuta em ambos os lados preserva totais e separa seu efeito',()=>{const r=confirmado(),antes=JSON.stringify(r),p=F.permutas(r);assert.equal(p.efeito,200);assert.equal(p.variacaoSemPermuta,100);assert.equal(p.entradasSemPermuta,700);assert.equal(p.saidasSemPermuta,600);assert.equal(JSON.stringify(r),antes)});
+test('dados obsoletos ou não conferidos não liberam valor em dinheiro',()=>{for(const patch of [{conferido:false},{totalEntradas:999},{fonte:''},{saidas:null}]){const r=confirmado();Object.assign(r.permutas,patch);assert.equal(F.permutas(r).disponivel,false)}});
+test('ano incompleto não transforma meses desconhecidos em permuta zero',()=>{const a=confirmado(),b=mes('Fev/2026');assert.equal(F.permutas(F.somarMeses([a,b]).reg).disponivel,false);b.permutas={...a.permutas};const p=F.permutas(F.somarMeses([a,b]).reg);assert.equal(p.disponivel,true);assert.equal(p.entradas,600);assert.equal(p.saidas,200);assert.equal(p.variacaoSemPermuta,200)});

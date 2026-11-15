@@ -34,6 +34,20 @@ var DREFinancas = (() => {
     const pagamentosOperacionais=sum(saidas,...[socios,parcelasAtivos,dividas,transferencias,investimentos,pendentes].map(neg));
     return {entradas,saidas,variacao:sum(entradas,neg(saidas)),operacionais,emprestimos,rendimentos,naoIdentificadas,outrasEntradas:sum(entradas,...[operacionais,emprestimos,rendimentos,naoIdentificadas].map(neg)),socios,parcelasAtivos,dividas,transferencias,investimentos,pendentes,pagamentosOperacionais,saldoOperacional:sum(operacionais,neg(pagamentosOperacionais))};
   }
+  // Separação somente com evidência de quitação: ausência não significa permuta zero.
+  function permutas(reg){
+    const p=reg?.permutas, entradas=valorConta(reg,'1'),saidas=valorConta(reg,'2');
+    const valido=n=>typeof n==='number'&&Number.isFinite(n);
+    const ok=p?.conferido===true && typeof p.fonte==='string' && p.fonte.trim() &&
+      valido(p.entradas)&&valido(p.saidas)&&entradas!==null&&saidas!==null &&
+      p.totalEntradas===entradas&&p.totalSaidas===saidas;
+    if(!ok)return {disponivel:false,entradas:null,saidas:null,efeito:null,variacaoSemPermuta:null};
+    const efeito=reais(cents(p.entradas)-cents(p.saidas));
+    return {disponivel:true,entradas:p.entradas,saidas:p.saidas,efeito,
+      entradasSemPermuta:reais(cents(entradas)-cents(p.entradas)),
+      saidasSemPermuta:reais(cents(saidas)-cents(p.saidas)),
+      variacaoSemPermuta:reais(cents(entradas)-cents(saidas)-cents(efeito)),fonte:p.fonte};
+  }
   function comparacao(a,b,agora=new Date()){
     const c=comparavelComRessalva(a,b,agora);
     const atual=resumo(a).variacao,anterior=resumo(b).variacao;
@@ -122,6 +136,10 @@ var DREFinancas = (() => {
       company:b.company,basis:b.basis,origem:origens.size===1?b.origem:'misto',
       qualidade:{escopo:b.qualidade?.escopo,regra:b.qualidade?.regra,estado:'ano',coletadoEm:coletas[coletas.length-1]||null,ate:ult.qualidade?.ate||qs[qs.length-1].coletadoAte||null},
       cells,pendencias:ms.flatMap(r=>(r.pendencias||[]).map(p=>({...p,mes:r.label}))),eventos:[]};
+    const ps=ms.map(permutas);
+    if(ps.every(p=>p.disponivel))reg.permutas={conferido:true,fonte:'Soma dos meses com separação conferida',
+      entradas:reais(ps.reduce((n,p)=>n+cents(p.entradas),0)),saidas:reais(ps.reduce((n,p)=>n+cents(p.saidas),0)),
+      totalEntradas:valorConta(reg,'1'),totalSaidas:valorConta(reg,'2')};
     return {disponivel:true,reg};
   }
   function compararConta(a,b,code){
@@ -183,5 +201,5 @@ var DREFinancas = (() => {
       return !!per&&!!q.corte&&q.corte>=per.ate&&!['parcial','desatualizado','sem-dados'].includes(q.estado);
     });
   }
-  return {nomeDoGrupo,periodo,qualidade,resumo,comparacao,residuos,margemAcumulada,projecao,valorConta,composicao,serieAnual,somarMeses,compararConta,comparavelComRessalva,mesesDeReferencia};
+  return {nomeDoGrupo,periodo,qualidade,resumo,permutas,comparacao,residuos,margemAcumulada,projecao,valorConta,composicao,serieAnual,somarMeses,compararConta,comparavelComRessalva,mesesDeReferencia};
 })();
