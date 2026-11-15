@@ -263,7 +263,7 @@ def coletar(recurso, ini, fim):
             print(f"  {nome_recurso} · janela {a} → {b} · tentativa {tentativa + 1}/3 incompleta: {diag['texto']}", flush=True)
             if tentativa >= 2:
                 break
-            time.sleep(5 * (tentativa + 1))
+            time.sleep(31 if diag.get("http") == 404 else 5 * (tentativa + 1))
             tentativa += 1
         # Regra da casa: só é vazio quando três 404 seguidos concordam.
         if vazios == 3:
