@@ -38,12 +38,13 @@ var DREFinancas = (() => {
   function permutas(reg){
     const p=reg?.permutas, entradas=valorConta(reg,'1'),saidas=valorConta(reg,'2');
     const valido=n=>typeof n==='number'&&Number.isFinite(n);
-    const ok=p?.conferido===true && typeof p.fonte==='string' && p.fonte.trim() &&
+    const identificadas=!!p && typeof p.fonte==='string' && p.fonte.trim() &&
       valido(p.entradas)&&valido(p.saidas)&&entradas!==null&&saidas!==null &&
       p.totalEntradas===entradas&&p.totalSaidas===saidas;
-    if(!ok)return {disponivel:false,entradas:null,saidas:null,efeito:null,variacaoSemPermuta:null};
+    const parcial=identificadas?{identificadas:true,entradasConhecidas:p.entradas,saidasConhecidas:p.saidas,mistosEntradas:p.mistosEntradas||0,mistosSaidas:p.mistosSaidas||0,entradasConfirmadas:p.entradasConfirmadas||0}:{};
+    if(!identificadas||p.conferido!==true)return {...parcial,disponivel:false,entradas:null,saidas:null,efeito:null,variacaoSemPermuta:null};
     const efeito=reais(cents(p.entradas)-cents(p.saidas));
-    return {disponivel:true,entradas:p.entradas,saidas:p.saidas,efeito,
+    return {...parcial,disponivel:true,entradas:p.entradas,saidas:p.saidas,efeito,
       entradasSemPermuta:reais(cents(entradas)-cents(p.entradas)),
       saidasSemPermuta:reais(cents(saidas)-cents(p.saidas)),
       variacaoSemPermuta:reais(cents(entradas)-cents(saidas)-cents(efeito)),fonte:p.fonte};

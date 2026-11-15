@@ -13,3 +13,8 @@ class Permutas(unittest.TestCase):
   p=separar([t],[t],'2026-01-01','2026-01-31');self.assertEqual(p['entradas'],10);self.assertEqual(p['saidas'],10)
  def test_forma_pagamento_sobrepoe_titulo(self):
   p=separar([],[{'forma_pagamento':'Permuta','pagamentos':[{'forma_pagamento':'Pix','data_pagamento':'2026-01-02','valor':10}]}],'2026-01-01','2026-01-31');self.assertTrue(p['conferido']);self.assertEqual(p['entradas'],0)
+ def test_misto_fica_pendente(self):
+  p=separar([],[{'forma_pagamento':'Dinheiro e permuta','valor_pagamento':100,'data_pagamento':'2026-01-02'}],'2026-01-01','2026-01-31');self.assertFalse(p['conferido']);self.assertEqual(p['mistosEntradas'],100);self.assertEqual(p['entradas'],0)
+ def test_mistos_nao_ficam_conferidos_so_por_somar_zero(self):
+  t={'forma_pagamento':'Dinheiro e permuta','pagamentos':[{'data_pagamento':'2026-01-02','valor':100},{'data_pagamento':'2026-01-03','valor':-100}]}
+  p=separar([],[t],'2026-01-01','2026-01-31');self.assertFalse(p['conferido']);self.assertEqual(p['mistosQuantidade'],2)
