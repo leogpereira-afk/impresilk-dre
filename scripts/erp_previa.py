@@ -580,6 +580,9 @@ def processar(ini, meses_servidor=None):
         raise RuntimeError("Os totais de controle não fecham; nada foi gravado.")
     from erp_permutas import separar
     registro["permutas"] = separar(pagar, receber, si, sf)
+    from erp_permutas_detalhes import detalhar
+    registro["permutasDetalhes"] = detalhar(pagar, receber, si, sf)
+    registro["permutasDetalhes"]["totaisConferemDRE"] = True
     if os.environ.get("DRE_SEM_TRILHA") == "1":
         sem_trilha(registro)
 

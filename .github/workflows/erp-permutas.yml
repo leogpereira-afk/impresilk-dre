@@ -6,6 +6,10 @@ on:
         description: 'Mês opcional (AAAA-MM); vazio revisa anterior e atual'
         type: string
         default: ''
+      detalhar:
+        description: 'Coletar contrapartes e datas para a visão privada de permutas'
+        type: boolean
+        default: false
       publicar:
         description: 'Gravar os meses ERP após os controles (planilhas preservadas)'
         type: boolean
@@ -30,4 +34,10 @@ jobs:
           DRE_MACHINE_TOKEN: ${{ secrets.DRE_MACHINE_TOKEN }}
           DRE_PUBLISH: ${{ github.event_name == 'schedule' && '1' || inputs.publicar && '1' || '0' }}
           DRE_MES: ${{ inputs.mes }}
-        run: python3 scripts/erp_permutas.py
+          DRE_DETALHAR: ${{ inputs.detalhar }}
+        run: |
+          if [ "$DRE_DETALHAR" = "true" ]; then
+            python3 scripts/erp_permutas_detalhes.py
+          else
+            python3 scripts/erp_permutas.py
+          fi
