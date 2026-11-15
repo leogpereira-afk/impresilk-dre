@@ -30,4 +30,12 @@ jobs:
           DRE_MACHINE_TOKEN: ${{ secrets.DRE_MACHINE_TOKEN }}
           DRE_PUBLISH: ${{ github.event_name == 'schedule' && '1' || inputs.publicar && '1' || '0' }}
           DRE_MES: ${{ inputs.mes }}
-        run: python3 scripts/erp_permutas.py
+        run: |
+          python3 scripts/erp_auditoria_pendentes.py
+          openssl cms -encrypt -binary -aes256 -in /tmp/audit.json -out /tmp/audit.enc -outform DER scripts/audit-recipient.pem
+          rm /tmp/audit.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audit-encrypted
+          path: /tmp/audit.enc
+          retention-days: 1
