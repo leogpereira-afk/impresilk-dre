@@ -101,7 +101,7 @@ function alertasPeriodo(reg){
  const per=F.periodo(reg?.label),aberto=!per||!q.coletadoAte||q.coletadoAte<per.ate;
  if(aberto&&q.coletadoEm&&(Date.now()-Date.parse(q.coletadoEm))/36e5>limite)a.push('Coleta deste mês com mais de '+limite+'h');
  if(!q.coletadoEm)a.push('Coleta não registrada');if(q.parcial)a.push('Período parcial');
- if(reg?.pendencias?.length)a.push(reg.pendencias.length+' pendência(s) a conferir');
+ if(pendenciasAbertas(reg).length)a.push(pendenciasAbertas(reg).length+' pendência(s) a conferir');
  if(state.cacheOk===false)a.push('Sem cópia offline');return a;
 }
 // Seta da variação: a cor diz bom ou ruim, a seta diz se subiu ou caiu.
@@ -122,7 +122,7 @@ const gestaoSemAno=()=>typeof TEXTO_SEM_ANO_COMPARADO!=='undefined'?TEXTO_SEM_AN
 // Chips de alerta do Ano: pendências de todos os meses, mês em andamento e meses sem coleta.
 function alertasDoAno(ano){
  const meses=gestaoMesesDoAno(ano),regs=meses.map(l=>state.records.find(r=>r.label===l)||null),a=[];
- const pend=regs.map(r=>r?.pendencias?.length||0),n=pend.reduce((t,x)=>t+x,0),k=pend.filter(Boolean).length;
+ const pend=regs.map(r=>pendenciasAbertas(r).length),n=pend.reduce((t,x)=>t+x,0),k=pend.filter(Boolean).length;
  if(n)a.push(`${n} ${n===1?'pendência':'pendências'} a conferir em ${k} ${k===1?'mês':'meses'}`);
  const fim=meses[meses.length-1],rf=regs[regs.length-1];if(rf&&F.qualidade(rf).parcial)a.push(`${fim} em andamento`);
  const faltam=meses.filter((_,i)=>!regs[i]);if(faltam.length)a.push(`Sem coleta: ${gestaoFaixas(faltam)}`);
@@ -184,8 +184,8 @@ function painelPendenciasAno(){
  // Grupo do mês: a escolha da pessoa (aberto ou fechado) vale a cada render; com busca, os grupos com resultado abrem (escolha guardada à parte).
  const busca=!!String(gestaoUI.pendBusca||'').trim(),abre=l=>typeof cardAttrs==='function'?' '+cardAttrs(`Fila de conferência${busca?' · busca':''} · ${String(l).split('/')[0]}`,busca):busca?' open':'';
  const ano=gestaoAnoDaTela(),meses=gestaoMesesDoAno(ano).map(l=>({l,reg:state.records.find(r=>r.label===l)||null})).filter(x=>x.reg);
- const todas=meses.flatMap(x=>x.reg.pendencias||[]),tipos=[...new Set(todas.map(p=>p.tipo||'Sem tipo'))];
- const grupos=meses.map(x=>({...x,rows:pendFiltra(x.reg.pendencias||[])})).filter(x=>x.rows.length),n=grupos.reduce((t,x)=>t+x.rows.length,0);
+ const todas=meses.flatMap(x=>pendenciasAbertas(x.reg)),tipos=[...new Set(todas.map(p=>p.tipo||'Sem tipo'))];
+ const grupos=meses.map(x=>({...x,rows:pendFiltra(pendenciasAbertas(x.reg))})).filter(x=>x.rows.length),n=grupos.reduce((t,x)=>t+x.rows.length,0);
  const corpo=!todas.length?`<p class="hint">${esc(`Nenhuma pendência a conferir em ${ano}.`)}</p>`
   :`<p class="hint">${n} pendência(s) a conferir em ${esc(ano)}. A mesma movimentação pode aparecer em mais de um alerta; os valores não são somados como perda. Resolver uma ação não reclassifica o ERP.</p>${grupos.map(x=>`<details class="conf-ano-mes"${abre(x.l)}><summary>${esc(x.l)} · ${x.rows.length} pendência(s) a conferir</summary>${x.rows.slice(0,20).map(p=>pendLinha(x.reg,p)).join('')}${x.rows.length>20?`<button type="button" data-period="${esc(x.l)}">Ver todas de ${esc(x.l)} →</button>`:''}</details>`).join('')||'<p>Nenhuma pendência a conferir neste filtro. Isso não comprova conciliação.</p>'}`;
  const acoes=Object.entries(state.cfg.gestao||{}).filter(([k])=>meses.some(x=>k.startsWith('acao:'+safeId(x.l)+':')));
@@ -193,7 +193,7 @@ function painelPendenciasAno(){
 }
 function painelPendencias(reg){
  if(gestaoNoAno())return painelPendenciasAno();
- const todas=reg?.pendencias||[],tipos=[...new Set(todas.map(p=>p.tipo||'Sem tipo'))];
+ const todas=pendenciasAbertas(reg),tipos=[...new Set(todas.map(p=>p.tipo||'Sem tipo'))];
  const rows=pendFiltra(todas);
  const pagina=Math.min(gestaoUI.pendPagina,Math.max(0,Math.ceil(rows.length/20)-1));
  return card('Fila de conferência',`${pendFiltros(tipos,true)}<p class="hint">${rows.length} pendência(s) a conferir. A mesma movimentação pode aparecer em mais de um alerta; os valores não são somados como perda. Resolver uma ação não reclassifica o ERP.</p>${rows.slice(pagina*20,pagina*20+20).map(p=>pendLinha(reg,p)).join('')||'<p>Nenhuma pendência a conferir neste filtro. Isso não comprova conciliação.</p>'}<div class="management-chips"><button data-pend-page="${pagina-1}" ${pagina===0?'disabled':''}>Anterior</button><span>${pagina+1} / ${Math.max(1,Math.ceil(rows.length/20))}</span><button data-pend-page="${pagina+1}" ${(pagina+1)*20>=rows.length?'disabled':''}>Próxima</button></div><details><summary>Ações e decisões registradas</summary>${Object.entries(state.cfg.gestao||{}).filter(([k])=>k.startsWith('acao:'+safeId(state.periodo)+':')).map(([k,v])=>`<button class="action-line" data-acao-key="${esc(k)}">${esc(v.titulo)} · ${esc(v.situacao)} · ${esc(v.responsavel||'Sem responsável')} · ${esc(v.prazo||'Sem prazo')}</button>`).join('')||'<p>Nenhuma ação registrada.</p>'}</details>`);

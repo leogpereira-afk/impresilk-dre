@@ -214,6 +214,7 @@ const PT_MES = { jan: 0, fev: 1, mar: 2, abr: 3, mai: 4, jun: 5, jul: 6, ago: 7,
 // Pendências não são descartadas por falhas: exigem resolução explícita.
 
 // id de blob estável e seguro a partir do rótulo do mês ("Jun/2026" -> "Jun_2026")
+function pendenciasAbertas(reg){return (reg?.pendencias||[]).filter(p=>state.cfg?.gestao?.['acao:'+safeId(reg.label)+':'+encodeURIComponent([p.tipo,p.conta,p.texto,p.tituloId,p.pagamentoId].join('|'))]?.situacao!=='Resolvida');}
 function safeId(label) { return String(label).trim().replace(/[^\w]+/g, '_'); }
 // chave de ordenação cronológica a partir do rótulo pt-BR ("Jun/2026" ou "06/2026")
 function monthSortKey(label) {
@@ -656,7 +657,7 @@ function contextoMovimento(reg){
  return `<div class="contexto-movimento" aria-label="Resumo do movimento"><span>${esc(telaNoAno()?rotuloAno(anoDaTela()):state.periodo)} · Caixa</span>${[['Entradas',e,'entradas'],['Saídas',s,'saidas'],['Variação',v,'variacao']].map(([t,n,id])=>`<span>${t} <b class="${tomDoValor(id,n)}">${n==null?'Não apurado':esc(money(n))}</b></span>`).join('')}<small>Variação não é lucro nem saldo bancário.</small></div>`;
 }
 function acoesDashboard(reg){
- const n=telaNoAno()?mesesAteFimDoAno(anoDaTela()).reduce((s,l)=>s+(regDoMes(l)?.pendencias?.length||0),0):(reg?.pendencias?.length||0);
+ const n=telaNoAno()?mesesAteFimDoAno(anoDaTela()).reduce((s,l)=>s+pendenciasAbertas(regDoMes(l)).length,0):pendenciasAbertas(reg).length;
  return `<nav class="dashboard-actions" aria-label="Próximos passos"><button data-go="conferencia"><b>${n} pendência${n===1?'':'s'} a conferir</b><span>Conferência e qualidade →</span></button><button data-go="cfo"><b>Investigar os números</b><span>Análise CFO →</span></button><button data-go="caixa"><b>Planejar o caixa</b><span>Histórico e próximas 13 semanas →</span></button></nav>`;
 }
 function periodoOptions(){
@@ -748,7 +749,7 @@ function renderInicio(reg,q){
  h+=resumoMovimento(reg)+comparativoMovimento(reg);
  h+=`<div class="dashboard-grid">${typeof evolucaoCompacta==='function'?evolucaoCompacta():graficoEvolucao()}${painelGrafico('Para onde foi o dinheiro',state.periodo+' · principais grupos de saídas',rankingCustos(reg),'<button data-go="custos" class="text-button">Ver todas →</button>',['Caixa','Valores em R$'])}</div>`;
  h+=acoesDashboard(reg)+card('Variações e orçamento',resumoGestao(reg),false);
- h+=card('Conferência e próximos passos',`<div class="review-grid"><div><span class="label">Cobertura da base</span><b>${esc(q.rotulo)}</b></div><div><span class="label">Pendências a conferir</span><b><button type="button" class="text-button" data-go="conferencia" aria-label="${(reg?.pendencias||[]).length} pendência(s) a conferir: abrir a Conferência">${(reg?.pendencias||[]).length}</button></b></div><div><span class="label"><button type="button" class="text-button" data-go="dfc">Saldo no fim do mês (Fluxo de caixa)</button></span><b>${saldoFimDoMes(reg)}</b></div></div><div class="actions"><button data-go="conferencia">Conferir dados →</button><button data-go="caixa">Planejar o caixa →</button></div>`,false);
+ h+=card('Conferência e próximos passos',`<div class="review-grid"><div><span class="label">Cobertura da base</span><b>${esc(q.rotulo)}</b></div><div><span class="label">Pendências a conferir</span><b><button type="button" class="text-button" data-go="conferencia" aria-label="${pendenciasAbertas(reg).length} pendência(s) a conferir: abrir a Conferência">${pendenciasAbertas(reg).length}</button></b></div><div><span class="label"><button type="button" class="text-button" data-go="dfc">Saldo no fim do mês (Fluxo de caixa)</button></span><b>${saldoFimDoMes(reg)}</b></div></div><div class="actions"><button data-go="conferencia">Conferir dados →</button><button data-go="caixa">Planejar o caixa →</button></div>`,false);
  // Comparativos anuais no fim: o mês vem antes da leitura de vários anos.
  h+=(typeof renderComparativos==='function'?card('Comparativos entre anos',renderComparativos(),false):'');
  return h;
@@ -811,7 +812,7 @@ function conferenciaRodape(dup){let h='';
  if(dup.length)h+=card('Períodos com mais de um registro',`<p>${dup.length} registro(s) representam períodos repetidos. Foram preservados. A exclusão exige revisão da origem e do conteúdo.</p>`);
  return h;
 }
-function renderConferencia(reg,q){if(telaNoAno())return renderConferenciaAno(reg,q);const p=reg?.pendencias||[],dup=dedupePeriods(state.records).dropped;let h=faixaCobertura()+card('Saúde da informação',`<div class="fatos">${fato('Cobertura do período',q.rotulo)}${fato('Última coleta ou registro',dataBR(q.coletadoEm))}${fato('Conciliação bancária',reg?.qualidade?.conciliado?'Registrada':'Não comprovada')}${fato('Edições locais pendentes',String(getQueue().length))}</div>`+`<p class="hint">O botão “Atualizar Mubisys” solicita a coleta do mês atual e do anterior. Acompanhe a execução no aviso acima. “Ler base salva”, em Sistemas e configurações, apenas relê a nuvem.</p>`);
+function renderConferencia(reg,q){if(telaNoAno())return renderConferenciaAno(reg,q);const p=pendenciasAbertas(reg),dup=dedupePeriods(state.records).dropped;let h=faixaCobertura()+card('Saúde da informação',`<div class="fatos">${fato('Cobertura do período',q.rotulo)}${fato('Última coleta ou registro',dataBR(q.coletadoEm))}${fato('Conciliação bancária',reg?.qualidade?.conciliado?'Registrada':'Não comprovada')}${fato('Edições locais pendentes',String(getQueue().length))}</div>`+`<p class="hint">O botão “Atualizar Mubisys” solicita a coleta do mês atual e do anterior. Acompanhe a execução no aviso acima. “Ler base salva”, em Sistemas e configurações, apenas relê a nuvem.</p>`);
 // Fechamento do mês escolhido (Fase 11.4, fechamento.js).
  h+=typeof renderFechamento==='function'?renderFechamento():'';
  h+=typeof painelPendencias==='function'?painelPendencias(reg):'';
@@ -837,7 +838,7 @@ function renderInicioAno(reg,q){
  h+=resumoMovimento(reg)+comparativoMovimento(reg);
  h+=`<div class="dashboard-grid">${typeof evolucaoCompacta==='function'?evolucaoCompacta():graficoEvolucao()}${painelGrafico('Para onde foi o dinheiro',`${rotuloAno(ano)} · principais grupos de saídas`,ra.disponivel?rankingCustos(ra.reg):`<p class="empty">${esc(ra.motivo)}</p>`,'<button data-go="custos" class="text-button">Ver todas →</button>',['Caixa','Valores em R$'])}</div>`;
  h+=acoesDashboard(reg)+card('Variações e orçamento',resumoGestao(reg),false);
- const completos=regs.filter((r,i)=>mesCompleto(r,meses[i])).length,pend=regs.reduce((n,r)=>n+(r?.pendencias||[]).length,0);
+ const completos=regs.filter((r,i)=>mesCompleto(r,meses[i])).length,pend=regs.reduce((n,r)=>n+pendenciasAbertas(r).length,0);
  h+=card('Conferência e próximos passos',`<div class="review-grid"><div><span class="label">Cobertura da base</span><b>${completos} de ${meses.length} ${meses.length===1?'mês coletado':'meses coletados'} até o último dia</b></div><div><span class="label">Pendências a conferir</span><b><button type="button" class="text-button" data-go="conferencia" aria-label="${pend} pendência(s) a conferir em ${esc(ano)}: abrir a Conferência">${pend}</button></b></div><div><span class="label"><button type="button" class="text-button" data-go="dfc">Saldo no fim de ${esc(fim)} (Fluxo de caixa)</button></span><b>${saldoFimDoMes(regDoMes(fim))}</b></div></div><div class="actions"><button data-go="conferencia">Conferir dados →</button><button data-go="caixa">Planejar o caixa →</button></div>`,false);
  h+=(typeof renderComparativos==='function'?card('Comparativos entre anos',renderComparativos(),false):'');
  return h;
@@ -874,7 +875,7 @@ function renderResultadoAno(reg){
 }
 function renderConferenciaAno(reg,q){
  const ano=anoDaTela(),meses=mesesAteFimDoAno(ano),dup=dedupePeriods(state.records).dropped;
- const linhas=meses.map(l=>{const r=regDoMes(l),qq=F.qualidade(r);return `<tr><th scope="row"><button type="button" class="text-button" data-period="${esc(l)}" aria-label="Abrir ${esc(l)}${qq.parcial?' (mês em andamento ou incompleto)':''}">${esc(l)}${qq.parcial?' *':''}</button></th><td>${esc(r?qq.rotulo:'Sem dados')}</td><td>${esc(r?dataBR(qq.coletadoEm):'—')}</td><td>${r?(r.qualidade?.conciliado?'Registrada':'Não comprovada'):'—'}</td><td class="num">${r?(r.pendencias||[]).length:'—'}</td></tr>`;}).join('');
+ const linhas=meses.map(l=>{const r=regDoMes(l),qq=F.qualidade(r);return `<tr><th scope="row"><button type="button" class="text-button" data-period="${esc(l)}" aria-label="Abrir ${esc(l)}${qq.parcial?' (mês em andamento ou incompleto)':''}">${esc(l)}${qq.parcial?' *':''}</button></th><td>${esc(r?qq.rotulo:'Sem dados')}</td><td>${esc(r?dataBR(qq.coletadoEm):'—')}</td><td>${r?(r.qualidade?.conciliado?'Registrada':'Não comprovada'):'—'}</td><td class="num">${r?pendenciasAbertas(r).length:'—'}</td></tr>`;}).join('');
  let h=faixaCobertura()+card(`Saúde da informação · ${ano}`,`<div class="table-scroll"><table class="tabela-controle tabela-ano"><thead><tr><th scope="col">Mês</th><th scope="col">Cobertura</th><th scope="col">Última coleta</th><th scope="col">Conciliação bancária</th><th scope="col" class="num">Pendências a conferir</th></tr></thead><tbody>${linhas}</tbody></table></div><div class="fatos">${fato('Edições locais pendentes',String(getQueue().length))}</div><p class="hint">* mês em andamento ou incompleto. O botão “Atualizar Mubisys” solicita a coleta do mês atual e do anterior. Acompanhe a execução no aviso acima. “Ler base salva”, em Sistemas e configurações, apenas relê a nuvem.</p>`);
  h+=typeof renderFechamento==='function'?renderFechamento():'';
  h+=typeof painelPendencias==='function'?painelPendencias(reg):'';

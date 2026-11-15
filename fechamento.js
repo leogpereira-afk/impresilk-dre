@@ -25,7 +25,7 @@ function fechConferir(label){
  add('coleta','Mês coletado até o último dia',acabou&&!q.parcial,!acabou?'O mês ainda não acabou.':q.parcial?`Coletado só até ${fechData(q.coletadoAte)||'uma data não registrada'}: atualize o Mubisys de ${label}.`:`Coletado até ${fechData(q.coletadoAte||per.ate)}.`);
  const a=typeof DRESimples!=='undefined'?DRESimples.apurar(reg):null;
  add('caixa','DRE fecha com o caixa do ERP',a&&Math.abs(a.diferenca)<.01,!a?'Sem contas válidas para apurar a DRE.':Math.abs(a.diferenca)<.01?`Entradas menos saídas = ${money(a.caixa)}, igual à soma das linhas.`:`As linhas ficam ${money(Math.abs(a.diferenca))} ${a.diferenca>0?'acima':'abaixo'} do caixa do ERP: confira no Plano de contas.`);
- const conf=a?.conferir?.length||0,pend=(reg.pendencias||[]).length,osf=(reg.previaERP?.diagOS?.osFaltando||[]).length;
+ const conf=a?.conferir?.length||0,pend=pendenciasAbertas(reg).length,osf=(reg.previaERP?.diagOS?.osFaltando||[]).length;
  add('classificacao','Contas e pendências conferidas',!conf&&!pend&&!osf,!conf&&!pend&&!osf?'Nada a conferir.':[conf?`${conf} conta(s) a conferir na DRE`:'',pend?`${pend} pendência(s) a conferir na Fila de conferência`:'',osf?`${osf} O.S. não lida(s) na coleta`:''].filter(Boolean).join('; ')+'.');
  const prox=typeof dfcMesDesloca==='function'?dfcMesDesloca(label,1):null,inf=prox&&typeof dfcSaldoInformado==='function'?dfcSaldoInformado(prox):null,s=prox&&typeof dfcSaldos==='function'?dfcSaldos().get(monthSortKey(prox)):null;
  const saldoInformado=Number.isFinite(inf),saldoCalculado=Number.isFinite(s?.calculado),saldoDif=saldoInformado&&saldoCalculado?(Math.round(inf*100)-Math.round(s.calculado*100))/100:null;

@@ -305,3 +305,11 @@ test('Fila de conferência no Ano: o grupo aberto continua aberto a cada render;
  c.run("gestaoUI.pendBusca='Pendência 0'");assert.deepEqual(abertos(),[['Mar/2026',true],['Jul/2026',true]]);
  c.run("gestaoUI.pendBusca=''");assert.deepEqual(abertos(),[['Mar/2026',true],['Jul/2026',false]]);
 });
+
+test('resolução sai da fila e contador, preserva origem e histórico e permite reabrir',()=>{
+ const c=context();c.run(`state.records=[{label:'Fev/2026',pendencias:[{tipo:'teste',conta:'',texto:'Caso exemplo',valor:10}]}];state.cfg.gestao={};var reg=state.records[0];var key=chavePendencia(reg,reg.pendencias[0]);state.cfg.gestao[key]={titulo:'Caso exemplo',situacao:'Resolvida'};`);
+ assert.equal(c.run('pendenciasAbertas(reg).length'),0);
+ assert.equal(c.run('reg.pendencias.length'),1);
+ const html=c.run('painelPendencias(reg)');assert.match(html,/0 pendência/);assert.match(html,/Caso exemplo · Resolvida/);assert.doesNotMatch(html,/class="review-row"/);
+ c.run("state.cfg.gestao[key].situacao='Em análise'");assert.equal(c.run('pendenciasAbertas(reg).length'),1);
+});

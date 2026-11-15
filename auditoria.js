@@ -38,7 +38,7 @@ const audFaixas=labels=>audTrechos(labels).map(x=>x.texto);
 // mesmo que a quantidade de meses e o maior timestamp permaneçam iguais.
 const audAssinatura=()=>JSON.stringify({modelo:2,
  hoje:typeof dfcHoje==='function'?dfcHoje():new Date().toISOString().slice(0,10),
- registros:state.records.map(r=>({id:r.id,label:r.label,company:r.company,basis:r.basis,origem:r.origem,atualizadoEm:r.atualizadoEm,coletadoEm:r.previaERP?.geradoEm,qualidade:r.qualidade,cells:r.cells,pendencias:r.pendencias,temTrilha:Array.isArray(r.eventos)&&r.eventos.length>0,osFaltando:r.previaERP?.diagOS?.osFaltando})),
+ registros:state.records.map(r=>({id:r.id,label:r.label,company:r.company,basis:r.basis,origem:r.origem,atualizadoEm:r.atualizadoEm,coletadoEm:r.previaERP?.geradoEm,qualidade:r.qualidade,cells:r.cells,pendencias:pendenciasAbertas(r),temTrilha:Array.isArray(r.eventos)&&r.eventos.length>0,osFaltando:r.previaERP?.diagOS?.osFaltando})),
  cfg:state.cfg,cfgVersion:state.cfgVersion||null,
  posicoes:typeof giroUI!=='undefined'?giroUI.dados?.historico||null:null
 });
