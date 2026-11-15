@@ -579,9 +579,10 @@ def processar(ini, meses_servidor=None):
     if abs(valores.get("1",0)-rec_total) > .011 or abs(valores.get("2",0)-desp_total) > .011:
         raise RuntimeError("Os totais de controle não fecham; nada foi gravado.")
     from erp_permutas import separar
-    registro["permutas"] = separar(pagar, receber, si, sf)
+    confirmacoes_permutas=cfg_atual.get("regras",{}).get("permutas",{}).get("confirmacoesDinheiro",[])
+    registro["permutas"] = separar(pagar, receber, si, sf,confirmacoes_permutas)
     from erp_permutas_detalhes import detalhar
-    registro["permutasDetalhes"] = detalhar(pagar, receber, si, sf)
+    registro["permutasDetalhes"] = detalhar(pagar, receber, si, sf,confirmacoes_permutas)
     registro["permutasDetalhes"]["totaisConferemDRE"] = True
     if os.environ.get("DRE_SEM_TRILHA") == "1":
         sem_trilha(registro)

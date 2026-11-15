@@ -3,7 +3,7 @@ import datetime,copy,os,uuid,json,unicodedata
 import erp_previa as E
 
 def forma(pg,titulo):
-    v=pg.get('forma_pagamento')
+    v=pg.get('_forma_confirmada',pg.get('forma_pagamento'))
     if v is None:v=titulo.get('forma_pagamento')
     if isinstance(v,dict):v=v.get('nome') or v.get('descricao')
     return v.strip() if isinstance(v,str) and v.strip() else None
@@ -11,7 +11,9 @@ def forma(pg,titulo):
 def normal(s):
     return unicodedata.normalize('NFD',str(s or '')).encode('ascii','ignore').decode().strip().casefold()
 
-def separar(pagar,receber,ini,fim):
+def separar(pagar,receber,ini,fim,confirmacoes=()):
+    from erp_permutas_confirmacoes import aplicar
+    pagar,receber,confirmadas=aplicar(pagar,receber,ini,fim,confirmacoes)
     p={'versao':2,'mistosEntradas':0,'mistosSaidas':0,'mistosQuantidade':0,'conferido':True,'fonte':'Mubisys · forma de pagamento Permuta','entradas':0,'saidas':0,'totalEntradas':0,'totalSaidas':0,'naoIdentificados':0,'coletadoEm':datetime.datetime.now(datetime.timezone.utc).isoformat()}
     for itens,side,total in [(receber,'entradas','totalEntradas'),(pagar,'saidas','totalSaidas')]:
         for t in itens:
@@ -29,9 +31,13 @@ def separar(pagar,receber,ini,fim):
                 elif f is None and v:p['naoIdentificados']+=1
     for k in ['entradas','saidas','totalEntradas','totalSaidas','mistosEntradas','mistosSaidas']:p[k]/=100
     p['conferido']=p['naoIdentificados']==0 and p['mistosQuantidade']==0
+    if confirmadas:
+        p['confirmacoesDinheiro']=confirmadas
+        p['fonte']+=' + confirmações do responsável'
     return p
 
 def main():
+    regras=E.call('dre-sync',{'action':'getCfg'}).get('cfg',{}).get('regras',{}).get('permutas',{}).get('confirmacoesDinheiro',[])
     rs=E.listar_meses();rs.sort(key=lambda r: (int(r['label'].split('/')[1]),E.PT.index(r['label'].split('/')[0])),reverse=True)
     limit=os.environ.get('DRE_MES','');done=unknown=divergent=0
     for r in rs:
@@ -42,7 +48,7 @@ def main():
         fim=min((ini+datetime.timedelta(days=32)).replace(day=1)-datetime.timedelta(days=1),datetime.date.today())
         pagar=E.coletar('contas-pagar',ini,fim);receber=E.coletar('contas-receber',ini,fim)
         pagar=[t for t in pagar if str(t.get('compoe_dre','')).lower()=='sim'];receber=[t for t in receber if str(t.get('compoe_dre','')).lower()=='sim']
-        p=separar(pagar,receber,ini.isoformat(),fim.isoformat());cells={c['code']:c['value'] for c in r['cells']}
+        p=separar(pagar,receber,ini.isoformat(),fim.isoformat(),regras);cells={c['code']:c['value'] for c in r['cells']}
         if any(round(p[k]*100)!=round(cells[c]*100) for k,c in [('totalEntradas','1'),('totalSaidas','2')]):
             divergent+=1;print(r['label']+': totais da origem mudaram; preservado.',flush=True);continue
         if not p['conferido']:unknown+=1
