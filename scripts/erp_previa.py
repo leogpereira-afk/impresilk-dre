@@ -226,8 +226,8 @@ def coletar(recurso, ini, fim):
     vistos = {}
 
     def buscar(a, b, nivel=0):
-        r, vazios = None, 0
-        for tentativa in range(3):
+        r, vazios, limites, tentativa = None, 0, 0, 0
+        for rodada in range(12):
             try:
                 r = call("dre-financas", {
                     "action": "listar", "recurso": recurso, "status": "PAGO",
@@ -246,13 +246,25 @@ def coletar(recurso, ini, fim):
             completa = r.get("ok") is True and not r.get("parcial") and isinstance(r.get("itens"), list)
             if completa:
                 break
+            if diag.get("http") == 429:
+                limites += 1
+                vazios, tentativa = 0, 0
+                if limites > 3:
+                    break
+                print(f"  limite de requisições; aguardando {60 * limites}s antes de confirmar a janela", flush=True)
+                time.sleep(60 * limites)
+                continue
             # O 404 também chega como resposta parcial do dre-financas (paginação): conta igual.
             if diag.get("motivo") == "http" and diag.get("http") == 404 and not (r.get("itens") or []):
                 vazios += 1
+            else:
+                vazios = 0
             nome_recurso = recurso if recurso in ("contas-pagar", "contas-receber") else "recurso financeiro"
             print(f"  {nome_recurso} · janela {a} → {b} · tentativa {tentativa + 1}/3 incompleta: {diag['texto']}", flush=True)
-            if tentativa < 2:
-                time.sleep(60 * (tentativa + 1) if diag.get("http") == 429 else 5 * (tentativa + 1))
+            if tentativa >= 2:
+                break
+            time.sleep(5 * (tentativa + 1))
+            tentativa += 1
         # Regra da casa: só é vazio quando três 404 seguidos concordam.
         if vazios == 3:
             print(f"  janela {a} → {b}: três 404 seguidos do Mubisys, sem pagamentos", flush=True)
