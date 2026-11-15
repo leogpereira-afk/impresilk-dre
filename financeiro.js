@@ -41,7 +41,7 @@ var DREFinancas = (() => {
     const identificadas=!!p && typeof p.fonte==='string' && p.fonte.trim() &&
       valido(p.entradas)&&valido(p.saidas)&&entradas!==null&&saidas!==null &&
       p.totalEntradas===entradas&&p.totalSaidas===saidas;
-    const parcial=identificadas?{identificadas:true,entradasConhecidas:p.entradas,saidasConhecidas:p.saidas,mistosEntradas:p.mistosEntradas||0,mistosSaidas:p.mistosSaidas||0,entradasConfirmadas:p.entradasConfirmadas||0}:{};
+    const parcial=identificadas?{identificadas:true,naoIdentificados:p.naoIdentificados||0,mistosQuantidade:p.mistosQuantidade||0,entradasConhecidas:p.entradas,saidasConhecidas:p.saidas,mistosEntradas:p.mistosEntradas||0,mistosSaidas:p.mistosSaidas||0,entradasConfirmadas:p.entradasConfirmadas||0}:{};
     if(!identificadas||p.conferido!==true)return {...parcial,disponivel:false,entradas:null,saidas:null,efeito:null,variacaoSemPermuta:null};
     const efeito=reais(cents(p.entradas)-cents(p.saidas));
     return {...parcial,disponivel:true,entradas:p.entradas,saidas:p.saidas,efeito,
