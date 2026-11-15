@@ -42,6 +42,8 @@ def call(fn, payload, timeout=90, tentativas=4):
             ultimo = f"HTTP {e.code}: falha no serviço {fn}"
             # O dre-financas repassa o 404 do Mubisys ("nenhum registro", mas que também
             # pisca) como 502: não é estouro de tempo; quem decide é coletar (três 404).
+            if e.code == 502 and "Mubisys HTTP 429" in corpo:
+                raise MubisysLimite()
             if e.code == 502 and "Mubisys HTTP 404" in corpo:
                 raise Mubisys404()
             if e.code in (401, 403):
@@ -60,6 +62,9 @@ class JanelaGrande(Exception):
     def __init__(self, mensagem="Consulta incompleta", http=None):
         super().__init__(mensagem)
         self.http = http if type(http) is int and 100 <= http <= 599 else None
+
+class MubisysLimite(Exception):
+    """Limite do ERP: o cliente aguarda antes de retomar a mesma O.S."""
 
 class Mubisys404(Exception):
     """O Mubisys respondeu 404 (nenhum registro, ou o 404 que pisca em rota válida)."""
@@ -329,23 +334,36 @@ def buscar_os(recebimentos, orcamento_s=1500):
         if time.time() - inicio > orcamento_s:
             print(f"  orçamento de tempo estourou com {len(falta) - buscadas} OS pendentes")
             break
-        try:
-            r = call("dre-financas", {"action": "listar", "recurso": f"ordem-servico/numero/{n}"},
-                     timeout=60, tentativas=2)
-            if r.get("ok") and not r.get("parcial"):
-                itens = r.get("itens")
-                resposta = itens[0] if isinstance(itens, list) and len(itens) == 1 else None
-                if not isinstance(resposta, dict): raise ValueError("O.S. inválida")
-                cache[n] = {**resposta, "_dreConsultadoEm": time.time()}
+        concluida = False
+        for tentativa in range(4):
+            espera = 5 * (tentativa + 1)
+            try:
+                r = call("dre-financas", {"action": "listar", "recurso": f"ordem-servico/numero/{n}"},
+                         timeout=60, tentativas=2)
+                if r.get("ok") and not r.get("parcial"):
+                    itens = r.get("itens")
+                    resposta = itens[0] if isinstance(itens, list) and len(itens) == 1 else None
+                    if not isinstance(resposta, dict): raise ValueError("O.S. inválida")
+                    cache[n] = {**resposta, "_dreConsultadoEm": time.time()}
+                    concluida = True
+                    break
+                if (r.get("diagnostico") or {}).get("http") == 429:
+                    espera = 60 * (tentativa + 1)
+            except MubisysLimite:
+                espera = 60 * (tentativa + 1)
+            except Mubisys404:
+                espera = 31
+            except Exception:
+                pass
+            if tentativa < 3 and time.time() - inicio + espera < orcamento_s:
+                time.sleep(espera)
             else:
-
-                cache.pop(n, None)
-                falhou.append(n)
-        except Exception:
+                break
+        if not concluida:
             cache.pop(n, None)
             falhou.append(n)
         buscadas += 1
-        time.sleep(0.8)
+        time.sleep(2.5)
 
     if falhou:
         print(f"  {len(falhou)} OS falharam e NÃO entraram no cache (serão rebuscadas)")
